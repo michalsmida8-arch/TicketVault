@@ -1,0 +1,139 @@
+═══════════════════════════════════════════════════════════
+  TICKETVAULT - NÁVOD PRO MAC
+═══════════════════════════════════════════════════════════
+
+Mac aplikaci (.dmg nebo .app) musíš buildnout na zařízení,
+které má macOS. Nelze to udělat z Windows/Linuxu.
+
+Níže jsou 3 možnosti jak to vyřešit.
+
+───────────────────────────────────────────────────────────
+  MOŽNOST A: MÁŠ MAC - BUILD LOKÁLNĚ
+───────────────────────────────────────────────────────────
+
+  1. Instaluj Node.js:
+     - Jdi na https://nodejs.org/
+     - Stáhni LTS verzi (.pkg)
+     - Nainstaluj
+
+  2. Otevři Terminál (Launchpad → Jiné → Terminál)
+
+  3. Přejdi do složky s aplikací:
+     cd ~/Downloads/ticketvault
+
+  4. Nainstaluj závislosti:
+     npm install
+
+  5. Test - spustíš aplikaci:
+     npm start
+
+  6. Build DMG installer:
+     npm run build:mac
+
+  7. Po 2-5 minutách najdeš v dist/ složce:
+     • TicketVault-1.0.0-arm64.dmg      (Apple Silicon - M1/M2/M3)
+     • TicketVault-1.0.0-x64.dmg        (Intel Mac)
+     • TicketVault-1.0.0-arm64-mac.zip  (portable)
+     • TicketVault-1.0.0-x64-mac.zip    (portable)
+
+  8. Instalace:
+     - Dvojklik na .dmg soubor
+     - Přetáhni TicketVault do složky Applications
+     - Spust z Launchpadu
+
+───────────────────────────────────────────────────────────
+  ⚠ DŮLEŽITÉ: PRVNÍ SPUŠTĚNÍ NA MACU (unsigned app)
+───────────────────────────────────────────────────────────
+
+Aplikace není podepsaná Apple Developer certifikátem ($99/rok).
+Mac při prvním spuštění ukáže: "TicketVault nelze otevřít,
+protože je od neověřeného vývojáře."
+
+Postup jak to obejít:
+  1. PRAVÝ klik (Control+klik) na TicketVault v Applications
+  2. Vyber "Otevřít"
+  3. V dialogu znovu klikni "Otevřít"
+  4. Od teď se bude otevírat normálně
+
+ALTERNATIVA (přes Terminal):
+  xattr -cr /Applications/TicketVault.app
+
+───────────────────────────────────────────────────────────
+  MOŽNOST B: NEMÁŠ MAC - GITHUB ACTIONS (ZDARMA CLOUD BUILD)
+───────────────────────────────────────────────────────────
+
+GitHub ti umí buildnout Mac aplikaci na jejich serverech.
+Potřebuješ jen GitHub účet (zdarma).
+
+  1. Zaregistruj se na https://github.com
+
+  2. Vytvoř nový repozitář:
+     - New repository
+     - Name: ticketvault
+     - Private (aby to nikdo jiný neviděl)
+     - Create
+
+  3. Nahraj kód na GitHub:
+     Způsob 1 - přes GitHub Desktop:
+       - Stáhni https://desktop.github.com/
+       - "Add Local Repository" → vyber složku ticketvault
+       - "Publish repository"
+
+     Způsob 2 - přes příkazovou řádku:
+       cd ticketvault
+       git init
+       git add .
+       git commit -m "Initial commit"
+       git remote add origin https://github.com/TVUJ-USER/ticketvault.git
+       git push -u origin main
+
+  4. Spust build:
+     - Otevři GitHub ve webu
+     - Tvuj repo → Actions → Build TicketVault
+     - Run workflow (zelené tlačítko)
+
+  5. Po 5-10 minutách:
+     - V workflow se objeví "Artifacts" sekce
+     - Stáhni "TicketVault-Mac" ZIP
+     - V něm jsou .dmg soubory pro Intel i Apple Silicon Macy
+
+  6. Pro automatické releases:
+     git tag v1.0.1
+     git push --tags
+     → Actions automaticky vytvoří GitHub Release s oběma buildy
+
+───────────────────────────────────────────────────────────
+  MOŽNOST C: KAMARÁD MÁ MAC
+───────────────────────────────────────────────────────────
+
+  1. Pošli mu celou složku ticketvault (ZIP přes WeTransfer)
+  2. Kamarád udělá kroky 1-7 z Možnosti A
+  3. Pošle ti .dmg soubor zpět
+
+───────────────────────────────────────────────────────────
+  ROZDÍL MEZI ARCH: x64 vs arm64
+───────────────────────────────────────────────────────────
+
+  x64 (Intel)       - Macy koupené PŘED 2020 (Intel procesor)
+  arm64 (Apple)     - Macy od roku 2020 (M1, M2, M3, M4 chip)
+
+  Jak zjistit jaký máš Mac:
+  Menu Apple (🍎) → About This Mac → "Chip" nebo "Processor"
+    • "Apple M1/M2/M3/M4" → arm64
+    • "Intel Core i5/i7/i9" → x64
+
+  Pokud nevíš co má cílový uživatel, pošli oba DMG.
+
+───────────────────────────────────────────────────────────
+  DATA MEZI MAC A WINDOWS
+───────────────────────────────────────────────────────────
+
+  Cloud sync (Netlify) funguje stejně na všech platformách.
+  Pokud používáš cloud režim, data se automaticky sdílejí
+  mezi Mac, Windows i dalšími instalacemi.
+
+  Lokální databáze se ukládá do:
+    Mac:     ~/Library/Application Support/ticketvault/
+    Windows: %APPDATA%\ticketvault\
+
+═══════════════════════════════════════════════════════════

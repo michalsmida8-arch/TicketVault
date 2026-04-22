@@ -1,0 +1,118 @@
+═══════════════════════════════════════════════════════════
+  TICKETVAULT - RYCHLÝ NÁVOD K INSTALACI
+═══════════════════════════════════════════════════════════
+
+  Aplikace pro správu vstupenek pro přeprodej, podobná
+  TicketVault v ukázce. Běží lokálně na tvém Windows PC.
+
+───────────────────────────────────────────────────────────
+  KROK 1: NAINSTALUJ NODE.JS (pokud ještě nemáš)
+───────────────────────────────────────────────────────────
+
+  1. Jdi na: https://nodejs.org/
+  2. Stáhni LTS verzi (doporučeno, např. 20.x nebo 22.x)
+  3. Spusť installer, nech všechno default
+  4. Ověř že funguje - otevři CMD a napiš:
+     node --version
+     npm --version
+
+───────────────────────────────────────────────────────────
+  KROK 2: PŘÍPRAVA APLIKACE
+───────────────────────────────────────────────────────────
+
+  1. Rozbal celý obsah archivu "ticketvault.zip" kamkoliv
+     (např. C:\TicketVault)
+
+  2. Otevři CMD / PowerShell v této složce:
+     - Shift + pravé tlačítko v Průzkumníku
+     - Vyber "Otevřít v PowerShellu"
+
+  3. Spusť instalaci závislostí:
+     npm install
+
+     (tohle potrvá cca 2-5 minut, stáhne se Electron atd.)
+
+───────────────────────────────────────────────────────────
+  KROK 3: SPUSTIT APLIKACI (RYCHLÉ TESTOVÁNÍ)
+───────────────────────────────────────────────────────────
+
+  Pro okamžité spuštění bez instalace:
+     npm start
+
+───────────────────────────────────────────────────────────
+  KROK 4: VYTVOŘIT WINDOWS INSTALLER (.EXE)
+───────────────────────────────────────────────────────────
+
+  Pro vytvoření "normálního" Windows installeru:
+     npm run build:win
+
+  Výsledek najdeš ve složce "dist\":
+    • TicketVault-Setup-1.0.0.exe    (standardní installer)
+    • TicketVault-Portable-1.0.0.exe (portable, nevyžaduje
+                                      instalaci, jen spustit)
+
+  Tento .exe soubor můžeš:
+    ✓ Nainstalovat na svůj PC
+    ✓ Poslat kamarádovi, aby si ho nainstaloval taky
+
+───────────────────────────────────────────────────────────
+  KROK 5: SDÍLENÍ DATABÁZE S KAMARÁDEM
+───────────────────────────────────────────────────────────
+
+  Pro sdílení dat s kamarádem potřebujete sdílenou složku
+  v cloudu (OneDrive, Dropbox, Google Drive):
+
+  1. Vytvoř ve sdíleném cloudu složku, např.:
+     C:\Users\Tvoje\OneDrive\TicketVault\
+
+  2. Nasdílej tuto složku kamarádovi (v OneDrive: "Sdílet")
+
+  3. V aplikaci klikni na "Nastavení" → "Změnit umístění"
+
+  4. Vyber tuto složku a zadej jméno souboru:
+     ticketvault-db.json
+
+  5. Tvůj kamarád si v aplikaci taky nastaví cestu
+     na STEJNÝ soubor (ale na svém disku, který se
+     synchronizuje s OneDrive)
+
+  6. Při změnách klikněte na "Synchronizovat" — načte
+     se nejnovější verze od druhého
+
+  ⚠️ POZOR: Pokud oba editují současně, jeden přepíše
+     druhého. Doporučuji si domluvit, kdo edituje.
+
+───────────────────────────────────────────────────────────
+  OFFLINE ZÁLOHY
+───────────────────────────────────────────────────────────
+
+  Aplikace automaticky tvoří ".backup" kopii při každém
+  uložení. Navíc můžeš kdykoliv exportovat celou databázi:
+
+  Nastavení → "Exportovat zálohu (JSON)"
+
+  Zálohu pak můžeš:
+    • Uložit na externí disk
+    • Poslat kamarádovi e-mailem
+    • Obnovit přes "Importovat zálohu"
+
+───────────────────────────────────────────────────────────
+  PROBLÉMY?
+───────────────────────────────────────────────────────────
+
+  "npm není rozpoznán jako příkaz"
+    → Node.js není nainstalovaný, nebo je potřeba
+      restartovat CMD po instalaci
+
+  "electron-builder nemůže najít soubor"
+    → Spusť nejdřív "npm install"
+
+  "Build selhal s chybou symlinks"
+    → Spusť PowerShell jako Administrator
+    → Nebo povol Developer Mode ve Windows nastavení
+
+  Aplikace se spustí ale ukazuje prázdnou obrazovku?
+    → Zmáčkni Ctrl+Shift+I pro dev tools a zkontroluj
+      konzoli. Zkus "npm run dev" pro spuštění v dev módu.
+
+═══════════════════════════════════════════════════════════

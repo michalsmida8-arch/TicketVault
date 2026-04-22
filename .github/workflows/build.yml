@@ -1,0 +1,72 @@
+name: Build TicketVault
+
+# Spusti se rucne z GitHub UI nebo pri pushu tagu
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # BUILD PRO WINDOWS (na Windows runneru)
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TicketVault-Windows
+          path: |
+            dist/*.exe
+            dist/*.msi
+          retention-days: 30
+
+  # BUILD PRO MAC (na MacOS runneru - zdarma)
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build Mac app (Intel + Apple Silicon)
+        run: npm run build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TicketVault-Mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 30
+
+  # Pokud pushnes tag v1.0.0, vytvori GitHub Release s oba buildy
+  release:
+    needs: [build-windows, build-mac]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: TicketVault-Windows
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: TicketVault-Mac
+          path: release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

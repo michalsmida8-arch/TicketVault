@@ -1,0 +1,1781 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:;">
+  <title>TicketVault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Inline theme bootstrap — runs before CSS/body render to avoid flash.
+    // Supported values: 'dark' (default), 'light', 'auto' (follow system).
+    (function() {
+      var saved = localStorage.getItem('theme') || 'dark';
+      var theme = saved;
+      if (saved === 'auto') {
+        theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+</head>
+<body>
+  <!-- Auth overlay — covers the entire app until user is authenticated.
+       Contains three screens: register (create account), login, recover (admin
+       password reset via 6-digit recovery code). The backend URL is exposed
+       on the login screen as an editable field so users installing on a new
+       device can point at the right backend. Invite code is required for
+       registration to prevent random signups on a public URL. -->
+  <div id="authOverlay" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <img src="../assets/icon-64.png" alt="TicketVault" class="auth-logo-img theme-logo-dark">
+        <img src="../assets/icon-light-64.png" alt="TicketVault" class="auth-logo-img theme-logo-light">
+        <div class="auth-brand">TicketVault</div>
+      </div>
+
+      <!-- Tabs (login vs register) — simple toggle, shown on both screens -->
+      <div class="auth-tabs" id="authTabs">
+        <button type="button" class="auth-tab active" data-auth-tab="login">Přihlásit</button>
+        <button type="button" class="auth-tab" data-auth-tab="register">Zaregistrovat</button>
+      </div>
+
+      <!-- SCREEN: Login -->
+      <div id="authScreenLogin" class="auth-screen" style="display:none">
+        <h2 class="auth-title">Vítej zpátky</h2>
+        <p class="auth-sub">Přihlas se svým TicketVault účtem.</p>
+        <div class="auth-form">
+          <label>Backend URL</label>
+          <input type="text" id="authLoginApiUrl" spellcheck="false" autocomplete="off" placeholder="https://...">
+          <label>Uživatelské jméno</label>
+          <input type="text" id="authLoginUsername" autocomplete="username" spellcheck="false" placeholder="tvoje_jmeno">
+          <label>Heslo</label>
+          <input type="password" id="authLoginPassword" autocomplete="current-password" placeholder="••••••••">
+          <div class="auth-error" id="authLoginError"></div>
+          <button class="btn btn-primary auth-submit" id="btnAuthLogin">Přihlásit se</button>
+          <button class="auth-link" id="btnAuthForgot" type="button">Zapomněl jsem heslo (admin)</button>
+        </div>
+      </div>
+
+      <!-- SCREEN: Register -->
+      <div id="authScreenRegister" class="auth-screen" style="display:none">
+        <h2 class="auth-title">Vytvoř si účet</h2>
+        <p class="auth-sub">První registrovaný se stane <strong>adminem</strong> a zdědí stávající data. Další uživatelé potřebují <strong>invite code</strong> od admina.</p>
+        <div class="auth-form">
+          <label>Backend URL</label>
+          <input type="text" id="authRegApiUrl" spellcheck="false" autocomplete="off" placeholder="https://...">
+          <label>Invite code</label>
+          <input type="text" id="authRegInvite" spellcheck="false" autocomplete="off" placeholder="Získáš od admina">
+          <label>Uživatelské jméno</label>
+          <input type="text" id="authRegUsername" autocomplete="username" spellcheck="false" placeholder="vyber si jméno">
+          <label>Heslo</label>
+          <input type="password" id="authRegPassword" autocomplete="new-password" placeholder="min. 6 znaků">
+          <label>Zopakuj heslo</label>
+          <input type="password" id="authRegPassword2" autocomplete="new-password" placeholder="••••••••">
+          <div class="auth-error" id="authRegError"></div>
+          <button class="btn btn-primary auth-submit" id="btnAuthRegister">Vytvořit účet</button>
+        </div>
+      </div>
+
+      <!-- SCREEN: Recover (admin only — uses 6-digit recovery code) -->
+      <div id="authScreenRecover" class="auth-screen" style="display:none">
+        <h2 class="auth-title">Obnovení hesla</h2>
+        <p class="auth-sub">Zadej své admin jméno a 6-místný recovery kód, který jsi dostal při registraci.</p>
+        <div class="auth-form">
+          <label>Backend URL</label>
+          <input type="text" id="authRecApiUrl" spellcheck="false" autocomplete="off">
+          <label>Admin jméno</label>
+          <input type="text" id="authRecoverUsername" autocomplete="username" spellcheck="false">
+          <label>Recovery kód</label>
+          <input type="text" id="authRecoverCode" inputmode="numeric" maxlength="6" pattern="[0-9]*" placeholder="6 číslic">
+          <label>Nové heslo</label>
+          <input type="password" id="authRecoverPassword" autocomplete="new-password" placeholder="min. 6 znaků">
+          <div class="auth-error" id="authRecoverError"></div>
+          <button class="btn btn-primary auth-submit" id="btnAuthRecover">Obnovit heslo</button>
+          <button class="auth-link" id="btnAuthBackToLogin" type="button">← Zpět na přihlášení</button>
+        </div>
+      </div>
+
+      <!-- SCREEN: Recovery code display (after successful admin registration or recovery) -->
+      <div id="authScreenRecoveryCode" class="auth-screen" style="display:none">
+        <h2 class="auth-title">⚠️ Zapiš si tento recovery kód</h2>
+        <p class="auth-sub">Pokud zapomeneš heslo, tímto kódem si ho obnovíš. Kód se <strong>zobrazí jen jednou</strong>.</p>
+        <div class="auth-recovery-code" id="authRecoveryCodeDisplay"></div>
+        <p class="auth-sub auth-sub-warn">Ulož si ho do správce hesel nebo na bezpečné místo. Bez kódu není obnova možná.</p>
+        <div class="auth-form">
+          <label class="auth-checkbox">
+            <input type="checkbox" id="authRecoveryConfirmed">
+            <span>Ano, zapsal jsem si kód na bezpečné místo</span>
+          </label>
+          <button class="btn btn-primary auth-submit" id="btnAuthRecoveryDone" disabled>Pokračovat do aplikace</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="app app-locked">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="logo-section">
+        <div class="logo-row">
+          <img src="../assets/icon-64.png" alt="TicketVault" class="logo-icon logo-dark"/>
+          <img src="../assets/icon-light-64.png" alt="TicketVault" class="logo-icon logo-light"/>
+          <h1 class="logo">TicketVault</h1>
+          <button class="theme-toggle" id="btnThemeToggle" title="Přepnout světlý/tmavý režim" aria-label="Přepnout téma">
+            <svg class="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+            </svg>
+            <svg class="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="status-row">
+          <span class="status-badge" id="statusBadge">Online</span>
+          <span class="status-badge cloud-badge" id="cloudBadge" style="display:none;">☁️ Cloud</span>
+        </div>
+        <!-- Current user info + logout. Populated from app.js after login. -->
+        <div class="user-row" id="userRow" style="display:none;">
+          <div class="user-info">
+            <div class="user-avatar" id="userAvatar">?</div>
+            <div class="user-meta">
+              <div class="user-name" id="userName">—</div>
+              <div class="user-role" id="userRole">—</div>
+            </div>
+          </div>
+          <button class="btn-logout" id="btnLogout" title="Odhlásit se" aria-label="Odhlásit se">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="clock">
+          <div class="clock-time" id="clockTime">--:--:--</div>
+          <div class="clock-date" id="clockDate">--</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+          Dashboard
+        </button>
+        <button class="nav-item" data-view="todo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          K dořešení
+          <span class="nav-badge critical" id="navTodoBadge" style="display:none;">0</span>
+        </button>
+        <button class="nav-item" data-view="stats">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          Statistiky
+        </button>
+        <button class="nav-item" data-view="expenses">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="5" width="20" height="14" rx="2"/>
+            <line x1="2" y1="10" x2="22" y2="10"/>
+          </svg>
+          Výdaje
+        </button>
+        <button class="nav-item" data-view="payouts">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          Výplaty
+        </button>
+        <button class="nav-item" data-view="inbox">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+            <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+          </svg>
+          Příchozí
+        </button>
+        <button class="nav-item" data-view="memberships">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          Membershipy
+        </button>
+
+        <div class="nav-section-label">NÁSTROJE</div>
+
+        <button class="nav-item" id="navSync">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Synchronizovat
+        </button>
+        <button class="nav-item" id="navExport">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Export CSV
+        </button>
+        <button class="nav-item" id="navImport">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Import CSV
+        </button>
+
+        <div class="nav-section-label">ZÁLOHY</div>
+        <button class="nav-item" id="navBackupExport">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+          </svg>
+          Export zálohy
+        </button>
+        <button class="nav-item" id="navBackupImport">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          Import zálohy
+        </button>
+        <button class="nav-item" id="navSettings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Nastavení
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="db-info" id="dbInfo">
+          <span class="db-label">DATABÁZE</span>
+          <span class="db-path" id="dbPath" title="">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main">
+      <!-- DASHBOARD VIEW -->
+      <div class="view active" id="view-dashboard">
+        <header class="page-header">
+          <h2 class="page-title">Ticket Inventory</h2>
+          <button class="btn btn-primary" id="btnAddEvent">
+            <span>+</span> Přidat event
+          </button>
+        </header>
+
+        <!-- STAT CARDS -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">CELKOVÝ PROFIT</div>
+            <div class="stat-value profit" id="statProfit">0,00 EUR</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">UTRACENO</div>
+            <div class="stat-value loss" id="statSpent">0,00 EUR</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">REVENUE</div>
+            <div class="stat-value revenue" id="statRevenue">0,00 EUR</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">PRODÁNO / CELKEM</div>
+            <div class="stat-value sold" id="statSold">0 / 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">ZBÝVÁ PRODAT</div>
+            <div class="stat-value stock" id="statStock">0</div>
+          </div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <input type="text" class="filter-input" id="filterSearch" placeholder="Hledat event nebo místo...">
+          <select class="filter-select" id="filterStatus">
+            <option value="">Všechny statusy</option>
+            <option value="available">Koupeno</option>
+            <option value="listed">Zalistováno</option>
+            <option value="sold">Prodáno</option>
+            <option value="delivered">Doručeno</option>
+            <option value="cancelled">Zrušeno</option>
+          </select>
+          <select class="filter-select" id="filterMonth">
+            <option value="">Všechny měsíce</option>
+            <option value="1">Leden</option>
+            <option value="2">Únor</option>
+            <option value="3">Březen</option>
+            <option value="4">Duben</option>
+            <option value="5">Květen</option>
+            <option value="6">Červen</option>
+            <option value="7">Červenec</option>
+            <option value="8">Srpen</option>
+            <option value="9">Září</option>
+            <option value="10">Říjen</option>
+            <option value="11">Listopad</option>
+            <option value="12">Prosinec</option>
+          </select>
+          <select class="filter-select" id="filterYear">
+            <option value="">Všechny roky</option>
+          </select>
+          <input type="date" class="filter-input date-input" id="filterDateFrom">
+          <input type="date" class="filter-input date-input" id="filterDateTo">
+          <button class="btn btn-dark" id="btnReset">× Reset</button>
+          <button class="btn btn-dark" id="btnSync">Sync</button>
+          <button class="btn btn-dark" id="btnExportCsv">Export CSV</button>
+        </div>
+
+        <!-- TICKET TABLE -->
+        <div class="table-wrapper">
+          <table class="tickets-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="selectAll"></th>
+                <th class="sortable" data-sort="eventName">EVENT <span class="sort-ico">↕</span></th>
+                <th class="sortable" data-sort="eventDate">DATUM <span class="sort-ico">↕</span></th>
+                <th>MÍSTO</th>
+                <th>SEKCE</th>
+                <th>ÚČET</th>
+                <th>PLATFORMA</th>
+                <th>KS</th>
+                <th>STATUS</th>
+                <th class="sortable" data-sort="purchasePrice">NÁKUP <span class="sort-ico">↕</span></th>
+                <th class="sortable" data-sort="salePrice">PRODEJ <span class="sort-ico">↕</span></th>
+                <th class="sortable" data-sort="profit">PROFIT <span class="sort-ico">↕</span></th>
+                <th>ROI</th>
+                <th>AKCE</th>
+              </tr>
+            </thead>
+            <tbody id="ticketsBody"></tbody>
+          </table>
+          <div class="empty-state" id="emptyState" style="display:none;">
+            <div class="empty-icon">🎫</div>
+            <div class="empty-title">Žádné vstupenky</div>
+            <div class="empty-text">Přidej svou první vstupenku kliknutím na "+ Přidat event"</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="bulkActions" style="display:none;">
+          <span id="bulkCount">0 vybráno</span>
+          <button class="btn btn-danger" id="btnBulkDelete">Smazat vybrané</button>
+        </div>
+      </div>
+
+      <!-- TODO VIEW (K dořešení) -->
+      <div class="view" id="view-todo">
+        <header class="page-header">
+          <h2 class="page-title">K dořešení</h2>
+          <p class="page-subtitle" id="todoSubtitle">Urgent akce seřazené podle priority.</p>
+        </header>
+
+        <div class="todo-summary" id="todoSummary">
+          <!-- 3 mini stat cards: Celkem / Prodat / Doručit - populated by JS -->
+        </div>
+
+        <div class="todo-sections" id="todoSections">
+          <!-- Sections rendered by JS. Empty state shown here when nothing urgent. -->
+        </div>
+      </div>
+
+      <!-- STATS VIEW -->
+      <div class="view" id="view-stats">
+        <header class="page-header">
+          <h2 class="page-title">Statistiky</h2>
+        </header>
+
+        <!-- FILTERS -->
+        <div class="filters stats-filters">
+          <select class="filter-select" id="statsFilterMonth">
+            <option value="">Všechny měsíce</option>
+            <option value="1">Leden</option>
+            <option value="2">Únor</option>
+            <option value="3">Březen</option>
+            <option value="4">Duben</option>
+            <option value="5">Květen</option>
+            <option value="6">Červen</option>
+            <option value="7">Červenec</option>
+            <option value="8">Srpen</option>
+            <option value="9">Září</option>
+            <option value="10">Říjen</option>
+            <option value="11">Listopad</option>
+            <option value="12">Prosinec</option>
+          </select>
+          <select class="filter-select" id="statsFilterYear">
+            <option value="">Všechny roky</option>
+          </select>
+          <button class="btn btn-dark" id="btnStatsReset">× Reset</button>
+        </div>
+
+        <!-- 4 STAT CARDS -->
+        <div class="stats-grid stats-grid-4">
+          <div class="stat-card">
+            <div class="stat-label">CELKOVÝ PROFIT</div>
+            <div class="stat-value profit" id="sProfit">0,00 EUR</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">PRŮMĚRNÝ ROI</div>
+            <div class="stat-value revenue" id="sAvgRoi">0,0%</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">DORUČENO ✓</div>
+            <div class="stat-value profit" id="sDelivered">0 / 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">ÚSPĚŠNOST PRODEJE</div>
+            <div class="stat-value profit" id="sSuccessRate">0%</div>
+          </div>
+        </div>
+
+        <!-- CUMULATIVE CHART (full width) -->
+        <div class="chart-card chart-card-full">
+          <h3>KUMULATIVNÍ ZISK V ČASE</h3>
+          <div class="chart-wrap"><canvas id="chartCumulative"></canvas></div>
+        </div>
+
+        <!-- 2x2 CHARTS -->
+        <div class="chart-grid">
+          <div class="chart-card">
+            <h3>TOP 5 NEJZISKOVĚJŠÍCH EVENTŮ</h3>
+            <div class="chart-wrap"><canvas id="chartTopEvents"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>ROI NA EVENT (%)</h3>
+            <div class="chart-wrap"><canvas id="chartRoi"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>ROZLOŽENÍ STATUSU</h3>
+            <div class="chart-wrap"><canvas id="chartStatus"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>NÁKUP VS PRODEJ / KS</h3>
+            <div class="chart-wrap"><canvas id="chartBuySell"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXPENSES VIEW -->
+      <div class="view" id="view-expenses">
+        <header class="page-header">
+          <h2 class="page-title">Výdaje &amp; předplatná</h2>
+          <button class="btn btn-primary" id="btnAddExpense">
+            <span>+</span> Přidat výdaj
+          </button>
+        </header>
+
+        <!-- STAT CARDS -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-label">MĚSÍČNĚ PLATÍM</div>
+            <div class="stat-value stat-red" id="expMonthly">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">ROČNĚ PLATÍM</div>
+            <div class="stat-value stat-orange" id="expYearly">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">AKTIVNÍ P&#344;EDPLATNÁ</div>
+            <div class="stat-value stat-blue" id="expActive">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">NEJBLIŽŠÍ PLATBA</div>
+            <div class="stat-value stat-purple" id="expNextPayment" style="font-size: 15px;">—</div>
+          </div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <input type="text" class="filter-input" id="eFilterSearch" placeholder="Hledat název, kategorie...">
+          <select class="filter-select" id="eFilterCategory">
+            <option value="">Všechny kategorie</option>
+          </select>
+          <select class="filter-select" id="eFilterFrequency">
+            <option value="">Všechny frekvence</option>
+            <option value="monthly">Měsíční</option>
+            <option value="yearly">Roční</option>
+            <option value="oneoff">Jednorázové</option>
+            <option value="custom">Vlastní</option>
+          </select>
+          <select class="filter-select" id="eFilterStatus">
+            <option value="">Všechny statusy</option>
+            <option value="active">Aktivní</option>
+            <option value="inactive">Neaktivní</option>
+          </select>
+          <button class="btn btn-dark" id="btnEReset">× Reset</button>
+          <button class="btn btn-dark" id="btnEExport">Export CSV</button>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="tickets-table expenses-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="eSelectAll"></th>
+                <th>NÁZEV</th>
+                <th>KATEGORIE</th>
+                <th>CENA</th>
+                <th>FREKVENCE</th>
+                <th>NÁSLEDUJÍCÍ PLATBA</th>
+                <th>ZBÝVÁ</th>
+                <th>ÚČET/KARTA</th>
+                <th>URL</th>
+                <th>STATUS</th>
+                <th>AKCE</th>
+              </tr>
+            </thead>
+            <tbody id="expensesBody"></tbody>
+          </table>
+          <div class="empty-state" id="eEmptyState" style="display:none;">
+            <div class="empty-icon">💳</div>
+            <div class="empty-title">Žádné výdaje</div>
+            <div class="empty-text">Přidej první výdaj kliknutím na "+ Přidat výdaj"</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="eBulkActions" style="display:none;">
+          <span id="eBulkCount">0 vybráno</span>
+          <button class="btn btn-danger" id="btnEBulkDelete">Smazat vybrané</button>
+        </div>
+      </div>
+
+      <!-- PAYOUTS VIEW -->
+      <div class="view" id="view-payouts">
+        <header class="page-header">
+          <h2 class="page-title">Plán výplat</h2>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-dark" id="btnPayoutSettings" title="Nastavit pravidla pro platformy">⚙️ Pravidla</button>
+          </div>
+        </header>
+
+        <!-- STAT CARDS -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-label">ČEKÁ NA VÝPLATU</div>
+            <div class="stat-value stat-orange" id="payPending">0,00 EUR</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">NEJBLIŽŠÍ VÝPLATA</div>
+            <div class="stat-value stat-purple" id="payNext" style="font-size: 15px;">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">VYPLACENO CELKEM</div>
+            <div class="stat-value stat-green" id="payReceived">0,00 EUR</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">PO TERMÍNU</div>
+            <div class="stat-value stat-red" id="payOverdue">0,00 EUR</div>
+          </div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <input type="text" class="filter-input" id="pFilterSearch" placeholder="Hledat event, platformu...">
+          <select class="filter-select" id="pFilterPlatform">
+            <option value="">Všechny platformy</option>
+          </select>
+          <select class="filter-select" id="pFilterStatus">
+            <option value="">Všechny výplaty</option>
+            <option value="pending">Čekající</option>
+            <option value="overdue">Po termínu</option>
+            <option value="paid">Vyplaceno</option>
+          </select>
+          <button class="btn btn-dark" id="btnPReset">× Reset</button>
+          <button class="btn btn-dark" id="btnPExport">Export CSV</button>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="tickets-table payouts-table">
+            <thead>
+              <tr>
+                <th>EVENT</th>
+                <th>DATUM EVENTU</th>
+                <th>KS</th>
+                <th>PRODEJ</th>
+                <th>PLATFORMA</th>
+                <th>STATUS TIKETU</th>
+                <th>VÝPLATA OČEKÁVÁNA</th>
+                <th>ZBÝVÁ</th>
+                <th>STAV VÝPLATY</th>
+                <th>AKCE</th>
+              </tr>
+            </thead>
+            <tbody id="payoutsBody"></tbody>
+          </table>
+          <div class="empty-state" id="pEmptyState" style="display:none;">
+            <div class="empty-icon">💰</div>
+            <div class="empty-title">Žádné výplaty</div>
+            <div class="empty-text">Zde se objeví výplaty, jakmile prodáš některou vstupenku.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INBOX VIEW -->
+      <div class="view" id="view-inbox">
+        <header class="page-header">
+          <h2 class="page-title">📥 Příchozí <span class="inbox-count-inline" id="inboxCountInline"></span></h2>
+          <button class="btn btn-dark" id="btnInboxRefresh" title="Načíst nové">🔄 Obnovit</button>
+        </header>
+
+        <!-- STAT CARDS -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-label">ČEKAJÍCÍ</div>
+            <div class="stat-value stat-purple" id="inboxPending">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">NÁKUPY</div>
+            <div class="stat-value stat-blue" id="inboxPurchases">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">PRODEJE</div>
+            <div class="stat-value stat-green" id="inboxSales">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">CHYBY PARSERU</div>
+            <div class="stat-value stat-red" id="inboxErrors">0</div>
+          </div>
+        </div>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <select class="filter-select" id="iFilterKind">
+            <option value="">Vše</option>
+            <option value="purchase">Nákupy</option>
+            <option value="sale">Prodeje</option>
+            <option value="error">Nerozpoznané</option>
+          </select>
+          <select class="filter-select" id="iFilterPlatform">
+            <option value="">Všechny platformy</option>
+            <option value="Viagogo">Viagogo</option>
+            <option value="Stubhub">Stubhub</option>
+            <option value="Ticketmaster">Ticketmaster</option>
+            <option value="Eventim">Eventim</option>
+            <option value="Ticketportal">Ticketportal</option>
+          </select>
+          <button class="btn btn-dark" id="btnInboxDismissAll" title="Zahodit vše">× Vyčistit schválené</button>
+        </div>
+
+        <!-- INBOX CARDS -->
+        <div id="inboxList" class="inbox-list">
+          <div class="empty-state" id="inboxEmpty">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title">Žádné příchozí emaily</div>
+            <div class="empty-text">
+              Nastav si v Gmailu filter pro automatický forward emailů o nákupech/prodejích.<br>
+              <a href="#" id="btnInboxHelp" style="color: var(--purple);">Zobrazit návod</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MEMBERSHIPS VIEW -->
+      <div class="view" id="view-memberships">
+        <header class="page-header">
+          <h2 class="page-title">Memberships</h2>
+          <button class="btn btn-primary" id="btnAddMembership">
+            <span>+</span> Přidat membership
+          </button>
+        </header>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <input type="text" class="filter-input" id="mFilterSearch" placeholder="Hledat email, tým, vlastníka...">
+          <select class="filter-select" id="mFilterTeam">
+            <option value="">Všechny týmy</option>
+          </select>
+          <select class="filter-select" id="mFilterOwner">
+            <option value="">Všichni vlastníci</option>
+          </select>
+          <select class="filter-select" id="mFilterGroup">
+            <option value="">Všechny skupiny</option>
+          </select>
+          <button class="btn btn-dark" id="btnMReset">× Reset</button>
+          <button class="btn btn-dark" id="btnMExport">Export CSV</button>
+          <button class="btn btn-dark" id="btnMImport">Import CSV</button>
+        </div>
+
+        <!-- MEMBERSHIPS TABLE -->
+        <div class="table-wrapper">
+          <table class="tickets-table memberships-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="mSelectAll"></th>
+                <th>ID</th>
+                <th>TEAM</th>
+                <th>MAIL</th>
+                <th>KARTA</th>
+                <th>HESLO</th>
+                <th title="Číslo skupiny - účty se stejným číslem patří k sobě (barevné označení)">PÁROVÁNÍ</th>
+                <th title="Loyalty Points - věrnostní body">LP</th>
+                <th>VLASTNÍK</th>
+                <th>BÚ</th>
+                <th>TELEFON</th>
+                <th>URL</th>
+                <th>AKCE</th>
+              </tr>
+            </thead>
+            <tbody id="membershipsBody"></tbody>
+          </table>
+          <div class="empty-state" id="mEmptyState" style="display:none;">
+            <div class="empty-icon">👤</div>
+            <div class="empty-title">Žádné membershipy</div>
+            <div class="empty-text">Přidej svůj první membership kliknutím na "+ Přidat membership"</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="mBulkActions" style="display:none;">
+          <span id="mBulkCount">0 vybráno</span>
+          <button class="btn btn-danger" id="btnMBulkDelete">Smazat vybrané</button>
+        </div>
+      </div>
+
+      <!-- SETTINGS VIEW -->
+      <div class="view" id="view-settings">
+        <header class="page-header">
+          <h2 class="page-title">Nastavení</h2>
+        </header>
+
+        <div class="settings-section">
+          <h3>📁 Databáze</h3>
+          <p class="settings-desc">
+            Pro sdílení databáze s kamarádem nastav cestu do sdílené cloudové složky (OneDrive, Dropbox, Google Drive).
+            Oba budete vidět stejná data při každé synchronizaci.
+          </p>
+          <div class="settings-row">
+            <label>Cesta k databázi:</label>
+            <div class="path-display" id="dbPathDisplay">—</div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary" id="btnChangeDbPath">Změnit umístění</button>
+            <button class="btn btn-dark" id="btnOpenDbLocation">Otevřít složku</button>
+            <button class="btn btn-dark" id="btnSyncNow">Synchronizovat nyní</button>
+          </div>
+        </div>
+
+        <!-- User management (visible only to admins; toggled via #usersAdminSection visibility).
+             Non-admins see only the "Změnit heslo" section below. -->
+        <div class="settings-section" id="usersAdminSection" style="display:none;">
+          <div class="section-head">
+            <h3>👥 Uživatelé</h3>
+            <button class="btn btn-primary btn-sm" id="btnAddUser">+ Přidat uživatele</button>
+          </div>
+          <p class="settings-desc">
+            Uživatelé mají přístup k aplikaci na tomto zařízení. Data (vstupenky, výdaje) vidí všichni stejná.
+            Admin může vytvářet a mazat účty a resetovat hesla.
+          </p>
+          <div class="users-list" id="usersList">
+            <!-- Populated from app.js -->
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>🔑 Změnit heslo</h3>
+          </div>
+          <p class="settings-desc">Změna hesla pro aktuálně přihlášeného uživatele.</p>
+          <div class="form-grid" style="max-width:520px;">
+            <div class="form-group form-full">
+              <label>Staré heslo</label>
+              <input type="password" id="cpOldPassword" autocomplete="current-password">
+            </div>
+            <div class="form-group form-full">
+              <label>Nové heslo (min. 6 znaků)</label>
+              <input type="password" id="cpNewPassword" autocomplete="new-password">
+            </div>
+            <div class="form-group form-full">
+              <label>Zopakuj nové heslo</label>
+              <input type="password" id="cpNewPassword2" autocomplete="new-password">
+            </div>
+            <div class="form-group form-full">
+              <button class="btn btn-primary" id="btnChangePassword">Změnit heslo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inbound sender whitelist — user registers their own email addresses
+             (personal Gmail, work Gmail, Yahoo, ...) so forwarded mail from
+             any of those lands in their inbox. Shared backend CloudMailin
+             endpoint — routing happens server-side by matching sender. -->
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>📥 Příchozí emaily</h3>
+          </div>
+          <p class="settings-desc">
+            Přidej emailové adresy, ze kterých budeš forwardovat (osobní Gmail, pracovní, Yahoo, ...).
+            Emaily zaslané z těchto adres dostaneš <strong>jen ty</strong>, ne ostatní uživatelé.
+          </p>
+
+          <div class="form-grid" style="max-width:640px;">
+            <div class="form-group form-full">
+              <label>Společná forward adresa (pro všechny uživatele)</label>
+              <div class="mail-address-box">
+                <code id="mailForwardAddress">e39a755c78a59a3e9759@cloudmailin.net</code>
+                <button class="btn btn-dark btn-sm" id="btnCopyMailAddress" title="Kopírovat">📋 Kopírovat</button>
+              </div>
+              <div class="form-hint">V Gmailu nastav filter pro emaily od Viagogo/Stubhub/atd. a forward na tuto adresu.</div>
+            </div>
+
+            <div class="form-group form-full">
+              <label>Tvoje registrované odesílací adresy</label>
+              <div id="allowedSendersList" class="senders-list">
+                <div class="senders-empty">Zatím žádná adresa</div>
+              </div>
+            </div>
+
+            <div class="form-group form-full">
+              <label>Přidat novou odesílací adresu</label>
+              <div class="senders-add-row">
+                <input type="email" id="newSenderEmail" placeholder="tvuj.email@gmail.com" autocomplete="off">
+                <button class="btn btn-primary" id="btnAddSender">+ Přidat</button>
+              </div>
+              <div class="form-hint">Musí to být email adresa, ze které skutečně forwarduješ — ne cílová CloudMailin adresa.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- App version + manual update check. Runs silently on startup but
+             users can force a check here. Version string is injected from
+             package.json via app.getVersion(). -->
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>🔄 Aktualizace aplikace</h3>
+          </div>
+          <p class="settings-desc">
+            TicketVault se sám podívá po nové verzi při startu. Můžeš taky zkontrolovat ručně.
+          </p>
+          <div class="form-grid" style="max-width:520px;">
+            <div class="form-group form-full">
+              <label>Aktuální verze</label>
+              <div class="mail-address-box" style="padding:10px 14px;">
+                <code id="appVersionDisplay">načítám...</code>
+              </div>
+            </div>
+            <div class="form-group form-full">
+              <button class="btn btn-dark" id="btnCheckForUpdates">🔄 Zkontrolovat aktualizace</button>
+              <span class="form-hint" id="updateCheckStatus" style="margin-left:8px;"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Email digest notifications — per-user config stored on backend.
+             Backend cron sends at 8:00 and 18:00 Europe/Prague when enabled. -->
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>📧 Email notifikace</h3>
+          </div>
+          <p class="settings-desc">
+            Pošleme ti každý den v <strong>8:00</strong> a <strong>18:00</strong> email se souhrnem vstupenek, které vyžadují tvou pozornost
+            (K zalistování, Neprodané, Neodeslané). Můžeš kdykoliv vypnout.
+          </p>
+          <div class="form-grid" style="max-width:520px;">
+            <div class="form-group form-full">
+              <label>Email pro notifikace</label>
+              <input type="email" id="emailNotifyAddr" placeholder="tvoje.jmeno@example.com" autocomplete="email">
+              <div class="form-hint">Na tuhle adresu budeš dostávat denní souhrn.</div>
+            </div>
+            <div class="form-group form-full">
+              <label class="auth-checkbox" style="margin-top:4px;padding:0;">
+                <input type="checkbox" id="emailNotifyEnabled">
+                <span>Posílat denní souhrn (2× denně)</span>
+              </label>
+            </div>
+            <div class="form-group form-full">
+              <button class="btn btn-primary" id="btnSaveEmailSettings">Uložit nastavení</button>
+              <button class="btn btn-dark" id="btnTestDigest" style="margin-left:8px;">📨 Poslat testovací email</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Currency settings — pick primary currency for dashboards/stats,
+             default currency for new tickets, and view/refresh exchange rates. -->
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>💱 Měny</h3>
+          </div>
+          <p class="settings-desc">
+            Vstupenky mohou být v různých měnách. Dashboard a statistiky se přepočítávají
+            na <strong>hlavní měnu</strong> pomocí aktuálních kurzů.
+          </p>
+
+          <div class="form-grid" style="max-width:520px;">
+            <div class="form-group form-full">
+              <label>Hlavní měna (pro statistiky)</label>
+              <select id="cfgPrimaryCurrency"></select>
+              <div class="form-hint">V této měně se zobrazují souhrny a grafy.</div>
+            </div>
+            <div class="form-group form-full">
+              <label>Výchozí měna pro nové vstupenky</label>
+              <select id="cfgDefaultTicketCurrency"></select>
+              <div class="form-hint">Tato měna se předvyplní při přidání nové vstupenky.</div>
+            </div>
+            <div class="form-group form-full">
+              <button class="btn btn-primary" id="btnSaveCurrencySettings">Uložit nastavení měn</button>
+            </div>
+          </div>
+
+          <div class="section-head" style="margin-top:28px;">
+            <h4 style="font-size:14px;margin:0;">Kurzy měn (k EUR)</h4>
+            <button class="btn btn-dark btn-sm" id="btnRefreshRates" style="margin-left:auto;">
+              🔄 Aktualizovat nyní
+            </button>
+          </div>
+          <p class="settings-desc" id="ratesUpdatedLabel" style="margin-bottom:8px;">
+            Kurzy se aktualizují automaticky jednou denně.
+          </p>
+          <div id="ratesTableWrap" class="rates-table-wrap"></div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>🔔 Notifikace a upozornění</h3>
+          </div>
+          <p class="settings-desc">
+            Upozornění na nadcházející eventy — když je vstupenka neprodaná / nedoručená
+            a blíží se datum konání.
+          </p>
+          
+          <div class="settings-row">
+            <label>Pulzující animace:</label>
+            <label class="switch" style="margin-left: auto;">
+              <input type="checkbox" id="alertsAnimations" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="settings-desc" style="margin-top: -10px;">
+            <small>Když vypneš, urgent řádky zůstanou barevné, ale nebudou blikat.</small>
+          </p>
+          
+          <div class="settings-row">
+            <label>Startup toast při otevření:</label>
+            <label class="switch" style="margin-left: auto;">
+              <input type="checkbox" id="alertsStartupToast" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="settings-desc" style="margin-top: -10px;">
+            <small>Když vypneš, nebudou ti po otevření aplikace vyskakovat souhrnné toast hlášky.</small>
+          </p>
+          
+          <div class="settings-row">
+            <label>Neprodané - varovat X dní před eventem:</label>
+            <input type="number" class="form-input" id="alertsUnsoldDays" min="0" max="30" step="1" style="max-width: 80px;">
+          </div>
+          
+          <div class="settings-row">
+            <label>Neodeslané (sold) - varovat X dní před eventem:</label>
+            <input type="number" class="form-input" id="alertsUndeliveredDays" min="0" max="30" step="1" style="max-width: 80px;">
+          </div>
+          
+          <div class="settings-row" id="mutedTicketsRow" style="display:none;">
+            <label>Ztlumené vstupenky:</label>
+            <button class="btn btn-dark" id="btnClearMuted">Obnovit všechny (0)</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>⚠️ K dořešení</h3>
+          </div>
+          <p class="settings-desc">
+            Nastavení pro záložku „K dořešení". Upravuje, které vstupenky se tam
+            automaticky objeví a za jak dlouho před eventem.
+          </p>
+
+          <div class="settings-row">
+            <label>Zobrazit „K zalistování" (Koupeno, nezalistováno):</label>
+            <label class="switch" style="margin-left: auto;">
+              <input type="checkbox" id="todoShowNotListed" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="settings-desc" style="margin-top: -10px;">
+            <small>Vstupenky se statusem Koupeno, ještě nezalistované na prodej. Bez ohledu na dny do eventu.</small>
+          </p>
+
+          <div class="settings-row">
+            <label>Zobrazit neprodané vstupenky:</label>
+            <label class="switch" style="margin-left: auto;">
+              <input type="checkbox" id="todoShowUnsold" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label>Práh pro neprodané (dny do eventu):</label>
+            <input type="number" class="form-input" id="todoUnsoldDays" min="1" max="60" step="1" value="7" style="max-width: 80px;">
+          </div>
+
+          <div class="settings-row">
+            <label>Zobrazit neodeslané (prodané) vstupenky:</label>
+            <label class="switch" style="margin-left: auto;">
+              <input type="checkbox" id="todoShowUndelivered" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label>Práh pro neodeslané (dny do eventu):</label>
+            <input type="number" class="form-input" id="todoUndeliveredDays" min="1" max="60" step="1" value="5" style="max-width: 80px;">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-head">
+            <h3>☁️ Online režim (Netlify)</h3>
+            <label class="switch">
+              <input type="checkbox" id="cloudEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="settings-desc">
+            Ukládej data do online databáze (Netlify Functions + Blobs). Kdokoliv s URL a API klíčem
+            uvidí stejná data odkudkoliv — ideální pro sdílení s kamarádem bez nutnosti OneDrive.
+            <br><br>
+            <strong>Postup:</strong> Nejdřív si rozjeď backend podle návodu v archivu
+            <code>ticketvault-backend</code>. Pak sem zadej URL a API klíč.
+          </p>
+          
+          <div class="settings-row">
+            <label>API URL:</label>
+            <input type="text" class="form-input" id="cloudApiUrl" placeholder="https://tvuj-site.netlify.app/api">
+          </div>
+          
+          <div class="settings-row">
+            <label>API klíč:</label>
+            <div class="input-with-action">
+              <input type="password" class="form-input" id="cloudApiKey" placeholder="tv_...">
+              <button class="btn btn-dark btn-sm" id="btnToggleKey" type="button">👁️</button>
+            </div>
+          </div>
+          
+          <div class="settings-actions">
+            <button class="btn btn-primary" id="btnCloudTest">🔌 Testovat připojení</button>
+            <button class="btn btn-dark" id="btnCloudSave">💾 Uložit</button>
+          </div>
+          
+          <div class="cloud-status" id="cloudStatus" style="display:none;"></div>
+          
+          <div class="settings-divider"></div>
+          
+          <p class="settings-desc">
+            <strong>Migrace dat:</strong>
+          </p>
+          <div class="settings-actions">
+            <button class="btn btn-dark" id="btnCloudPush">⬆️ Nahrát lokální data do cloudu</button>
+            <button class="btn btn-dark" id="btnCloudPull">⬇️ Stáhnout cloud data do lokálu</button>
+          </div>
+          <div class="last-sync" id="lastSync"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>💾 Zálohy</h3>
+          <p class="settings-desc">
+            Export uloží celou databázi do JSON souboru. Tento soubor můžeš později importovat
+            nebo ho poslat kamarádovi. Při importu si vybereš jestli sloučit nebo přepsat existující data.
+          </p>
+          <div class="settings-actions">
+            <button class="btn btn-primary" id="btnExportBackup">📤 Exportovat zálohu (JSON)</button>
+            <button class="btn btn-dark" id="btnImportBackup">📥 Importovat zálohu (JSON)</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>📊 CSV</h3>
+          <p class="settings-desc">
+            CSV export a import pro práci s daty v Excelu nebo Google Sheets.
+          </p>
+          <div class="settings-actions">
+            <button class="btn btn-dark" id="btnExportCsvSettings">📤 Exportovat CSV</button>
+            <button class="btn btn-dark" id="btnImportCsvSettings">📥 Importovat CSV</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>ℹ️ O aplikaci</h3>
+          <p class="settings-desc">
+            <strong>TicketVault v1.0.0</strong><br>
+            Správa inventáře vstupenek pro přeprodej.<br>
+            Data se ukládají lokálně ve formátu JSON pro snadnou zálohu a sdílení.
+          </p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL: Add/Edit Ticket -->
+  <div class="modal" id="modalTicket">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="modalTitle">Přidat vstupenku</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <!-- Prefill from Viagogo / StubHub -->
+        <div class="prefill-box" id="prefillBox">
+          <label class="prefill-label">🎫 Předvyplnit z Viagogo / StubHub URL</label>
+          <div class="prefill-row">
+            <input type="text" id="fPrefillUrl" class="prefill-input" placeholder="https://www.viagogo.com/... nebo https://www.stubhub.ie/...">
+            <button class="btn btn-primary" id="btnPrefill" type="button">Předvyplnit</button>
+          </div>
+          <div class="prefill-status" id="prefillStatus"></div>
+        </div>
+        
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Název eventu *</label>
+            <input type="text" id="fEventName" placeholder="Arsenal FC vs Sporting CP">
+          </div>
+          <div class="form-group">
+            <label>Datum *</label>
+            <input type="date" id="fEventDate">
+          </div>
+          <div class="form-group">
+            <label>Místo</label>
+            <input type="text" id="fVenue" placeholder="Emirates Stadium">
+          </div>
+          <div class="form-group">
+            <label>Země</label>
+            <input type="text" id="fCountry" list="countryList" placeholder="Začni psát (např. Velká)..." autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label>Sekce</label>
+            <input type="text" id="fSection" placeholder="Block 25">
+          </div>
+          <div class="form-group">
+            <label>Řada</label>
+            <input type="text" id="fRow" placeholder="Row 6">
+          </div>
+          <div class="form-group">
+            <label>Sedadlo</label>
+            <input type="text" id="fSeat" placeholder="12">
+          </div>
+          <div class="form-group">
+            <label>Počet kusů</label>
+            <input type="number" id="fQuantity" min="1" value="1">
+          </div>
+          <div class="form-group">
+            <label>Účet</label>
+            <input type="text" id="fAccount" placeholder="email@example.com">
+          </div>
+          <div class="form-group">
+            <label>Platforma</label>
+            <select id="fPlatform">
+              <option value="Stubhub">Stubhub</option>
+              <option value="Viagogo">Viagogo</option>
+              <option value="Ticketmaster">Ticketmaster</option>
+              <option value="Seatgeek">Seatgeek</option>
+              <option value="Vivid">Vivid Seats</option>
+              <option value="Other">Jiná</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="fStatus">
+              <option value="available">Koupeno</option>
+              <option value="listed">Zalistováno</option>
+              <option value="sold">Prodáno</option>
+              <option value="delivered">Doručeno ✓</option>
+              <option value="cancelled">Zrušeno</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Měna</label>
+            <select id="fCurrency"></select>
+          </div>
+          <div class="form-group">
+            <label>Nákupní cena</label>
+            <input type="number" id="fPurchasePrice" step="0.01" placeholder="89.61">
+          </div>
+          <div class="form-group">
+            <label>Prodejní cena</label>
+            <input type="number" id="fSalePrice" step="0.01" placeholder="151.36">
+          </div>
+          <div class="form-group form-full">
+            <label>Logo eventu (URL obrázku - volitelné)</label>
+            <input type="text" id="fLogo" placeholder="https://...">
+          </div>
+          
+          <!-- External IDs section (for marketplace matching) -->
+          <div class="form-full external-ids-section">
+            <div class="external-ids-header" id="externalIdsToggle">
+              <span class="chevron">▸</span>
+              <span class="ids-title">🔗 Externí ID (pro auto-matching při prodeji)</span>
+              <span class="ids-hint" id="externalIdsSummary"></span>
+            </div>
+            <div class="external-ids-body" id="externalIdsBody" style="display:none;">
+              <p class="ids-help">
+                Když vystavíš vstupenku na marketplace, zadej sem Listing ID. Aplikace pak pozná prodej z emailu
+                a automaticky označí vstupenku jako prodanou.
+              </p>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>Viagogo Listing ID</label>
+                  <input type="text" id="fViagogoListingId" placeholder="12348217738">
+                  <div class="id-link" id="viagogoListingLink"></div>
+                </div>
+                <div class="form-group">
+                  <label>Viagogo Order ID</label>
+                  <input type="text" id="fViagogoOrderId" placeholder="auto z emailu po prodeji">
+                </div>
+                <div class="form-group">
+                  <label>StubHub Listing ID</label>
+                  <input type="text" id="fStubhubListingId" placeholder="např. 12345">
+                  <div class="id-link" id="stubhubListingLink"></div>
+                </div>
+                <div class="form-group">
+                  <label>StubHub Order ID</label>
+                  <input type="text" id="fStubhubOrderId" placeholder="auto z emailu po prodeji">
+                </div>
+                <div class="form-group">
+                  <label>TicketMaster Order ID</label>
+                  <input type="text" id="fTicketmasterOrderId" placeholder="např. 123-456-789">
+                </div>
+                <div class="form-group">
+                  <label>Jiné ID (poznámka)</label>
+                  <input type="text" id="fOtherId" placeholder="Ticketportal, Eventim...">
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Buyer info section (visible only when sold/delivered) -->
+          <div class="form-full buyer-section" id="buyerSection" style="display:none;">
+            <div class="buyer-header">
+              <span class="buyer-icon">👤</span>
+              <span class="buyer-title">Kupující</span>
+              <span class="buyer-hint">(vyplní se automaticky z emailu o prodeji)</span>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Jméno kupujícího</label>
+                <input type="text" id="fBuyerName" placeholder="např. Thomas Mueller">
+              </div>
+              <div class="form-group">
+                <label>Email kupujícího</label>
+                <div class="input-with-copy">
+                  <input type="email" id="fBuyerEmail" placeholder="např. thomas.m@email.com">
+                  <button type="button" class="btn-copy-inline" id="btnCopyBuyerEmail" title="Kopírovat email">📋</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Telefon kupujícího</label>
+                <input type="tel" id="fBuyerPhone" placeholder="volitelné">
+              </div>
+              <div class="form-group">
+                <label>Datum prodeje</label>
+                <input type="date" id="fSaleDate">
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-group form-full">
+            <label>Poznámka</label>
+            <textarea id="fNotes" rows="3" placeholder="Další info..."></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnSaveTicket">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Sell -->
+  <!-- MODAL: Add user (admin only) -->
+  <div class="modal" id="modalAddUser">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Přidat uživatele</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Uživatelské jméno *</label>
+            <input type="text" id="newUserName" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-group form-full">
+            <label>Heslo (min. 6 znaků) *</label>
+            <input type="text" id="newUserPassword" autocomplete="off">
+            <div class="form-hint">Heslo si uživatel může po přihlášení změnit v Nastavení.</div>
+          </div>
+          <div class="form-group form-full">
+            <label>Role</label>
+            <select id="newUserRole">
+              <option value="user">Uživatel (běžný přístup)</option>
+              <option value="admin">Administrátor (může spravovat účty)</option>
+            </select>
+          </div>
+          <div class="form-group form-full">
+            <label class="auth-checkbox" style="margin-top:4px;">
+              <input type="checkbox" id="newUserShareData">
+              <span>Sdílet mou databázi vstupenek s tímto uživatelem</span>
+            </label>
+            <div class="form-hint">Pokud zaškrtneš, nový uživatel uvidí a bude moci upravovat stejné vstupenky jako ty. Pokud ne, dostane vlastní prázdnou databázi.</div>
+          </div>
+          <div class="auth-error" id="newUserError"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnConfirmAddUser">Vytvořit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Reset user password (admin only) -->
+  <div class="modal" id="modalResetPassword">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Reset hesla</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <p class="settings-desc">Resetuješ heslo uživatele <strong id="resetPwTargetName">—</strong>. Uživatel se s novým heslem přihlásí a může si ho v Nastavení změnit.</p>
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Nové heslo (min. 6 znaků)</label>
+            <input type="text" id="resetPwNewPassword" autocomplete="off">
+          </div>
+          <div class="auth-error" id="resetPwError"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnConfirmResetPw">Resetovat</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalSell">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Prodat vstupenku</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="sell-info-banner" id="sellInfoBanner">
+          <!-- Filled dynamically -->
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Počet prodaných ks *</label>
+            <input type="number" id="sellQuantity" min="1" step="1" value="1">
+            <div class="sell-hint" id="sellQtyHint"></div>
+          </div>
+          <div class="form-group">
+            <label>Datum prodeje</label>
+            <input type="date" id="sellDate">
+          </div>
+          <div class="form-group form-full">
+            <label>Prodejní cena *</label>
+            <div class="price-mode-toggle" id="sellPriceMode" role="tablist" aria-label="Způsob zadání ceny">
+              <button type="button" class="price-mode-btn active" data-mode="per" role="tab">Za 1 ks</button>
+              <button type="button" class="price-mode-btn" data-mode="total" role="tab">Celkem za všechny</button>
+            </div>
+            <input type="number" id="sellPrice" step="0.01" placeholder="0.00">
+            <div class="sell-hint" id="sellPriceHint"></div>
+            <div class="sell-total" id="sellTotalLine"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnConfirmSell">Potvrdit prodej</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Inbox Setup Help -->
+  <div class="modal" id="modalInboxHelp">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 680px;">
+      <div class="modal-header">
+        <h3>📥 Jak nastavit příjem emailů</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body" style="line-height: 1.6; font-size: 13px;">
+        <p><strong>Cíl:</strong> Když ti přijde email od Viagogo/StubHub/Ticketmaster atd., automaticky se objeví tady v Příchozích jako návrh ke schválení.</p>
+        
+        <h4 style="margin-top: 20px; color: var(--purple);">Krok 1: Zaregistruj se na CloudMailin (zdarma)</h4>
+        <ol style="margin: 10px 0 10px 20px;">
+          <li>Jdi na <a href="https://www.cloudmailin.com" target="_blank" rel="noopener" style="color: var(--purple);">cloudmailin.com</a></li>
+          <li>Sign up (free plan je OK - až 10 000 emailů/měsíc)</li>
+          <li>Create new inbound address → dostaneš email jako <code>abc123@cloudmailin.net</code></li>
+          <li>V Settings té adresy nastav:
+            <ul style="margin: 6px 0 6px 20px;">
+              <li>Target URL: <code id="inboxWebhookUrl" style="color: var(--green);">vložit níže</code></li>
+              <li>HTTP POST Format: <strong>JSON (Normalized)</strong></li>
+            </ul>
+          </li>
+        </ol>
+
+        <h4 style="margin-top: 20px; color: var(--purple);">Krok 2: Nastav filter v Gmailu</h4>
+        <ol style="margin: 10px 0 10px 20px;">
+          <li>Gmail → Settings (⚙️) → <strong>Filters and Blocked Addresses</strong> → Create new filter</li>
+          <li>Do pole <strong>From</strong> vlož:
+            <pre style="background: var(--bg-tertiary); padding: 8px; border-radius: 4px; margin: 6px 0; font-size: 11px; overflow-x: auto;">orders.viagogo.com OR viagogo.com OR stubhub.com OR stubhub.ie OR ticketmaster.com OR ticketmaster.cz OR eventim.cz OR ticketportal.cz</pre>
+          </li>
+          <li>Create filter → zaškrtni <strong>"Forward it to"</strong> → zadej svou CloudMailin adresu</li>
+          <li>Create filter</li>
+        </ol>
+
+        <h4 style="margin-top: 20px; color: var(--purple);">Krok 3: Hotovo!</h4>
+        <p>Od teď se všechny emaily od těchto platforem objeví automaticky v Příchozích. Ty je pak schválíš kliknutím na ✓</p>
+        
+        <div style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; padding: 10px; margin-top: 16px;">
+          <strong>💡 Tip:</strong> Když máš více Gmail účtů (nebo iCloud přesměrovaný do Gmailu), stačí nastavit filter v každém. Všechny forwarduj na stejnou CloudMailin adresu.
+        </div>
+
+        <h4 style="margin-top: 20px; color: var(--purple);">Webhook URL pro CloudMailin</h4>
+        <div class="input-with-copy">
+          <input type="text" id="inboxWebhookUrlFull" readonly style="flex: 1; font-family: monospace; font-size: 12px;">
+          <button class="btn-copy-inline" id="btnCopyWebhookUrl" title="Kopírovat">📋</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close>Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Match Ticket (for sales) -->
+  <div class="modal" id="modalInboxMatch">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 620px;">
+      <div class="modal-header">
+        <h3 id="inboxMatchTitle">Vybrat vstupenku</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div id="inboxMatchList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Payout Rules -->
+  <div class="modal" id="modalPayoutRules">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 620px;">
+      <div class="modal-header">
+        <h3>Pravidla výplat podle platformy</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary); font-size:12px; margin-bottom:14px;">
+          Pro každou platformu nastav pravidlo, kdy ti přijde výplata.
+          Aplikace sama spočítá datum výplaty podle toho data, které zvolíš.
+        </p>
+        <div id="payoutRulesList">
+          <!-- Filled dynamically -->
+        </div>
+        <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+          <button class="btn btn-dark" id="btnAddPayoutRule">+ Přidat pravidlo pro novou platformu</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zavřít</button>
+        <button class="btn btn-primary" id="btnSavePayoutRules">Uložit pravidla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Mark Payout as Paid -->
+  <div class="modal" id="modalPayoutPaid">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Označit výplatu jako přijatou</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="sell-info-banner" id="payPaidInfo"></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Datum přijetí</label>
+            <input type="date" id="payPaidDate">
+          </div>
+          <div class="form-group">
+            <label>Skutečně přijatá částka (EUR)</label>
+            <input type="number" id="payPaidAmount" step="0.01" placeholder="volitelné, pokud se liší">
+            <div class="sell-hint info">Nech prázdné pokud přišla přesná očekávaná částka</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnConfirmPayoutPaid">Potvrdit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Add/Edit Expense -->
+  <div class="modal" id="modalExpense">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="eModalTitle">Přidat výdaj</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Název *</label>
+            <input type="text" id="efName" placeholder="např. Netflix, ProtonVPN, Adobe CC" list="expenseNames">
+            <datalist id="expenseNames">
+              <option value="Netflix"></option>
+              <option value="Spotify"></option>
+              <option value="ProtonVPN"></option>
+              <option value="NordVPN"></option>
+              <option value="Adobe Creative Cloud"></option>
+              <option value="iCloud+"></option>
+              <option value="Google One"></option>
+              <option value="ChatGPT Plus"></option>
+              <option value="Claude Pro"></option>
+              <option value="GitHub Pro"></option>
+              <option value="Hosting"></option>
+              <option value="Doména"></option>
+              <option value="Microsoft 365"></option>
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label>Kategorie</label>
+            <input type="text" id="efCategory" placeholder="Software / VPN / Hosting..." list="expenseCategories">
+            <datalist id="expenseCategories">
+              <option value="Entertainment"></option>
+              <option value="VPN"></option>
+              <option value="Software"></option>
+              <option value="Hosting"></option>
+              <option value="Doména"></option>
+              <option value="Cloud"></option>
+              <option value="AI Tools"></option>
+              <option value="Vývoj"></option>
+              <option value="Design"></option>
+              <option value="Produktivita"></option>
+              <option value="Jiné"></option>
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label>Měna</label>
+            <select id="efCurrency"></select>
+          </div>
+          <div class="form-group">
+            <label>Cena *</label>
+            <input type="number" id="efPrice" step="0.01" min="0" placeholder="12.99">
+          </div>
+          <div class="form-group">
+            <label>Frekvence *</label>
+            <select id="efFrequency">
+              <option value="monthly">Měsíční</option>
+              <option value="yearly">Roční</option>
+              <option value="oneoff">Jednorázové</option>
+              <option value="custom">Vlastní (zadej dny)</option>
+            </select>
+          </div>
+          <div class="form-group" id="efCustomDaysGroup" style="display:none;">
+            <label>Počet dní pro opakování</label>
+            <input type="number" id="efCustomDays" min="1" step="1" placeholder="např. 90 (kvartálně)">
+          </div>
+          <div class="form-group">
+            <label>Následující platba *</label>
+            <input type="date" id="efNextPayment">
+          </div>
+          <div class="form-group">
+            <label>První platba</label>
+            <input type="date" id="efStartDate" title="Datum kdy ses přihlásil (volitelné)">
+          </div>
+          <div class="form-group">
+            <label>Účet / karta</label>
+            <input type="text" id="efCard" placeholder="airbank / revolut / ...">
+          </div>
+          <div class="form-group form-full">
+            <label>URL (odkaz na správu)</label>
+            <input type="url" id="efUrl" placeholder="https://netflix.com/account">
+          </div>
+          <div class="form-group form-full">
+            <label>Poznámka</label>
+            <textarea id="efNotes" rows="2" placeholder="Volitelná poznámka..."></textarea>
+          </div>
+          <div class="form-group form-full">
+            <label class="checkbox-label">
+              <input type="checkbox" id="efActive" checked>
+              <span>Aktivní (při vypnutí zůstane v historii, ale nepočítá se do měsíčních výdajů)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnSaveExpense">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Add/Edit Membership -->
+  <div class="modal" id="modalMembership">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="mModalTitle">Přidat membership</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Team *</label>
+            <input type="text" id="mfTeam" placeholder="Arsenal FC" list="teamsList">
+            <datalist id="teamsList">
+              <option value="Arsenal FC"></option>
+              <option value="Tottenham"></option>
+              <option value="Chelsea"></option>
+              <option value="Liverpool"></option>
+              <option value="Manchester United"></option>
+              <option value="Manchester City"></option>
+              <option value="Real Madrid"></option>
+              <option value="Barcelona"></option>
+              <option value="Bayern Munich"></option>
+              <option value="PSG"></option>
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label>ID Membershipu</label>
+            <input type="text" id="mfMemberId" placeholder="5757350">
+          </div>
+          <div class="form-group form-full">
+            <label>Email *</label>
+            <input type="email" id="mfEmail" placeholder="email@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>Heslo</label>
+            <div class="input-with-action">
+              <input type="password" id="mfPassword" placeholder="heslo účtu">
+              <button class="btn btn-dark btn-sm" id="mfTogglePw" type="button">👁️</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Karta</label>
+            <input type="text" id="mfCard" placeholder="airbank / 13 / 19">
+          </div>
+          <div class="form-group">
+            <label>Párování (číslo skupiny)</label>
+            <input type="number" id="mfGroup" min="0" placeholder="14" title="Účty se stejným číslem budou mít stejnou barvu">
+            <div class="group-preview" id="mfGroupPreview">
+              <span class="group-preview-label">Náhled barvy:</span>
+              <span class="group-pill" id="mfGroupPill" style="background:var(--bg-tertiary);color:var(--text-tertiary);border:1px solid var(--border)">—</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Vlastník</label>
+            <input type="text" id="mfOwner" placeholder="Tichý David">
+          </div>
+          <div class="form-group">
+            <label>Bankovní účet (BÚ)</label>
+            <input type="text" id="mfBankAccount" placeholder="2499409014/3030">
+          </div>
+          <div class="form-group">
+            <label>Telefon</label>
+            <input type="text" id="mfPhone" placeholder="703 988 459">
+          </div>
+          <div class="form-group form-full">
+            <label>URL membershipu (odkaz)</label>
+            <input type="url" id="mfUrl" placeholder="https://www.arsenal.com/my-account">
+          </div>
+
+          <div class="form-group form-full">
+            <label>Status účtu (barva emailu)</label>
+            <div class="status-radio-group">
+              <label class="status-radio">
+                <input type="radio" name="mfStatus" value="neutral" checked>
+                <span class="radio-swatch" style="background:#9999a8"></span>
+                <span>Neutrální (šedá)</span>
+              </label>
+              <label class="status-radio">
+                <input type="radio" name="mfStatus" value="green">
+                <span class="radio-swatch" style="background:#10b981"></span>
+                <span>Zelená</span>
+              </label>
+              <label class="status-radio">
+                <input type="radio" name="mfStatus" value="blue">
+                <span class="radio-swatch" style="background:#3b82f6"></span>
+                <span>Modrá</span>
+              </label>
+              <label class="status-radio">
+                <input type="radio" name="mfStatus" value="red">
+                <span class="radio-swatch" style="background:#ef4444"></span>
+                <span>Červená</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>LP (věrnostní body)</label>
+            <input type="number" id="mfLP" min="0" step="1" placeholder="např. 2450">
+          </div>
+
+          <div class="form-group form-full">
+            <label>Poznámka</label>
+            <textarea id="mfNotes" rows="2" placeholder="Volitelná poznámka..."></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnSaveMembership">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Auto-update banner — shown at top of screen when a new release is
+       available. Three states: checking (hidden), downloading (progress bar),
+       ready (restart button). Renderer shows/hides based on updater events. -->
+  <div id="updateBanner" class="update-banner" style="display:none;">
+    <div class="update-banner-body">
+      <span class="update-banner-icon">✨</span>
+      <div class="update-banner-text">
+        <div class="update-banner-title" id="updateBannerTitle">Kontrola aktualizací...</div>
+        <div class="update-banner-subtitle" id="updateBannerSubtitle"></div>
+      </div>
+      <div class="update-banner-progress" id="updateBannerProgress" style="display:none;">
+        <div class="update-banner-progress-bar" id="updateBannerProgressBar"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btnUpdateInstall" style="display:none;">
+        Restartovat a nainstalovat
+      </button>
+      <button class="update-banner-close" id="btnUpdateDismiss" title="Skrýt">✕</button>
+    </div>
+  </div>
+
+  <!-- Country autocomplete — populated from a single source of truth in app.js
+       so Czech + English names are searchable. Options inserted at DOM load. -->
+  <datalist id="countryList"></datalist>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
