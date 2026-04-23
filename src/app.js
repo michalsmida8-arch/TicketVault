@@ -1745,7 +1745,14 @@ function renderTickets() {
         <td>${escapeHtml(t.venue || '—')}</td>
         <td>${escapeHtml([t.section, t.row].filter(Boolean).join(', ') || '—')}</td>
         <td>${escapeHtml(t.account || '—')}</td>
-        <td>${escapeHtml(t.platform || '—')}</td>
+        <td>${(() => {
+          const purchase = t.purchasePlatform;
+          const sale = t.platform;
+          if (purchase && sale && purchase !== sale) {
+            return `<span class="platform-pair" title="Nákup → Prodej">${escapeHtml(purchase)} <span class="platform-arrow">→</span> ${escapeHtml(sale)}</span>`;
+          }
+          return escapeHtml(sale || purchase || '—');
+        })()}</td>
         <td>${t.quantity || 1}</td>
         <td><span class="status-pill status-${t.status || 'available'}">${statusLabel}</span></td>
         <td title="${(Number(t.quantity) || 1) > 1 ? 'Cena za 1 ks: ' + formatMoney(t.purchasePrice, ticketCurrency(t)) : ''}">${formatMoney(calcCost(t), ticketCurrency(t))}${(Number(t.quantity) || 1) > 1 ? ` <span class="per-ks">(${formatMoney(t.purchasePrice, ticketCurrency(t))}/ks)</span>` : ''}</td>
@@ -4526,6 +4533,7 @@ function openTicketModal(ticket = null) {
   $('#fSeat').value = ticket?.seat || '';
   $('#fQuantity').value = ticket?.quantity || 1;
   $('#fAccount').value = ticket?.account || '';
+  $('#fPurchasePlatform').value = ticket?.purchasePlatform || '';
   $('#fPlatform').value = ticket?.platform || 'Stubhub';
   $('#fStatus').value = ticket?.status || 'available';
   $('#fPurchasePrice').value = ticket?.purchasePrice || '';
@@ -4812,6 +4820,7 @@ async function saveTicket() {
     seat: $('#fSeat').value.trim(),
     quantity: parseInt($('#fQuantity').value) || 1,
     account: $('#fAccount').value.trim(),
+    purchasePlatform: $('#fPurchasePlatform')?.value || '',
     platform: $('#fPlatform').value,
     status: $('#fStatus').value,
     purchasePrice: parseFloat($('#fPurchasePrice').value) || 0,
@@ -5871,10 +5880,14 @@ function setupAutoUpdater() {
     // App quits shortly after; no need to do more.
   });
 
-  // Settings page — current version display + manual check button.
+  // Settings page — current version display + login-poster version footer.
+  // Both read from package.json via app.getVersion(), so bumping the version
+  // in package.json automatically updates everywhere.
   window.api.getAppVersion().then(v => {
     const el = $('#appVersionDisplay');
     if (el) el.textContent = 'v' + v;
+    const posterEl = $('#authPosterVersion');
+    if (posterEl) posterEl.textContent = 'VERSION ' + v;
   });
 
   $('#btnCheckForUpdates')?.addEventListener('click', async () => {

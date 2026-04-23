@@ -72,7 +72,7 @@
         </div>
 
         <div class="auth-poster-foot">
-          <span>VERSION 1.1.0</span>
+          <span id="authPosterVersion">VERSION 1.1.0</span>
           <span>EST. 2026</span>
           <span>NO.0001</span>
         </div>
@@ -352,7 +352,7 @@
             <div class="stat-value loss" id="statSpent">0,00 EUR</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">REVENUE</div>
+            <div class="stat-label">CELKOVÝ OBRAT</div>
             <div class="stat-value revenue" id="statRevenue">0,00 EUR</div>
           </div>
           <div class="stat-card">
@@ -1229,11 +1229,39 @@
             <input type="text" id="fAccount" placeholder="email@example.com">
           </div>
           <div class="form-group">
-            <label>Platforma</label>
+            <label>Platforma nákupu</label>
+            <select id="fPurchasePlatform">
+              <option value="">— Nezadáno —</option>
+              <option value="Ticketmaster">Ticketmaster</option>
+              <option value="SeeTickets">See Tickets</option>
+              <option value="GigsAndTours">Gigs and Tours</option>
+              <option value="AXS">AXS</option>
+              <option value="Eventim">Eventim</option>
+              <option value="Ticketone">TicketOne</option>
+              <option value="Entradas">Entradas.com</option>
+              <option value="MEOBlueticket">MEO Blueticket</option>
+              <option value="Ticketportal">Ticketportal</option>
+              <option value="Stubhub">Stubhub</option>
+              <option value="Viagogo">Viagogo</option>
+              <option value="Seatgeek">Seatgeek</option>
+              <option value="Vivid">Vivid Seats</option>
+              <option value="Other">Jiná</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Platforma prodeje</label>
             <select id="fPlatform">
               <option value="Stubhub">Stubhub</option>
               <option value="Viagogo">Viagogo</option>
               <option value="Ticketmaster">Ticketmaster</option>
+              <option value="SeeTickets">See Tickets</option>
+              <option value="GigsAndTours">Gigs and Tours</option>
+              <option value="AXS">AXS</option>
+              <option value="Eventim">Eventim</option>
+              <option value="Ticketone">TicketOne</option>
+              <option value="Entradas">Entradas.com</option>
+              <option value="MEOBlueticket">MEO Blueticket</option>
+              <option value="Ticketportal">Ticketportal</option>
               <option value="Seatgeek">Seatgeek</option>
               <option value="Vivid">Vivid Seats</option>
               <option value="Other">Jiná</option>

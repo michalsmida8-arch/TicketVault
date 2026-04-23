@@ -3939,3 +3939,18 @@ tr:hover .copy-btn {
   font-size: 13px;
   word-break: break-all;
 }
+
+/* Platform pair (purchase → sale) shown when a ticket has both
+   purchasePlatform and platform set and they differ. */
+.platform-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.platform-arrow {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 11px;
+}
