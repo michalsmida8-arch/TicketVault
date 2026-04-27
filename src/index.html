@@ -19,6 +19,17 @@
       }
       document.documentElement.setAttribute('data-theme', theme);
     })();
+    // Privacy mode bootstrap — apply class BEFORE body renders so numbers
+    // never flash visible during page load. Class moves to <body> on
+    // DOMContentLoaded since the body element doesn't exist yet here.
+    (function() {
+      if (localStorage.getItem('privacyMode') === '1') {
+        document.documentElement.setAttribute('data-privacy', '1');
+        document.addEventListener('DOMContentLoaded', function() {
+          document.body.classList.add('privacy-mode');
+        });
+      }
+    })();
   </script>
 </head>
 <body>
@@ -185,6 +196,19 @@
             </svg>
             <svg class="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+          <!-- Privacy mode toggle — blurs all sensitive numbers across the
+               app (dashboard tiles, table cells, statistics). Useful when
+               working in public spaces. Also bound to Ctrl+Shift+H. -->
+          <button class="theme-toggle" id="btnPrivacyToggle" title="Soukromý režim (Ctrl+Shift+H)" aria-label="Přepnout soukromý režim">
+            <svg class="privacy-icon-show" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg class="privacy-icon-hide" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
             </svg>
           </button>
         </div>
@@ -1411,10 +1435,6 @@
             </div>
             <input type="number" id="fPurchasePrice" step="0.01" placeholder="89.61">
             <div class="sell-hint" id="fPurchasePriceHint"></div>
-          </div>
-          <div class="form-group">
-            <label>Datum nákupu</label>
-            <input type="date" id="fPurchaseDate">
           </div>
           <div class="form-group">
             <label>Datum nákupu</label>
