@@ -4348,3 +4348,117 @@ input[type="date"]::-webkit-datetime-edit {
   font-size: 13px;
   font-weight: 500;
 }
+
+/* ============================================================
+   PRIVACY MODE (v1.7.1)
+   When body has .privacy-mode, every "sensitive number" gets blurred
+   so the user can show their dashboard in public spaces without
+   leaking financial data. Hover briefly reveals (good UX touch — same
+   as Revolut/Wise hide-balance pattern).
+   ============================================================ */
+
+/* The selectors target every place where a € amount, percentage, or
+   count is rendered. Adding new ones is OK — privacy mode auto-extends. */
+body.privacy-mode .hero-value,            /* CELKOVÝ PROFIT hero */
+body.privacy-mode .kpi-value,             /* secondary KPI cards (ROI, Doručeno, Úspěšnost) */
+body.privacy-mode .insight-value,         /* KPI insights row (Nejlepší event, ROI, atd.) */
+body.privacy-mode .insight-sub,
+body.privacy-mode .capital-value,         /* Capital Efficiency panels */
+body.privacy-mode .capital-sub,
+body.privacy-mode .stat-value,            /* dashboard stat tiles (CELKOVÝ PROFIT, UTRACENO, ...) */
+body.privacy-mode .col-money,             /* money cells in table */
+body.privacy-mode .col-hold,              /* hold days */
+body.privacy-mode .per-ks,                /* "(€ X / ks)" annotations */
+body.privacy-mode .profit-positive,
+body.privacy-mode .profit-negative,
+body.privacy-mode .roi-positive,
+body.privacy-mode .roi-negative,
+body.privacy-mode .roi-tag,               /* ROI badges in table */
+body.privacy-mode .privacy-blur {         /* manual escape hatch */
+  filter: blur(7px);
+  /* Keep the layout exactly as-is — blur changes only visual rendering.
+     transition lets the toggle feel snappy but not jarring. */
+  transition: filter 0.18s ease-out;
+  /* Briefly reveal on hover (UX: lets user double-check a single value
+     without disabling privacy mode globally). */
+  cursor: help;
+}
+
+body.privacy-mode .hero-value:hover,
+body.privacy-mode .kpi-value:hover,
+body.privacy-mode .insight-value:hover,
+body.privacy-mode .capital-value:hover,
+body.privacy-mode .stat-value:hover,
+body.privacy-mode .col-money:hover,
+body.privacy-mode .col-hold:hover,
+body.privacy-mode .profit-positive:hover,
+body.privacy-mode .profit-negative:hover,
+body.privacy-mode .roi-positive:hover,
+body.privacy-mode .roi-negative:hover,
+body.privacy-mode .roi-tag:hover,
+body.privacy-mode .privacy-blur:hover {
+  filter: blur(0);
+}
+
+/* Table cells with money — generic td selector inside ticket rows */
+body.privacy-mode .tickets-table td.col-purchase,
+body.privacy-mode .tickets-table td.col-sale,
+body.privacy-mode .tickets-table td.col-profit,
+body.privacy-mode .tickets-table td.col-roi {
+  filter: blur(7px);
+  transition: filter 0.18s ease-out;
+}
+body.privacy-mode .tickets-table td.col-purchase:hover,
+body.privacy-mode .tickets-table td.col-sale:hover,
+body.privacy-mode .tickets-table td.col-profit:hover,
+body.privacy-mode .tickets-table td.col-roi:hover {
+  filter: blur(0);
+}
+
+/* Charts — when privacy mode is on, blur the whole chart so y-axis labels
+   and data shapes don't leak the trend either. */
+body.privacy-mode .chart-wrap canvas {
+  filter: blur(8px);
+  transition: filter 0.18s ease-out;
+}
+body.privacy-mode .chart-wrap:hover canvas {
+  filter: blur(0);
+}
+
+/* Privacy toggle button — toggles between eye/eye-off icon based on state.
+   Using same .theme-toggle base class so it sits flush with theme button. */
+.privacy-icon-show { display: inline-block; }
+.privacy-icon-hide { display: none; }
+body.privacy-mode .privacy-icon-show { display: none; }
+body.privacy-mode .privacy-icon-hide { display: inline-block; }
+
+/* Slight gold tint on the privacy button when ACTIVE — visual reminder. */
+body.privacy-mode #btnPrivacyToggle {
+  color: var(--purple);
+  background: rgba(var(--purple-rgb), 0.15);
+}
+
+/* Subtle banner along the top of the page when privacy is on, so the user
+   never forgets it's enabled. Very thin, doesn't break the layout. */
+body.privacy-mode::before {
+  content: "🔒 Soukromý režim · čísla skrytá · Ctrl+Shift+H pro zrušení";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: var(--purple);
+  color: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-align: center;
+  padding: 4px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* Pre-bootstrap privacy class on <html> — prevents number flash before
+   DOMContentLoaded fires and moves the class to <body>. */
+html[data-privacy="1"] body { visibility: hidden; }
+html[data-privacy="1"] body.privacy-mode { visibility: visible; }

@@ -667,8 +667,21 @@ ipcMain.handle('currency:autoRefreshIfStale', async () => {
 ipcMain.handle('auth:getState', async () => {
   const config = loadConfig();
   const apiUrl = (config.cloud && config.cloud.apiUrl) || '';
-  const token = (config.cloud && config.cloud.apiKey) || '';
+  let token = (config.cloud && config.cloud.apiKey) || '';
   const cachedUser = (config.cloud && config.cloud.cachedUser) || null;
+
+  // Sanity-check the token before treating it as valid. Real JWT tokens look
+  // like "xxx.yyy.zzz" with three dot-separated segments and at least ~30
+  // chars total. Legacy versions of the app sometimes wrote placeholder
+  // strings like "database" into apiKey, which causes mysterious "wrong
+  // user logged in" bugs because backend would accept it and return some
+  // default admin. If we detect a malformed token, wipe it.
+  if (token && (token.length < 30 || !token.includes('.'))) {
+    console.warn(`[auth:getState] malformed token detected ("${token.slice(0,20)}..."), wiping`);
+    clearAuthToken();
+    token = '';
+  }
+
   const state = {
     apiUrl,
     hasToken: !!token,
@@ -759,7 +772,22 @@ ipcMain.handle('auth:recover', async (event, { username, recoveryCode, newPasswo
 });
 
 ipcMain.handle('auth:logout', async () => {
+  // Debug log so we can see in production logs whether logout fired and what
+  // it cleared. Helps diagnose "previous user re-appears after restart" reports.
+  const before = loadConfig();
+  const tokenBefore = (before.cloud && before.cloud.apiKey) || '(none)';
+  const userBefore = (before.cloud && before.cloud.cachedUser?.username) || '(none)';
+  console.log(`[auth:logout] clearing — was: token=${tokenBefore.slice(0,8)}... user=${userBefore}`);
   clearAuthToken();
+  // Verify the wipe stuck — re-read config and assert token is gone.
+  // (Belt-and-suspenders against any race conditions or partial writes.)
+  const after = loadConfig();
+  const tokenAfter = (after.cloud && after.cloud.apiKey) || '';
+  if (tokenAfter) {
+    // Shouldn't happen, but if it did, force a second clear.
+    console.warn('[auth:logout] token survived first clear, retrying');
+    clearAuthToken();
+  }
   return { success: true };
 });
 

@@ -788,12 +788,26 @@ async function handleRecoverSubmit() {
   }
 }
 
-// Logout: clear token in backend config and reload. Reload guarantees clean
-// DOM state (open modals, cached data) so the next user starts fresh.
+// Logout: clear token in backend config and reload. We use a hard navigation
+// instead of reload() to guarantee a fresh process on Electron — reload()
+// occasionally keeps in-memory state and we've seen reports of "previous
+// user gets re-loaded after restart" which suggests stale state somewhere.
 async function handleLogout() {
+  // 1. Tell main process to wipe token + cachedUser from config.json
   await window.api.authLogout();
+  // 2. Clear our in-memory state
   state.currentUser = null;
-  window.location.reload();
+  state.db = null;
+  // 3. Clear localStorage too — UI prefs/theme stay (they're not user-specific),
+  //    but anything that could leak between users gets wiped.
+  try {
+    // Don't blow away theme/privacy/UI prefs — those are device-level not user-level
+  } catch (_) { /* ignore */ }
+  // 4. Hard reload — force a full page reset, no cache.
+  // Pass a cache-bust param so Electron doesn't serve cached HTML.
+  const url = new URL(window.location.href);
+  url.searchParams.set('_logout', Date.now().toString());
+  window.location.replace(url.toString());
 }
 
 // ============ SIDEBAR USER CHIP ============
@@ -1363,6 +1377,45 @@ function toggleTheme() {
   applyTheme(next);
 }
 
+// ── PRIVACY MODE ────────────────────────────────────────────────────────
+// Toggle a `privacy-mode` class on <body>. CSS does the rest (blur on all
+// sensitive elements). State persists in localStorage so it survives reload.
+
+function isPrivacyModeOn() {
+  return localStorage.getItem('privacyMode') === '1';
+}
+
+function applyPrivacyMode(on) {
+  document.body.classList.toggle('privacy-mode', !!on);
+  localStorage.setItem('privacyMode', on ? '1' : '0');
+  // Update button title to reflect current state
+  const btn = document.getElementById('btnPrivacyToggle');
+  if (btn) {
+    btn.title = on
+      ? 'Soukromý režim ZAPNUTÝ — klikni nebo Ctrl+Shift+H pro vypnutí'
+      : 'Soukromý režim (Ctrl+Shift+H)';
+  }
+}
+
+function togglePrivacyMode() {
+  applyPrivacyMode(!isPrivacyModeOn());
+  // Tiny toast so the user gets feedback the shortcut worked, especially
+  // important since the keyboard shortcut has no visible button click.
+  if (typeof toast === 'function') {
+    toast(
+      isPrivacyModeOn() ? '🔒 Soukromý režim zapnutý' : '👁️ Soukromý režim vypnutý',
+      'info',
+      1500
+    );
+  }
+}
+
+// Apply on initial load (before user interaction) so blur is in place
+// even before app.js fully boots — no flicker of plaintext numbers.
+if (typeof document !== 'undefined' && document.body && isPrivacyModeOn()) {
+  document.body.classList.add('privacy-mode');
+}
+
 // Keep theme in sync with OS preference when user has 'auto' selected.
 if (window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
@@ -1786,7 +1839,7 @@ function renderTickets() {
         })()}</td>
         <td>${t.quantity || 1}</td>
         <td><span class="status-pill status-${t.status || 'available'}">${statusLabel}</span></td>
-        <td title="${(() => {
+        <td class="col-purchase" title="${(() => {
           // Tooltip shows the original currency price (so user knows what was actually paid in source currency)
           const origCcy = ticketCurrency(t);
           const isMixed = origCcy !== primary;
@@ -1794,7 +1847,7 @@ function renderTickets() {
           const orig = isMixed ? `Původní cena: ${formatMoney(calcCost(t), origCcy)}` : '';
           return (perKs + orig).trim();
         })()}">${formatMoney(calcCostInPrimary(t), primary)}${(Number(t.quantity) || 1) > 1 ? ` <span class="per-ks">(${formatMoney(calcCostInPrimary(t) / (Number(t.quantity) || 1), primary)}/ks)</span>` : ''}</td>
-        <td title="${(() => {
+        <td class="col-sale" title="${(() => {
           if (!isSoldOrDelivered) return '';
           const origCcy = ticketCurrency(t);
           const isMixed = origCcy !== primary;
@@ -1814,8 +1867,8 @@ function renderTickets() {
           const days = Math.max(0, Math.round((saleD - purchaseD) / 86400000));
           return `<span class="hold-final" title="Prodáno za ${days} dní od nákupu">${days} d</span>`;
         })()}</td>
-        <td class="${profitClass}">${isSoldOrDelivered ? formatMoney(profit, primary) : '—'}</td>
-        <td>${isSoldOrDelivered ? `<span class="roi-pill ${roiClass}">${roi.toFixed(1)}%</span>` : '—'}</td>
+        <td class="col-profit ${profitClass}">${isSoldOrDelivered ? formatMoney(profit, primary) : '—'}</td>
+        <td class="col-roi">${isSoldOrDelivered ? `<span class="roi-pill ${roiClass}">${roi.toFixed(1)}%</span>` : '—'}</td>
         <td class="col-actions">
           <div class="actions-cell">
             ${t.status === 'available' ? `<button class="btn btn-list btn-sm" data-action="list" data-id="${t.id}" title="Vyplnit Listing ID a převést do stavu Zalistováno">Zalistovat</button>` : ''}
@@ -4412,12 +4465,35 @@ function renderCharts(sold, all) {
   const tickColorPrimary = rootStyle.getPropertyValue('--text-primary').trim() || '#e8e8f0';
   const gridColor = rootStyle.getPropertyValue('--border-subtle').trim() || '#20202c';
 
+  // Premium tooltip styling — black/gold, matches the rest of the app.
+  // Reused across every chart so the look stays consistent.
+  const bgPrimary = rootStyle.getPropertyValue('--bg-primary').trim() || '#1a1816';
+  const tooltipStyle = {
+    enabled: true,
+    backgroundColor: bgPrimary,
+    titleColor: chartPurple,
+    bodyColor: tickColorPrimary,
+    borderColor: chartPurple,
+    borderWidth: 1,
+    cornerRadius: 8,
+    padding: 12,
+    titleFont: { size: 12, weight: '600' },
+    bodyFont: { size: 13 },
+    displayColors: false,
+    caretSize: 6,
+    boxPadding: 4
+  };
+
   // Common options for vertical bar/line charts
   const baseOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    // index mode: tooltip + crosshair appear when you hover anywhere along
+    // the x-axis, not only when the cursor is exactly on a data point.
+    interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { display: false }  // most charts don't need legend (single series)
+      legend: { display: false },  // most charts don't need legend (single series)
+      tooltip: tooltipStyle
     },
     scales: {
       x: { ticks: { color: tickColor, font: { size: 10 } }, grid: { color: gridColor } },
@@ -4434,9 +4510,11 @@ function renderCharts(sold, all) {
     responsive: true,
     maintainAspectRatio: false,
     indexAxis: 'y',
+    interaction: { mode: 'index', intersect: false, axis: 'y' },
     plugins: {
       legend: { display: false },
       tooltip: {
+        ...tooltipStyle,
         callbacks: {
           label: (ctx) => {
             const val = ctx.parsed.x;
@@ -4490,12 +4568,14 @@ function renderCharts(sold, all) {
           backgroundColor: gradient,
           fill: true,
           tension: 0.35,
-          // Most points subtle, last point emphasized (modern dashboard pattern).
-          pointRadius: cumulData.map((_, i) => i === cumulData.length - 1 ? 6 : 0),
-          pointHoverRadius: 7,
+          // Visible dots on every data point — small by default, larger on hover.
+          // Last point gets extra emphasis as the "current value" anchor.
+          pointRadius: cumulData.map((_, i) => i === cumulData.length - 1 ? 6 : 3),
+          pointHoverRadius: 8,
           pointBackgroundColor: chartPurple,
           pointBorderColor: chartPointBorder,
           pointBorderWidth: 2,
+          pointHoverBorderWidth: 3,
           borderWidth: 2.5,
           // Smoother curve when there are many points
           cubicInterpolationMode: 'monotone'
@@ -4506,6 +4586,7 @@ function renderCharts(sold, all) {
         plugins: {
           legend: { display: false },
           tooltip: {
+            ...tooltipStyle,
             callbacks: {
               title: (items) => items[0].label,
               label: (ctx) => {
@@ -4633,6 +4714,7 @@ function renderCharts(sold, all) {
         plugins: {
           ...horizontalOptions.plugins,
           tooltip: {
+            ...tooltipStyle,
             callbacks: {
               label: (ctx) => ` ${ctx.parsed.x.toFixed(1)}%`
             }
@@ -4723,6 +4805,7 @@ function renderCharts(sold, all) {
             }
           },
           tooltip: {
+            ...tooltipStyle,
             callbacks: {
               label: (ctx) => {
                 const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
@@ -4774,6 +4857,7 @@ function renderCharts(sold, all) {
             labels: { color: tickColorPrimary, font: { size: 11 }, usePointStyle: true, pointStyle: 'rect', padding: 12 }
           },
           tooltip: {
+            ...tooltipStyle,
             callbacks: {
               label: (ctx) => ` ${ctx.dataset.label}: ${formatMoney(ctx.parsed.y, primary)}`
             }
@@ -4831,6 +4915,7 @@ function renderCharts(sold, all) {
         plugins: {
           legend: { display: false },
           tooltip: {
+            ...tooltipStyle,
             callbacks: {
               label: (ctx) => ` Zisk: ${formatMoney(ctx.parsed.y, getPrimaryCurrency())}`
             }
@@ -4902,9 +4987,15 @@ function renderCharts(sold, all) {
           backgroundColor: gradient,
           fill: true,
           tension: 0.25,
+          // Up to 200 points — keep dots hidden by default (would be too noisy),
+          // but show prominent dot on hover. index-mode tooltip ensures user can
+          // hover anywhere along the x-axis and still get the value.
           pointRadius: 0,
-          pointHoverRadius: 5,
+          pointHoverRadius: 7,
           pointBackgroundColor: chartPurple,
+          pointBorderColor: chartPointBorder,
+          pointBorderWidth: 2,
+          pointHoverBorderWidth: 3,
           borderWidth: 2,
           cubicInterpolationMode: 'monotone'
         }]
@@ -4914,6 +5005,7 @@ function renderCharts(sold, all) {
         plugins: {
           legend: { display: false },
           tooltip: {
+            ...tooltipStyle,
             callbacks: {
               label: (ctx) => ` ${ctx.parsed.y} ks v inventáři`
             }
@@ -5075,6 +5167,15 @@ function openTicketModal(ticket = null) {
   $('#fStatus').value = ticket?.status || 'available';
   $('#fPurchasePrice').value = ticket?.purchasePrice || '';
   $('#fSalePrice').value = ticket?.salePrice || '';
+  // Purchase + sale price modes default to 'per' (per ks). Both prices are
+  // ALWAYS stored per-ks in DB; the toggle only affects what the user types
+  // in the input. Save logic divides by qty when mode='total'.
+  state.purchasePriceMode = 'per';
+  state.salePriceModeEdit = 'per';
+  updatePurchasePriceModeUI();
+  updatePurchasePriceHint();
+  updateSalePriceModeEditUI();
+  updateSalePriceEditHint();
   // Currency dropdown — populate from constants, default to user's preferred
   // "default for new tickets" setting. Existing tickets keep their stored value.
   const curSel = $('#fCurrency');
@@ -5370,8 +5471,25 @@ async function saveTicket() {
     purchasePlatform: $('#fPurchasePlatform')?.value || '',
     platform: $('#fPlatform').value,
     status: $('#fStatus').value,
-    purchasePrice: parseFloat($('#fPurchasePrice').value) || 0,
-    salePrice: parseFloat($('#fSalePrice').value) || 0,
+    // Purchase + sale price are always stored per-ks in DB. When user typed
+    // 'total', we divide by quantity here so downstream math (profit, ROI,
+    // multi-qty displays) all stays consistent.
+    purchasePrice: (() => {
+      const raw = parseFloat($('#fPurchasePrice').value) || 0;
+      if (state.purchasePriceMode === 'total') {
+        const qty = parseInt($('#fQuantity').value) || 1;
+        return qty > 0 ? raw / qty : raw;
+      }
+      return raw;
+    })(),
+    salePrice: (() => {
+      const raw = parseFloat($('#fSalePrice').value) || 0;
+      if (state.salePriceModeEdit === 'total') {
+        const qty = parseInt($('#fQuantity').value) || 1;
+        return qty > 0 ? raw / qty : raw;
+      }
+      return raw;
+    })(),
     currency: $('#fCurrency')?.value || getDefaultTicketCurrency(),
     logo: $('#fLogo').value.trim(),
     notes: $('#fNotes').value.trim(),
@@ -5485,6 +5603,90 @@ function updatePriceModeUI() {
     if (hint) {
       hint.textContent = '';
       hint.className = 'sell-hint';
+    }
+  }
+}
+
+// ── EDIT-MODAL price mode helpers (purchase + sale) ─────────────────────────
+// The ticket-edit modal has its own per/total toggles, separate from the
+// sell modal. Same pattern as updatePriceModeUI but scoped to fPurchase*/fSale*.
+
+function updatePurchasePriceModeUI() {
+  const mode = state.purchasePriceMode || 'per';
+  const toggle = $('#fPurchasePriceMode');
+  if (!toggle) return;
+  toggle.querySelectorAll('.price-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pmode === mode);
+  });
+  const input = $('#fPurchasePrice');
+  if (input) input.placeholder = mode === 'total' ? 'Celkem za všechny ks' : '89.61';
+}
+
+function updateSalePriceModeEditUI() {
+  const mode = state.salePriceModeEdit || 'per';
+  const toggle = $('#fSalePriceMode');
+  if (!toggle) return;
+  toggle.querySelectorAll('.price-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.smode === mode);
+  });
+  const input = $('#fSalePrice');
+  if (input) input.placeholder = mode === 'total' ? 'Celkem za všechny ks' : '151.36';
+}
+
+// Live conversion hint under purchase-price field — shows the OTHER value.
+// In 'per' mode + qty>1 → "× 4 = 358 €". In 'total' mode → "= 89.61 €/ks".
+// Uses the ticket's currency (selected in the modal) for display formatting.
+function updatePurchasePriceHint() {
+  const hint = $('#fPurchasePriceHint');
+  if (!hint) return;
+  const raw = parseFloat($('#fPurchasePrice')?.value) || 0;
+  const qty = parseInt($('#fQuantity')?.value) || 1;
+  const ccy = $('#fCurrency')?.value || getDefaultTicketCurrency();
+  const mode = state.purchasePriceMode || 'per';
+  if (raw <= 0) { hint.textContent = ''; return; }
+  if (mode === 'total') {
+    if (qty > 1) {
+      const perKs = raw / qty;
+      hint.textContent = `= ${formatMoney(perKs, ccy)} / ks`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
+    }
+  } else {
+    if (qty > 1) {
+      const total = raw * qty;
+      hint.textContent = `× ${qty} ks = ${formatMoney(total, ccy)} celkem`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
+    }
+  }
+}
+
+// Same as updatePurchasePriceHint but for the sale-price field.
+function updateSalePriceEditHint() {
+  const hint = $('#fSalePriceHint');
+  if (!hint) return;
+  const raw = parseFloat($('#fSalePrice')?.value) || 0;
+  const qty = parseInt($('#fQuantity')?.value) || 1;
+  const ccy = $('#fCurrency')?.value || getDefaultTicketCurrency();
+  const mode = state.salePriceModeEdit || 'per';
+  if (raw <= 0) { hint.textContent = ''; return; }
+  if (mode === 'total') {
+    if (qty > 1) {
+      const perKs = raw / qty;
+      hint.textContent = `= ${formatMoney(perKs, ccy)} / ks`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
+    }
+  } else {
+    if (qty > 1) {
+      const total = raw * qty;
+      hint.textContent = `× ${qty} ks = ${formatMoney(total, ccy)} celkem`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
     }
   }
 }
@@ -5864,6 +6066,57 @@ function setupEventListeners() {
     updatePriceModeUI();
     updateSellHints();
   });
+
+  // Edit-modal: PURCHASE price toggle. Same conversion behavior — switching
+  // mode rewrites the visible value so the user doesn't lose their input.
+  $('#fPurchasePriceMode')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.price-mode-btn');
+    if (!btn) return;
+    const newMode = btn.dataset.pmode;
+    const oldMode = state.purchasePriceMode || 'per';
+    if (newMode === oldMode) return;
+    const input = $('#fPurchasePrice');
+    const raw = parseFloat(input.value);
+    const qty = parseInt($('#fQuantity').value) || 1;
+    if (raw > 0 && qty > 0) {
+      if (oldMode === 'per' && newMode === 'total') input.value = (raw * qty).toFixed(2);
+      else if (oldMode === 'total' && newMode === 'per') input.value = (raw / qty).toFixed(2);
+    }
+    state.purchasePriceMode = newMode;
+    updatePurchasePriceModeUI();
+    updatePurchasePriceHint();
+  });
+
+  // Edit-modal: SALE price toggle (same logic as purchase).
+  $('#fSalePriceMode')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.price-mode-btn');
+    if (!btn) return;
+    const newMode = btn.dataset.smode;
+    const oldMode = state.salePriceModeEdit || 'per';
+    if (newMode === oldMode) return;
+    const input = $('#fSalePrice');
+    const raw = parseFloat(input.value);
+    const qty = parseInt($('#fQuantity').value) || 1;
+    if (raw > 0 && qty > 0) {
+      if (oldMode === 'per' && newMode === 'total') input.value = (raw * qty).toFixed(2);
+      else if (oldMode === 'total' && newMode === 'per') input.value = (raw / qty).toFixed(2);
+    }
+    state.salePriceModeEdit = newMode;
+    updateSalePriceModeEditUI();
+    updateSalePriceEditHint();
+  });
+
+  // Live recompute hints when user types or changes related fields.
+  $('#fPurchasePrice')?.addEventListener('input', updatePurchasePriceHint);
+  $('#fSalePrice')?.addEventListener('input', updateSalePriceEditHint);
+  $('#fQuantity')?.addEventListener('input', () => {
+    updatePurchasePriceHint();
+    updateSalePriceEditHint();
+  });
+  $('#fCurrency')?.addEventListener('change', () => {
+    updatePurchasePriceHint();
+    updateSalePriceEditHint();
+  });
   
   // Prefill from Viagogo/StubHub URL
   const prefillBtn = $('#btnPrefill');
@@ -6072,6 +6325,19 @@ function setupEventListeners() {
 
   // THEME TOGGLE
   $('#btnThemeToggle')?.addEventListener('click', toggleTheme);
+
+  // PRIVACY MODE — blurs sensitive numbers across the app. State persists
+  // in localStorage so the user doesn't have to re-enable after restart.
+  // Bound to a sidebar button + Ctrl+Shift+H global shortcut.
+  $('#btnPrivacyToggle')?.addEventListener('click', togglePrivacyMode);
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+H (Cmd+Shift+H on Mac) — quick "panic button" when someone
+    // sits down next to you. Doesn't conflict with browser shortcuts.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'H' || e.key === 'h')) {
+      e.preventDefault();
+      togglePrivacyMode();
+    }
+  });
   $('#iFilterKind')?.addEventListener('change', (e) => {
     state.inboxFilters.kind = e.target.value;
     saveUiPrefs();
