@@ -1405,7 +1405,16 @@
           </div>
           <div class="form-group">
             <label>Nákupní cena</label>
+            <div class="price-mode-toggle" id="fPurchasePriceMode" role="tablist" aria-label="Způsob zadání nákupní ceny">
+              <button type="button" class="price-mode-btn active" data-pmode="per" role="tab">Za 1 ks</button>
+              <button type="button" class="price-mode-btn" data-pmode="total" role="tab">Celkem</button>
+            </div>
             <input type="number" id="fPurchasePrice" step="0.01" placeholder="89.61">
+            <div class="sell-hint" id="fPurchasePriceHint"></div>
+          </div>
+          <div class="form-group">
+            <label>Datum nákupu</label>
+            <input type="date" id="fPurchaseDate">
           </div>
           <div class="form-group">
             <label>Datum nákupu</label>
@@ -1413,7 +1422,12 @@
           </div>
           <div class="form-group">
             <label>Prodejní cena</label>
+            <div class="price-mode-toggle" id="fSalePriceMode" role="tablist" aria-label="Způsob zadání prodejní ceny">
+              <button type="button" class="price-mode-btn active" data-smode="per" role="tab">Za 1 ks</button>
+              <button type="button" class="price-mode-btn" data-smode="total" role="tab">Celkem</button>
+            </div>
             <input type="number" id="fSalePrice" step="0.01" placeholder="151.36">
+            <div class="sell-hint" id="fSalePriceHint"></div>
           </div>
           <div class="form-group form-full">
             <label>Logo eventu (URL obrázku - volitelné)</label>

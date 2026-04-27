@@ -5075,6 +5075,15 @@ function openTicketModal(ticket = null) {
   $('#fStatus').value = ticket?.status || 'available';
   $('#fPurchasePrice').value = ticket?.purchasePrice || '';
   $('#fSalePrice').value = ticket?.salePrice || '';
+  // Purchase + sale price modes default to 'per' (per ks). Both prices are
+  // ALWAYS stored per-ks in DB; the toggle only affects what the user types
+  // in the input. Save logic divides by qty when mode='total'.
+  state.purchasePriceMode = 'per';
+  state.salePriceModeEdit = 'per';
+  updatePurchasePriceModeUI();
+  updatePurchasePriceHint();
+  updateSalePriceModeEditUI();
+  updateSalePriceEditHint();
   // Currency dropdown — populate from constants, default to user's preferred
   // "default for new tickets" setting. Existing tickets keep their stored value.
   const curSel = $('#fCurrency');
@@ -5370,8 +5379,25 @@ async function saveTicket() {
     purchasePlatform: $('#fPurchasePlatform')?.value || '',
     platform: $('#fPlatform').value,
     status: $('#fStatus').value,
-    purchasePrice: parseFloat($('#fPurchasePrice').value) || 0,
-    salePrice: parseFloat($('#fSalePrice').value) || 0,
+    // Purchase + sale price are always stored per-ks in DB. When user typed
+    // 'total', we divide by quantity here so downstream math (profit, ROI,
+    // multi-qty displays) all stays consistent.
+    purchasePrice: (() => {
+      const raw = parseFloat($('#fPurchasePrice').value) || 0;
+      if (state.purchasePriceMode === 'total') {
+        const qty = parseInt($('#fQuantity').value) || 1;
+        return qty > 0 ? raw / qty : raw;
+      }
+      return raw;
+    })(),
+    salePrice: (() => {
+      const raw = parseFloat($('#fSalePrice').value) || 0;
+      if (state.salePriceModeEdit === 'total') {
+        const qty = parseInt($('#fQuantity').value) || 1;
+        return qty > 0 ? raw / qty : raw;
+      }
+      return raw;
+    })(),
     currency: $('#fCurrency')?.value || getDefaultTicketCurrency(),
     logo: $('#fLogo').value.trim(),
     notes: $('#fNotes').value.trim(),
@@ -5485,6 +5511,90 @@ function updatePriceModeUI() {
     if (hint) {
       hint.textContent = '';
       hint.className = 'sell-hint';
+    }
+  }
+}
+
+// ── EDIT-MODAL price mode helpers (purchase + sale) ─────────────────────────
+// The ticket-edit modal has its own per/total toggles, separate from the
+// sell modal. Same pattern as updatePriceModeUI but scoped to fPurchase*/fSale*.
+
+function updatePurchasePriceModeUI() {
+  const mode = state.purchasePriceMode || 'per';
+  const toggle = $('#fPurchasePriceMode');
+  if (!toggle) return;
+  toggle.querySelectorAll('.price-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pmode === mode);
+  });
+  const input = $('#fPurchasePrice');
+  if (input) input.placeholder = mode === 'total' ? 'Celkem za všechny ks' : '89.61';
+}
+
+function updateSalePriceModeEditUI() {
+  const mode = state.salePriceModeEdit || 'per';
+  const toggle = $('#fSalePriceMode');
+  if (!toggle) return;
+  toggle.querySelectorAll('.price-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.smode === mode);
+  });
+  const input = $('#fSalePrice');
+  if (input) input.placeholder = mode === 'total' ? 'Celkem za všechny ks' : '151.36';
+}
+
+// Live conversion hint under purchase-price field — shows the OTHER value.
+// In 'per' mode + qty>1 → "× 4 = 358 €". In 'total' mode → "= 89.61 €/ks".
+// Uses the ticket's currency (selected in the modal) for display formatting.
+function updatePurchasePriceHint() {
+  const hint = $('#fPurchasePriceHint');
+  if (!hint) return;
+  const raw = parseFloat($('#fPurchasePrice')?.value) || 0;
+  const qty = parseInt($('#fQuantity')?.value) || 1;
+  const ccy = $('#fCurrency')?.value || getDefaultTicketCurrency();
+  const mode = state.purchasePriceMode || 'per';
+  if (raw <= 0) { hint.textContent = ''; return; }
+  if (mode === 'total') {
+    if (qty > 1) {
+      const perKs = raw / qty;
+      hint.textContent = `= ${formatMoney(perKs, ccy)} / ks`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
+    }
+  } else {
+    if (qty > 1) {
+      const total = raw * qty;
+      hint.textContent = `× ${qty} ks = ${formatMoney(total, ccy)} celkem`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
+    }
+  }
+}
+
+// Same as updatePurchasePriceHint but for the sale-price field.
+function updateSalePriceEditHint() {
+  const hint = $('#fSalePriceHint');
+  if (!hint) return;
+  const raw = parseFloat($('#fSalePrice')?.value) || 0;
+  const qty = parseInt($('#fQuantity')?.value) || 1;
+  const ccy = $('#fCurrency')?.value || getDefaultTicketCurrency();
+  const mode = state.salePriceModeEdit || 'per';
+  if (raw <= 0) { hint.textContent = ''; return; }
+  if (mode === 'total') {
+    if (qty > 1) {
+      const perKs = raw / qty;
+      hint.textContent = `= ${formatMoney(perKs, ccy)} / ks`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
+    }
+  } else {
+    if (qty > 1) {
+      const total = raw * qty;
+      hint.textContent = `× ${qty} ks = ${formatMoney(total, ccy)} celkem`;
+      hint.className = 'sell-hint info';
+    } else {
+      hint.textContent = '';
     }
   }
 }
@@ -5863,6 +5973,57 @@ function setupEventListeners() {
     state.sellPriceMode = newMode;
     updatePriceModeUI();
     updateSellHints();
+  });
+
+  // Edit-modal: PURCHASE price toggle. Same conversion behavior — switching
+  // mode rewrites the visible value so the user doesn't lose their input.
+  $('#fPurchasePriceMode')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.price-mode-btn');
+    if (!btn) return;
+    const newMode = btn.dataset.pmode;
+    const oldMode = state.purchasePriceMode || 'per';
+    if (newMode === oldMode) return;
+    const input = $('#fPurchasePrice');
+    const raw = parseFloat(input.value);
+    const qty = parseInt($('#fQuantity').value) || 1;
+    if (raw > 0 && qty > 0) {
+      if (oldMode === 'per' && newMode === 'total') input.value = (raw * qty).toFixed(2);
+      else if (oldMode === 'total' && newMode === 'per') input.value = (raw / qty).toFixed(2);
+    }
+    state.purchasePriceMode = newMode;
+    updatePurchasePriceModeUI();
+    updatePurchasePriceHint();
+  });
+
+  // Edit-modal: SALE price toggle (same logic as purchase).
+  $('#fSalePriceMode')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.price-mode-btn');
+    if (!btn) return;
+    const newMode = btn.dataset.smode;
+    const oldMode = state.salePriceModeEdit || 'per';
+    if (newMode === oldMode) return;
+    const input = $('#fSalePrice');
+    const raw = parseFloat(input.value);
+    const qty = parseInt($('#fQuantity').value) || 1;
+    if (raw > 0 && qty > 0) {
+      if (oldMode === 'per' && newMode === 'total') input.value = (raw * qty).toFixed(2);
+      else if (oldMode === 'total' && newMode === 'per') input.value = (raw / qty).toFixed(2);
+    }
+    state.salePriceModeEdit = newMode;
+    updateSalePriceModeEditUI();
+    updateSalePriceEditHint();
+  });
+
+  // Live recompute hints when user types or changes related fields.
+  $('#fPurchasePrice')?.addEventListener('input', updatePurchasePriceHint);
+  $('#fSalePrice')?.addEventListener('input', updateSalePriceEditHint);
+  $('#fQuantity')?.addEventListener('input', () => {
+    updatePurchasePriceHint();
+    updateSalePriceEditHint();
+  });
+  $('#fCurrency')?.addEventListener('change', () => {
+    updatePurchasePriceHint();
+    updateSalePriceEditHint();
   });
   
   // Prefill from Viagogo/StubHub URL
