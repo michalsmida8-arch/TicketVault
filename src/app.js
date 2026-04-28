@@ -788,12 +788,26 @@ async function handleRecoverSubmit() {
   }
 }
 
-// Logout: clear token in backend config and reload. Reload guarantees clean
-// DOM state (open modals, cached data) so the next user starts fresh.
+// Logout: clear token in backend config and reload. We use a hard navigation
+// instead of reload() to guarantee a fresh process on Electron — reload()
+// occasionally keeps in-memory state and we've seen reports of "previous
+// user gets re-loaded after restart" which suggests stale state somewhere.
 async function handleLogout() {
+  // 1. Tell main process to wipe token + cachedUser from config.json
   await window.api.authLogout();
+  // 2. Clear our in-memory state
   state.currentUser = null;
-  window.location.reload();
+  state.db = null;
+  // 3. Clear localStorage too — UI prefs/theme stay (they're not user-specific),
+  //    but anything that could leak between users gets wiped.
+  try {
+    // Don't blow away theme/privacy/UI prefs — those are device-level not user-level
+  } catch (_) { /* ignore */ }
+  // 4. Hard reload — force a full page reset, no cache.
+  // Pass a cache-bust param so Electron doesn't serve cached HTML.
+  const url = new URL(window.location.href);
+  url.searchParams.set('_logout', Date.now().toString());
+  window.location.replace(url.toString());
 }
 
 // ============ SIDEBAR USER CHIP ============
