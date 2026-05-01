@@ -233,6 +233,9 @@ function getDefaultDb() {
     accounts: [],
     events: [],
     memberships: [],
+    mailboxes: [],
+    simcards: [],
+    simOperators: ['T-Mobile', 'O2', 'Vodafone', 'Kaktus'],
     expenses: [],
     payoutRules: [
       { platform: 'Viagogo', baseDate: 'eventDate', offsetDays: 8 },
@@ -257,6 +260,11 @@ function loadDb() {
       if (!data.accounts) data.accounts = [];
       if (!data.events) data.events = [];
       if (!data.memberships) data.memberships = [];
+      if (!data.mailboxes) data.mailboxes = [];
+      if (!data.simcards) data.simcards = [];
+      if (!Array.isArray(data.simOperators) || data.simOperators.length === 0) {
+        data.simOperators = ['T-Mobile', 'O2', 'Vodafone', 'Kaktus'];
+      }
       if (!data.expenses) data.expenses = [];
       if (!data.inbox) data.inbox = [];
       if (!Array.isArray(data.users)) data.users = [];
@@ -1222,6 +1230,139 @@ ipcMain.handle('db:importMembershipsCsv', async () => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+// ============ MAILBOXES (emailové schránky) ============
+ipcMain.handle('db:upsertMailbox', async (event, mb) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.mailboxes) db.mailboxes = [];
+
+  if (mb.id) {
+    const idx = db.mailboxes.findIndex(x => x.id === mb.id);
+    if (idx >= 0) {
+      db.mailboxes[idx] = { ...db.mailboxes[idx], ...mb, updated: new Date().toISOString() };
+    } else {
+      db.mailboxes.push({ ...mb, created: new Date().toISOString() });
+    }
+  } else {
+    mb.id = 'mb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    mb.created = new Date().toISOString();
+    db.mailboxes.push(mb);
+  }
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); }
+    catch (e) {
+      console.error('Cloud push (mailbox) failed:', e.message);
+      return { ...mb, _cloudError: e.message };
+    }
+  }
+  return mb;
+});
+
+ipcMain.handle('db:deleteMailbox', async (event, id) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.mailboxes) db.mailboxes = [];
+  db.mailboxes = db.mailboxes.filter(x => x.id !== id);
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+ipcMain.handle('db:deleteMailboxes', async (event, ids) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.mailboxes) db.mailboxes = [];
+  db.mailboxes = db.mailboxes.filter(x => !ids.includes(x.id));
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+// ============ SIM CARDS ============
+ipcMain.handle('db:upsertSimcard', async (event, sc) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.simcards) db.simcards = [];
+
+  if (sc.id) {
+    const idx = db.simcards.findIndex(x => x.id === sc.id);
+    if (idx >= 0) {
+      db.simcards[idx] = { ...db.simcards[idx], ...sc, updated: new Date().toISOString() };
+    } else {
+      db.simcards.push({ ...sc, created: new Date().toISOString() });
+    }
+  } else {
+    sc.id = 'sc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    sc.created = new Date().toISOString();
+    db.simcards.push(sc);
+  }
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); }
+    catch (e) {
+      console.error('Cloud push (simcard) failed:', e.message);
+      return { ...sc, _cloudError: e.message };
+    }
+  }
+  return sc;
+});
+
+ipcMain.handle('db:deleteSimcard', async (event, id) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.simcards) db.simcards = [];
+  db.simcards = db.simcards.filter(x => x.id !== id);
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+ipcMain.handle('db:deleteSimcards', async (event, ids) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.simcards) db.simcards = [];
+  db.simcards = db.simcards.filter(x => !ids.includes(x.id));
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+// Add custom SIM operator (kept as a list in DB so it's reusable across devices via cloud sync)
+ipcMain.handle('db:addSimOperator', async (event, name) => {
+  const db = loadDb();
+  if (!Array.isArray(db.simOperators)) db.simOperators = [];
+  const trimmed = (name || '').trim();
+  if (!trimmed) return { success: false, error: 'Prázdný název' };
+  // Case-insensitive dedupe
+  const exists = db.simOperators.some(o => o.toLowerCase() === trimmed.toLowerCase());
+  if (!exists) {
+    db.simOperators.push(trimmed);
+    saveDb(db);
+    const cloud = getCloudConfig();
+    if (cloud) {
+      try { await cloudPushDb(db); } catch (e) {}
+    }
+  }
+  return { success: true, operators: db.simOperators };
 });
 
 // ============ EXPENSES ============

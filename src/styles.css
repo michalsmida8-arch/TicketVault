@@ -4462,3 +4462,170 @@ body.privacy-mode::before {
    DOMContentLoaded fires and moves the class to <body>. */
 html[data-privacy="1"] body { visibility: hidden; }
 html[data-privacy="1"] body.privacy-mode { visibility: visible; }
+
+/* ============ MAILBOXES ============ */
+.mailboxes-table td {
+  font-size: 13px;
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.mailboxes-table th {
+  padding: 12px 14px;
+  font-size: 10px;
+}
+
+.mailboxes-table .email-cell {
+  max-width: none;
+}
+
+/* ============ SIM CARDS ============ */
+.simcards-table td {
+  font-size: 13px;
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.simcards-table th {
+  padding: 12px 14px;
+  font-size: 10px;
+}
+
+.simcards-table .phone-cell {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.simcards-table .operator-cell {
+  font-weight: 600;
+}
+
+/* SIM expiry status pills (date cell + status badge) */
+.expiry-cell {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.expiry-cell.expiry-ok {
+  color: var(--text-secondary);
+}
+
+.expiry-cell.expiry-warn {
+  color: #fcd34d;
+}
+
+.expiry-cell.expiry-urgent {
+  color: #fca5a5;
+}
+
+.expiry-cell.expiry-expired {
+  color: #fca5a5;
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.expiry-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.expiry-status.status-ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.expiry-status.status-warn {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.expiry-status.status-urgent {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+
+.expiry-status.status-expired {
+  background: rgba(120, 120, 130, 0.2);
+  color: #b3b3bd;
+  border: 1px solid rgba(120, 120, 130, 0.4);
+}
+
+/* Whole row background tint based on urgency */
+.simcards-table tr.row-warn td {
+  background: rgba(251, 191, 36, 0.04);
+}
+
+.simcards-table tr.row-urgent td {
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.simcards-table tr.row-expired td {
+  background: rgba(120, 120, 130, 0.05);
+}
+
+/* "Prodloužit o rok" button styled like an action pill */
+.btn-extend {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--blue);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn-extend:hover {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.btn-extend.urgent {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.btn-extend.urgent:hover {
+  background: rgba(239, 68, 68, 0.28);
+}
+
+[data-theme="light"] .btn-extend {
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .btn-extend.urgent {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .expiry-cell.expiry-warn {
+  color: #b45309;
+}
+
+[data-theme="light"] .expiry-cell.expiry-urgent,
+[data-theme="light"] .expiry-cell.expiry-expired {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .expiry-status.status-warn {
+  color: #b45309;
+}
+
+[data-theme="light"] .expiry-status.status-urgent {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .expiry-status.status-expired {
+  color: #525260;
+}

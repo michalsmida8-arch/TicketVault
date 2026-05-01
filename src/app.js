@@ -32,6 +32,18 @@ let state = {
   editingMembership: null,
   selectedMembershipIds: new Set(),
   revealedPasswords: new Set(),
+  mailboxFilters: {
+    search: ''
+  },
+  editingMailbox: null,
+  selectedMailboxIds: new Set(),
+  simcardFilters: {
+    search: '',
+    operator: '',
+    status: ''
+  },
+  editingSimcard: null,
+  selectedSimcardIds: new Set(),
   expenseFilters: {
     search: '',
     type: '',      // '', 'expense', or 'income'
@@ -70,6 +82,8 @@ function saveUiPrefs() {
       filters: state.filters,
       statsFilters: state.statsFilters,
       membershipFilters: state.membershipFilters,
+      mailboxFilters: state.mailboxFilters,
+      simcardFilters: state.simcardFilters,
       expenseFilters: state.expenseFilters,
       payoutFilters: state.payoutFilters,
       inboxFilters: state.inboxFilters
@@ -92,6 +106,8 @@ function loadUiPrefs() {
     if (prefs.filters) Object.assign(state.filters, prefs.filters);
     if (prefs.statsFilters) Object.assign(state.statsFilters, prefs.statsFilters);
     if (prefs.membershipFilters) Object.assign(state.membershipFilters, prefs.membershipFilters);
+    if (prefs.mailboxFilters) Object.assign(state.mailboxFilters, prefs.mailboxFilters);
+    if (prefs.simcardFilters) Object.assign(state.simcardFilters, prefs.simcardFilters);
     if (prefs.expenseFilters) Object.assign(state.expenseFilters, prefs.expenseFilters);
     if (prefs.payoutFilters) Object.assign(state.payoutFilters, prefs.payoutFilters);
     if (prefs.inboxFilters) Object.assign(state.inboxFilters, prefs.inboxFilters);
@@ -141,6 +157,16 @@ function applyUiPrefsToUI() {
   set('#mFilterTeam', m.team);
   set('#mFilterOwner', m.owner);
   set('#mFilterGroup', m.group);
+
+  // Mailbox filters
+  const mb = state.mailboxFilters;
+  set('#mbFilterSearch', mb.search);
+
+  // SIM card filters
+  const sc = state.simcardFilters;
+  set('#scFilterSearch', sc.search);
+  set('#scFilterOperator', sc.operator);
+  set('#scFilterStatus', sc.status);
 }
 
 // ============ UTILS ============
@@ -527,6 +553,8 @@ async function proceedAfterLogin() {
   // to form inputs and sort indicators. Then re-render with the restored state.
   applyUiPrefsToUI();
   render();
+  // Show urgent SIM count in sidebar from the start, even before user opens the tab.
+  if (typeof updateSimBadge === 'function') updateSimBadge();
   
   // Menu listeners
   window.api.onMenuAction((action) => {
@@ -2267,6 +2295,8 @@ function switchView(name) {
   
   if (name === 'stats') renderStatsPage();
   if (name === 'memberships') renderMembershipsPage();
+  if (name === 'mailboxes') renderMailboxesPage();
+  if (name === 'simcards') renderSimcardsPage();
   if (name === 'expenses') renderExpensesPage();
   if (name === 'payouts') renderPayoutsPage();
   if (name === 'inbox') renderInboxPage();
@@ -2689,6 +2719,560 @@ async function bulkDeleteMemberships() {
   state.selectedMembershipIds.clear();
   renderMembershipsPage();
   toast(`Smazáno ${ids.length} membershipů`, 'success');
+}
+
+// ============ MAILBOXES (Emailové schránky) ============
+function getFilteredMailboxes() {
+  const list = state.db.mailboxes || [];
+  const f = state.mailboxFilters;
+  const q = (f.search || '').toLowerCase().trim();
+  return list.filter(mb => {
+    if (q) {
+      const hay = `${mb.firstName || ''} ${mb.lastName || ''} ${mb.email || ''} ${mb.notes || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    // Sort by lastName, then firstName
+    const la = (a.lastName || '').toLowerCase();
+    const lb = (b.lastName || '').toLowerCase();
+    if (la !== lb) return la.localeCompare(lb, 'cs');
+    return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase(), 'cs');
+  });
+}
+
+function renderMailboxesPage() {
+  const list = getFilteredMailboxes();
+  const tbody = $('#mailboxesBody');
+  const empty = $('#mbEmptyState');
+  if (!tbody) return;
+
+  if (list.length === 0) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    renderMbBulkActions();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  tbody.innerHTML = list.map(mb => {
+    const checked = state.selectedMailboxIds.has(mb.id) ? 'checked' : '';
+    return `
+      <tr data-id="${mb.id}">
+        <td class="col-check"><input type="checkbox" class="mb-row-check" data-id="${mb.id}" ${checked}></td>
+        <td>${escapeHtml(mb.firstName || '—')}</td>
+        <td>${escapeHtml(mb.lastName || '—')}</td>
+        <td class="email-cell" title="${escapeHtml(mb.email || '')}">
+          <span class="cell-text">${escapeHtml(mb.email || '—')}</span>
+          ${mb.email ? `<button class="copy-btn" data-copy="${escapeHtml(mb.email)}" title="Kopírovat email">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>` : ''}
+        </td>
+        <td class="col-actions">
+          <div class="actions-cell">
+            <button class="btn btn-dark btn-sm" data-mb-action="edit" data-id="${mb.id}">Edit</button>
+            <button class="btn btn-danger btn-sm" data-mb-action="delete" data-id="${mb.id}">Del</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Bind row actions
+  tbody.querySelectorAll('[data-mb-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const act = btn.dataset.mbAction;
+      if (act === 'edit') openMailboxModal((state.db.mailboxes || []).find(x => x.id === id));
+      else if (act === 'delete') deleteMailbox(id);
+    });
+  });
+
+  // Copy buttons
+  tbody.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const text = btn.dataset.copy;
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+        btn.classList.add('copied');
+        toast('Zkopírováno do schránky', 'success', 1500);
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.classList.remove('copied');
+        }, 1200);
+      } catch (err) {
+        toast('Chyba kopírování: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Row checkboxes
+  tbody.querySelectorAll('.mb-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.selectedMailboxIds.add(id);
+      else state.selectedMailboxIds.delete(id);
+      renderMbBulkActions();
+    });
+  });
+
+  renderMbBulkActions();
+}
+
+function renderMbBulkActions() {
+  const bar = $('#mbBulkActions');
+  if (!bar) return;
+  const count = state.selectedMailboxIds.size;
+  if (count > 0) {
+    bar.style.display = 'flex';
+    $('#mbBulkCount').textContent = `${count} vybráno`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function openMailboxModal(mb = null) {
+  const isEditing = mb && mb.id;
+  state.editingMailbox = isEditing ? mb : null;
+  $('#mbModalTitle').textContent = isEditing ? 'Upravit schránku' : 'Přidat schránku';
+  $('#mbfFirstName').value = mb?.firstName || '';
+  $('#mbfLastName').value = mb?.lastName || '';
+  $('#mbfEmail').value = mb?.email || '';
+  $('#mbfNotes').value = mb?.notes || '';
+  $('#modalMailbox').classList.add('active');
+  $('#mbfFirstName').focus();
+}
+
+async function saveMailbox() {
+  const firstName = $('#mbfFirstName').value.trim();
+  const lastName = $('#mbfLastName').value.trim();
+  const email = $('#mbfEmail').value.trim();
+  if (!firstName) { toast('Zadej jméno', 'error'); return; }
+  if (!lastName) { toast('Zadej příjmení', 'error'); return; }
+  if (!email) { toast('Zadej email', 'error'); return; }
+
+  const mb = {
+    ...(state.editingMailbox || {}),
+    firstName,
+    lastName,
+    email,
+    notes: $('#mbfNotes').value.trim()
+  };
+
+  const saved = await window.api.upsertMailbox(mb);
+  if (!state.db.mailboxes) state.db.mailboxes = [];
+  const idx = state.db.mailboxes.findIndex(x => x.id === saved.id);
+  if (idx >= 0) state.db.mailboxes[idx] = saved;
+  else state.db.mailboxes.push(saved);
+
+  closeModal('modalMailbox');
+  toast(state.editingMailbox ? 'Schránka upravena' : 'Schránka přidána', 'success');
+  renderMailboxesPage();
+}
+
+async function deleteMailbox(id) {
+  const mb = (state.db.mailboxes || []).find(x => x.id === id);
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Smazat schránku',
+    message: `Opravdu smazat ${mb?.firstName || ''} ${mb?.lastName || ''} (${mb?.email || ''})?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteMailbox(id);
+  state.db.mailboxes = (state.db.mailboxes || []).filter(x => x.id !== id);
+  state.selectedMailboxIds.delete(id);
+  renderMailboxesPage();
+  toast('Schránka smazána', 'success');
+}
+
+async function bulkDeleteMailboxes() {
+  const ids = [...state.selectedMailboxIds];
+  if (!ids.length) return;
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Hromadné smazání',
+    message: `Opravdu smazat ${ids.length} schránek?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteMailboxes(ids);
+  state.db.mailboxes = (state.db.mailboxes || []).filter(x => !ids.includes(x.id));
+  state.selectedMailboxIds.clear();
+  renderMailboxesPage();
+  toast(`Smazáno ${ids.length} schránek`, 'success');
+}
+
+// ============ SIM CARDS ============
+// Computes urgency status for an expiry date.
+// Returns one of: 'ok' | 'warn' (<30d) | 'urgent' (<7d) | 'expired' (past)
+function getSimcardStatus(expiryISO) {
+  if (!expiryISO) return 'ok';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(expiryISO);
+  exp.setHours(0, 0, 0, 0);
+  const diffMs = exp.getTime() - today.getTime();
+  const diffDays = Math.round(diffMs / 86400000);
+  if (diffDays < 0) return 'expired';
+  if (diffDays < 7) return 'urgent';
+  if (diffDays < 30) return 'warn';
+  return 'ok';
+}
+
+// Days remaining until expiry (negative = past)
+function getDaysUntilExpiry(expiryISO) {
+  if (!expiryISO) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(expiryISO);
+  exp.setHours(0, 0, 0, 0);
+  return Math.round((exp.getTime() - today.getTime()) / 86400000);
+}
+
+function formatExpiryDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('cs-CZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch (e) {
+    return iso;
+  }
+}
+
+// Adds 1 calendar year to an ISO date string (YYYY-MM-DD).
+// If the input is empty/invalid, anchors on today.
+function addOneYear(isoDate) {
+  let d;
+  if (isoDate) {
+    d = new Date(isoDate);
+    if (isNaN(d.getTime())) d = new Date();
+  } else {
+    d = new Date();
+  }
+  d.setFullYear(d.getFullYear() + 1);
+  // Return as YYYY-MM-DD (local)
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getFilteredSimcards() {
+  const list = state.db.simcards || [];
+  const f = state.simcardFilters;
+  const q = (f.search || '').toLowerCase().trim();
+  return list.filter(sc => {
+    if (q) {
+      const hay = `${sc.operator || ''} ${sc.phone || ''} ${sc.owner || ''} ${sc.notes || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (f.operator && sc.operator !== f.operator) return false;
+    if (f.status) {
+      const status = getSimcardStatus(sc.expiry);
+      if (status !== f.status) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    // Sort by expiry ascending (most urgent first), missing dates last
+    if (!a.expiry && !b.expiry) return 0;
+    if (!a.expiry) return 1;
+    if (!b.expiry) return -1;
+    return a.expiry.localeCompare(b.expiry);
+  });
+}
+
+function getSimOperators() {
+  // Prefer the list stored in DB (synced via cloud); fall back to defaults
+  const fromDb = (state.db && Array.isArray(state.db.simOperators)) ? state.db.simOperators : null;
+  if (fromDb && fromDb.length) return fromDb;
+  return ['T-Mobile', 'O2', 'Vodafone', 'Kaktus'];
+}
+
+function populateSimcardFilters() {
+  const sel = $('#scFilterOperator');
+  if (!sel) return;
+  const current = state.simcardFilters.operator;
+  // Build options from operators in use + known operators (deduped)
+  const usedSet = new Set();
+  (state.db.simcards || []).forEach(sc => { if (sc.operator) usedSet.add(sc.operator); });
+  getSimOperators().forEach(op => usedSet.add(op));
+  const opts = ['<option value="">Všichni operátoři</option>']
+    .concat([...usedSet].sort().map(op => `<option value="${escapeHtml(op)}">${escapeHtml(op)}</option>`));
+  sel.innerHTML = opts.join('');
+  sel.value = current || '';
+}
+
+function populateSimOperatorSelect(currentValue = '') {
+  const sel = $('#scfOperator');
+  if (!sel) return;
+  const ops = getSimOperators();
+  // Make sure currentValue (from existing record) is always selectable even if removed from defaults
+  const set = new Set(ops);
+  if (currentValue && !set.has(currentValue)) ops.unshift(currentValue);
+  sel.innerHTML = ops.map(op => `<option value="${escapeHtml(op)}">${escapeHtml(op)}</option>`).join('');
+  sel.value = currentValue || ops[0] || '';
+}
+
+function renderSimcardsPage() {
+  populateSimcardFilters();
+  const list = getFilteredSimcards();
+  const tbody = $('#simcardsBody');
+  const empty = $('#scEmptyState');
+  if (!tbody) return;
+
+  if (list.length === 0) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    renderScBulkActions();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  tbody.innerHTML = list.map(sc => {
+    const checked = state.selectedSimcardIds.has(sc.id) ? 'checked' : '';
+    const status = getSimcardStatus(sc.expiry);
+    const days = getDaysUntilExpiry(sc.expiry);
+
+    let statusBadge = '';
+    let rowClass = '';
+    let extendBtnClass = 'btn btn-extend btn-sm';
+    if (status === 'expired') {
+      statusBadge = `<span class="expiry-status status-expired">❌ Vypršelo (${Math.abs(days)} d)</span>`;
+      rowClass = 'row-expired';
+      extendBtnClass += ' urgent';
+    } else if (status === 'urgent') {
+      statusBadge = `<span class="expiry-status status-urgent">🔥 ${days} dní</span>`;
+      rowClass = 'row-urgent';
+      extendBtnClass += ' urgent';
+    } else if (status === 'warn') {
+      statusBadge = `<span class="expiry-status status-warn">⚠ ${days} dní</span>`;
+      rowClass = 'row-warn';
+    } else if (sc.expiry) {
+      statusBadge = `<span class="expiry-status status-ok">✓ ${days} dní</span>`;
+    } else {
+      statusBadge = `<span class="expiry-status status-ok" style="opacity:0.5">—</span>`;
+    }
+
+    const expiryClass = `expiry-cell expiry-${status}`;
+
+    return `
+      <tr data-id="${sc.id}" class="${rowClass}">
+        <td class="col-check"><input type="checkbox" class="sc-row-check" data-id="${sc.id}" ${checked}></td>
+        <td class="operator-cell">${escapeHtml(sc.operator || '—')}</td>
+        <td class="phone-cell">
+          ${escapeHtml(sc.phone || '—')}
+          ${sc.phone ? `<button class="copy-btn" data-copy="${escapeHtml(sc.phone)}" title="Kopírovat číslo">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>` : ''}
+        </td>
+        <td class="${expiryClass}">${formatExpiryDate(sc.expiry)}</td>
+        <td>${statusBadge}</td>
+        <td style="color:var(--text-secondary);font-size:12px">${escapeHtml(sc.notes || '—')}</td>
+        <td class="col-actions">
+          <div class="actions-cell">
+            <button class="${extendBtnClass}" data-sc-action="extend" data-id="${sc.id}" title="Prodloužit datum expirace o 1 rok">↻ Prodlouženo</button>
+            <button class="btn btn-dark btn-sm" data-sc-action="edit" data-id="${sc.id}">Edit</button>
+            <button class="btn btn-danger btn-sm" data-sc-action="delete" data-id="${sc.id}">Del</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Bind row actions
+  tbody.querySelectorAll('[data-sc-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const act = btn.dataset.scAction;
+      if (act === 'edit') openSimcardModal((state.db.simcards || []).find(x => x.id === id));
+      else if (act === 'delete') deleteSimcard(id);
+      else if (act === 'extend') extendSimcardExpiry(id);
+    });
+  });
+
+  // Copy buttons
+  tbody.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const text = btn.dataset.copy;
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+        btn.classList.add('copied');
+        toast('Zkopírováno do schránky', 'success', 1500);
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.classList.remove('copied');
+        }, 1200);
+      } catch (err) {
+        toast('Chyba kopírování: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Row checkboxes
+  tbody.querySelectorAll('.sc-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.selectedSimcardIds.add(id);
+      else state.selectedSimcardIds.delete(id);
+      renderScBulkActions();
+    });
+  });
+
+  renderScBulkActions();
+  updateSimBadge();
+}
+
+function renderScBulkActions() {
+  const bar = $('#scBulkActions');
+  if (!bar) return;
+  const count = state.selectedSimcardIds.size;
+  if (count > 0) {
+    bar.style.display = 'flex';
+    $('#scBulkCount').textContent = `${count} vybráno`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+// Sidebar badge — count of SIM cards that are urgent or expired
+function updateSimBadge() {
+  const badge = $('#simBadge');
+  if (!badge) return;
+  const list = state.db.simcards || [];
+  let count = 0;
+  list.forEach(sc => {
+    const s = getSimcardStatus(sc.expiry);
+    if (s === 'urgent' || s === 'expired') count++;
+  });
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function openSimcardModal(sc = null) {
+  const isEditing = sc && sc.id;
+  state.editingSimcard = isEditing ? sc : null;
+  $('#scModalTitle').textContent = isEditing ? 'Upravit SIM' : 'Přidat SIM';
+  populateSimOperatorSelect(sc?.operator || '');
+  $('#scfPhone').value = sc?.phone || '';
+  $('#scfExpiry').value = sc?.expiry || '';
+  $('#scfOwner').value = sc?.owner || '';
+  $('#scfNotes').value = sc?.notes || '';
+  $('#modalSimcard').classList.add('active');
+  $('#scfPhone').focus();
+}
+
+async function saveSimcard() {
+  const operator = $('#scfOperator').value;
+  const phone = $('#scfPhone').value.trim();
+  const expiry = $('#scfExpiry').value;
+  if (!operator) { toast('Zadej operátora', 'error'); return; }
+  if (!phone) { toast('Zadej telefonní číslo', 'error'); return; }
+  if (!expiry) { toast('Zadej datum expirace', 'error'); return; }
+
+  const sc = {
+    ...(state.editingSimcard || {}),
+    operator,
+    phone,
+    expiry,
+    owner: $('#scfOwner').value.trim(),
+    notes: $('#scfNotes').value.trim()
+  };
+
+  const saved = await window.api.upsertSimcard(sc);
+  if (!state.db.simcards) state.db.simcards = [];
+  const idx = state.db.simcards.findIndex(x => x.id === saved.id);
+  if (idx >= 0) state.db.simcards[idx] = saved;
+  else state.db.simcards.push(saved);
+
+  closeModal('modalSimcard');
+  toast(state.editingSimcard ? 'SIM upravena' : 'SIM přidána', 'success');
+  renderSimcardsPage();
+}
+
+async function deleteSimcard(id) {
+  const sc = (state.db.simcards || []).find(x => x.id === id);
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Smazat SIM',
+    message: `Opravdu smazat ${sc?.operator || ''} — ${sc?.phone || ''}?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteSimcard(id);
+  state.db.simcards = (state.db.simcards || []).filter(x => x.id !== id);
+  state.selectedSimcardIds.delete(id);
+  renderSimcardsPage();
+  toast('SIM smazána', 'success');
+}
+
+async function bulkDeleteSimcards() {
+  const ids = [...state.selectedSimcardIds];
+  if (!ids.length) return;
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Hromadné smazání',
+    message: `Opravdu smazat ${ids.length} SIM karet?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteSimcards(ids);
+  state.db.simcards = (state.db.simcards || []).filter(x => !ids.includes(x.id));
+  state.selectedSimcardIds.clear();
+  renderSimcardsPage();
+  toast(`Smazáno ${ids.length} SIM karet`, 'success');
+}
+
+// "Prodlouženo" button — extends the expiry by 1 calendar year from
+// the CURRENT expiry date (if set). If the SIM already expired, anchors on today
+// instead so the user actually gets a future date (not yet another past date).
+async function extendSimcardExpiry(id) {
+  const sc = (state.db.simcards || []).find(x => x.id === id);
+  if (!sc) return;
+  const status = getSimcardStatus(sc.expiry);
+  // For expired SIMs: anchor on today (so "+1 year" gives a useful future date)
+  // For all others: extend from current expiry (preserves the renewal cadence)
+  const baseDate = (status === 'expired' || !sc.expiry) ? null : sc.expiry;
+  const newExpiry = addOneYear(baseDate);
+
+  const updated = { ...sc, expiry: newExpiry };
+  const saved = await window.api.upsertSimcard(updated);
+  const idx = state.db.simcards.findIndex(x => x.id === id);
+  if (idx >= 0) state.db.simcards[idx] = saved;
+
+  toast(`Prodlouženo do ${formatExpiryDate(newExpiry)}`, 'success', 2500);
+  renderSimcardsPage();
+}
+
+async function addCustomSimOperator() {
+  const name = (prompt('Název nového operátora:') || '').trim();
+  if (!name) return;
+  const res = await window.api.addSimOperator(name);
+  if (res && res.success) {
+    // Update local DB cache so getSimOperators() returns the new value
+    if (!state.db.simOperators) state.db.simOperators = [];
+    if (Array.isArray(res.operators)) state.db.simOperators = res.operators;
+    populateSimOperatorSelect(name);
+    toast(`Operátor "${name}" přidán`, 'success');
+  } else {
+    toast(res?.error || 'Nepodařilo se přidat operátora', 'error');
+  }
 }
 
 // ============ PAYOUTS ============
@@ -6264,6 +6848,63 @@ function setupEventListeners() {
     renderMembershipsPage();
   });
   $('#btnMBulkDelete')?.addEventListener('click', bulkDeleteMemberships);
+  
+  // MAILBOXES
+  $('#btnAddMailbox')?.addEventListener('click', () => openMailboxModal());
+  $('#btnSaveMailbox')?.addEventListener('click', saveMailbox);
+  $('#mbFilterSearch')?.addEventListener('input', (e) => {
+    state.mailboxFilters.search = e.target.value;
+    saveUiPrefs();
+    renderMailboxesPage();
+  });
+  $('#btnMbReset')?.addEventListener('click', () => {
+    state.mailboxFilters = { search: '' };
+    $('#mbFilterSearch').value = '';
+    saveUiPrefs();
+    renderMailboxesPage();
+  });
+  $('#mbSelectAll')?.addEventListener('change', (e) => {
+    const filtered = getFilteredMailboxes();
+    if (e.target.checked) filtered.forEach(mb => state.selectedMailboxIds.add(mb.id));
+    else filtered.forEach(mb => state.selectedMailboxIds.delete(mb.id));
+    renderMailboxesPage();
+  });
+  $('#btnMbBulkDelete')?.addEventListener('click', bulkDeleteMailboxes);
+
+  // SIM CARDS
+  $('#btnAddSimcard')?.addEventListener('click', () => openSimcardModal());
+  $('#btnSaveSimcard')?.addEventListener('click', saveSimcard);
+  $('#scfAddOperator')?.addEventListener('click', addCustomSimOperator);
+  $('#scFilterSearch')?.addEventListener('input', (e) => {
+    state.simcardFilters.search = e.target.value;
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#scFilterOperator')?.addEventListener('change', (e) => {
+    state.simcardFilters.operator = e.target.value;
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#scFilterStatus')?.addEventListener('change', (e) => {
+    state.simcardFilters.status = e.target.value;
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#btnScReset')?.addEventListener('click', () => {
+    state.simcardFilters = { search: '', operator: '', status: '' };
+    $('#scFilterSearch').value = '';
+    $('#scFilterOperator').value = '';
+    $('#scFilterStatus').value = '';
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#scSelectAll')?.addEventListener('change', (e) => {
+    const filtered = getFilteredSimcards();
+    if (e.target.checked) filtered.forEach(sc => state.selectedSimcardIds.add(sc.id));
+    else filtered.forEach(sc => state.selectedSimcardIds.delete(sc.id));
+    renderSimcardsPage();
+  });
+  $('#btnScBulkDelete')?.addEventListener('click', bulkDeleteSimcards);
   
   // EXPENSES
   $('#btnAddExpense')?.addEventListener('click', () => openExpenseModal());
