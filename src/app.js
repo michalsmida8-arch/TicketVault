@@ -19,6 +19,11 @@ let state = {
     dateFrom: '',
     dateTo: ''
   },
+  // Category filter — applies to BOTH Dashboard and Stats views (synced).
+  // Defaults to 'concert' since per user, most existing tickets are concerts;
+  // football/other are tagged manually via Edit modal.
+  // Values: 'all' | 'football' | 'concert' | 'other'
+  dashboardCategory: 'concert',
   statsFilters: {
     month: '',
     year: ''
@@ -80,6 +85,7 @@ function saveUiPrefs() {
       sortBy: state.sortBy,
       sortDir: state.sortDir,
       filters: state.filters,
+      dashboardCategory: state.dashboardCategory,
       statsFilters: state.statsFilters,
       membershipFilters: state.membershipFilters,
       mailboxFilters: state.mailboxFilters,
@@ -104,6 +110,10 @@ function loadUiPrefs() {
     if (typeof prefs.sortBy === 'string') state.sortBy = prefs.sortBy;
     if (prefs.sortDir === 'asc' || prefs.sortDir === 'desc') state.sortDir = prefs.sortDir;
     if (prefs.filters) Object.assign(state.filters, prefs.filters);
+    if (typeof prefs.dashboardCategory === 'string' &&
+        ['all', 'football', 'concert', 'other'].includes(prefs.dashboardCategory)) {
+      state.dashboardCategory = prefs.dashboardCategory;
+    }
     if (prefs.statsFilters) Object.assign(state.statsFilters, prefs.statsFilters);
     if (prefs.membershipFilters) Object.assign(state.membershipFilters, prefs.membershipFilters);
     if (prefs.mailboxFilters) Object.assign(state.mailboxFilters, prefs.mailboxFilters);
@@ -167,6 +177,22 @@ function applyUiPrefsToUI() {
   set('#scFilterSearch', sc.search);
   set('#scFilterOperator', sc.operator);
   set('#scFilterStatus', sc.status);
+
+  // Sync the category chip toggle (Dashboard + Stats)
+  syncCategoryToggleUI();
+}
+
+// Mark the chip matching state.dashboardCategory as `.active` in BOTH toggles
+// (#categoryToggle on Dashboard, #categoryToggleStats on Stats). Called whenever
+// the category changes so the two views stay visually in sync.
+function syncCategoryToggleUI() {
+  ['#categoryToggle', '#categoryToggleStats'].forEach(sel => {
+    const container = $(sel);
+    if (!container) return;
+    container.querySelectorAll('.cat-chip').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.cat === state.dashboardCategory);
+    });
+  });
 }
 
 // ============ UTILS ============
@@ -1693,6 +1719,12 @@ function render() {
 function getFilteredTickets() {
   let list = [...state.db.tickets];
   const f = state.filters;
+
+  // Category filter — Dashboard's chip toggle. 'all' = no filter.
+  // Tickets without category default to 'concert' (set by main.js migration).
+  if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+    list = list.filter(t => (t.category || 'concert') === state.dashboardCategory);
+  }
   
   if (f.search) {
     const q = f.search.toLowerCase();
@@ -1738,7 +1770,13 @@ function calcHoldDays(t) {
 }
 
 function renderStats() {
-  const all = state.db.tickets;
+  // Apply the dashboard category filter so the 5 stat cards (Profit / Spent /
+  // Revenue / Sold / Stock) reflect ONLY the selected category — same scope
+  // as the table below them.
+  let all = state.db.tickets;
+  if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+    all = all.filter(t => (t.category || 'concert') === state.dashboardCategory);
+  }
   const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered');
 
   // Aggregate in primary currency since tickets may have mixed currencies.
@@ -4763,6 +4801,11 @@ async function exportExpensesCsv() {
 // ============ STATS PAGE ============
 function getStatsFilteredTickets() {
   let list = [...state.db.tickets];
+  // Same category filter as Dashboard — both views share state.dashboardCategory
+  // so toggling chips on either side stays in sync.
+  if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+    list = list.filter(t => (t.category || 'concert') === state.dashboardCategory);
+  }
   const m = state.statsFilters?.month;
   const y = state.statsFilters?.year;
   if (m) list = list.filter(t => t.eventDate && new Date(t.eventDate).getMonth() + 1 === parseInt(m));
@@ -5748,6 +5791,13 @@ function openTicketModal(ticket = null) {
   $('#modalTitle').textContent = isEditing ? 'Upravit vstupenku' : (ticket ? 'Klonovat vstupenku (nová kopie)' : 'Přidat vstupenku');
   
   $('#fEventName').value = ticket?.eventName || '';
+  // Category — for new tickets, default to whatever's currently selected on
+  // Dashboard (so adding a ticket while looking at Koncerty pre-fills 'concert').
+  // Falls back to 'concert' if Dashboard is on 'all'.
+  const defaultCat = (state.dashboardCategory && state.dashboardCategory !== 'all')
+    ? state.dashboardCategory
+    : 'concert';
+  $('#fCategory').value = ticket?.category || defaultCat;
   $('#fEventDate').value = ticket?.eventDate || '';
   $('#fVenue').value = ticket?.venue || '';
   $('#fCountry').value = ticket?.country || '';
@@ -6054,6 +6104,8 @@ async function saveTicket() {
   const ticket = {
     ...(state.editingTicket || {}),
     eventName: name,
+    // Category — football / concert / other. Drives Dashboard + Stats filtering.
+    category: $('#fCategory')?.value || 'concert',
     eventDate: date,
     venue: $('#fVenue').value.trim(),
     country: $('#fCountry').value.trim() || undefined,
@@ -6616,7 +6668,32 @@ function setupEventListeners() {
   
   // Add event
   $('#btnAddEvent').addEventListener('click', () => openTicketModal());
-  
+
+  // CATEGORY CHIP TOGGLE — wires up BOTH the Dashboard and Stats toggles.
+  // Clicking any chip on either page sets state.dashboardCategory and re-renders
+  // both Dashboard (stat cards + table) and Stats (KPIs + charts) so they stay in sync.
+  function setDashboardCategory(cat) {
+    if (!['all', 'football', 'concert', 'other'].includes(cat)) return;
+    state.dashboardCategory = cat;
+    saveUiPrefs();
+    syncCategoryToggleUI();
+    // Re-render whichever view is visible. Both functions are cheap so we just
+    // call both — no need to gate on currentView.
+    renderStats();
+    renderTickets();
+    if (state.currentView === 'stats') renderStatsPage();
+  }
+
+  ['#categoryToggle', '#categoryToggleStats'].forEach(sel => {
+    const container = $(sel);
+    if (!container) return;
+    container.querySelectorAll('.cat-chip').forEach(btn => {
+      btn.addEventListener('click', () => setDashboardCategory(btn.dataset.cat));
+    });
+  });
+  // Sync at boot so persisted preference shows correct active chip.
+  syncCategoryToggleUI();
+
   // Modal closes
   $$('[data-close]').forEach(btn => {
     btn.addEventListener('click', () => {

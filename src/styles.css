@@ -4629,3 +4629,92 @@ html[data-privacy="1"] body.privacy-mode { visibility: visible; }
 [data-theme="light"] .expiry-status.status-expired {
   color: #525260;
 }
+
+/* ============ CATEGORY TOGGLE (Dashboard + Stats) ============ */
+.category-toggle {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 20px 0;
+  flex-wrap: wrap;
+}
+
+.cat-chip {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+}
+
+.cat-chip:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+/* Active styling per category — uses each category's accent color */
+.cat-chip.active {
+  color: var(--bg-primary);
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.cat-chip[data-cat="all"].active {
+  background: var(--purple);
+}
+
+.cat-chip[data-cat="football"].active {
+  background: #10b981; /* green — pitch */
+}
+
+.cat-chip[data-cat="concert"].active {
+  background: #f59e0b; /* amber — stage lights */
+}
+
+.cat-chip[data-cat="other"].active {
+  background: #6b7280; /* neutral grey */
+}
+
+/* Light theme adjustments — active chips use the same accent but text gets
+   a darker contrast since the background hue is brighter on light bg. */
+[data-theme="light"] .cat-chip.active {
+  color: #fff;
+}
+
+/* Show colored dot inside dropdown options for visual cue */
+.cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.cat-pill.cat-football {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.cat-pill.cat-concert {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.cat-pill.cat-other {
+  background: rgba(107, 114, 128, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}

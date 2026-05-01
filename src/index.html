@@ -382,6 +382,14 @@
           </button>
         </header>
 
+        <!-- CATEGORY TOGGLE — synced with Statistics -->
+        <div class="category-toggle" id="categoryToggle">
+          <button class="cat-chip" data-cat="all">Vše</button>
+          <button class="cat-chip cat-concert active" data-cat="concert">🎵 Koncerty a ostatní</button>
+          <button class="cat-chip cat-football" data-cat="football">⚽ Fotbal</button>
+          <button class="cat-chip cat-other" data-cat="other">🎫 Jiné</button>
+        </div>
+
         <!-- STAT CARDS -->
         <div class="stats-grid">
           <div class="stat-card">
@@ -500,6 +508,15 @@
         <header class="page-header">
           <h2 class="page-title">Statistiky</h2>
         </header>
+
+        <!-- CATEGORY TOGGLE — synced with Dashboard so switching from
+             stats to dashboard keeps the same category in view. -->
+        <div class="category-toggle" id="categoryToggleStats">
+          <button class="cat-chip" data-cat="all">Vše</button>
+          <button class="cat-chip cat-concert active" data-cat="concert">🎵 Koncerty a ostatní</button>
+          <button class="cat-chip cat-football" data-cat="football">⚽ Fotbal</button>
+          <button class="cat-chip cat-other" data-cat="other">🎫 Jiné</button>
+        </div>
 
         <!-- FILTERS -->
         <div class="filters stats-filters">
@@ -1455,6 +1472,14 @@
           <div class="form-group form-full">
             <label>Název eventu *</label>
             <input type="text" id="fEventName" placeholder="Arsenal FC vs Sporting CP">
+          </div>
+          <div class="form-group">
+            <label>Kategorie *</label>
+            <select id="fCategory">
+              <option value="concert" selected>🎵 Koncerty a ostatní</option>
+              <option value="football">⚽ Fotbal</option>
+              <option value="other">🎫 Jiné</option>
+            </select>
           </div>
           <div class="form-group">
             <label>Datum *</label>

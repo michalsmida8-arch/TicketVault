@@ -257,6 +257,13 @@ function loadDb() {
       const data = JSON.parse(fs.readFileSync(config.dbPath, 'utf-8'));
       // Ensure schema
       if (!data.tickets) data.tickets = [];
+      // Migrate: tickets without `category` get 'concert' (per user instruction —
+      // concerts dominate their existing inventory, so this minimizes the manual
+      // re-tag work; football tickets get re-categorized via Edit modal).
+      // Valid values: 'football' | 'concert' | 'other'.
+      data.tickets.forEach(t => {
+        if (!t.category) t.category = 'concert';
+      });
       if (!data.accounts) data.accounts = [];
       if (!data.events) data.events = [];
       if (!data.memberships) data.memberships = [];
