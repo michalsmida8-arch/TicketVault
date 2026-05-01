@@ -3994,12 +3994,18 @@ async function applyInboxSale(inboxId, ticketId) {
     const remaining = ticketQty - emailQty;
 
     const splitNote = `Rozděleno: ${emailQty} z ${ticketQty} ks prodáno (z emailu)`;
+    const purchaseCcy = ticket.currency || p.currency || getDefaultTicketCurrency();
+    const emailCcy = p.currency || purchaseCcy;
+    // Only store saleCurrency when the sale email is in a different currency than
+    // the ticket was bought in (e.g. bought in GBP but StubHub paid out in EUR).
+    // If they match, leave it undefined so getRevenueInPrimary falls back to ticket.currency.
     const soldTicket = {
       ...ticket,
       quantity: emailQty,
       status: 'sold',
       salePrice: salePricePerKs,
-      currency: ticket.currency || p.currency || getDefaultTicketCurrency(),
+      currency: purchaseCcy,
+      saleCurrency: emailCcy !== purchaseCcy ? emailCcy : (ticket.saleCurrency || undefined),
       saleDate: new Date().toISOString().slice(0, 10),
       buyerName: p.buyerName || ticket.buyerName,
       buyerEmail: p.buyerEmail || ticket.buyerEmail,
@@ -4044,14 +4050,18 @@ async function applyInboxSale(inboxId, ticketId) {
   }
 
   // FULL SALE (emailQty === ticketQty, or the warning fallback above).
+  const purchaseCcy = ticket.currency || p.currency || getDefaultTicketCurrency();
+  const emailCcy = p.currency || purchaseCcy;
   const updated = {
     ...ticket,
     status: 'sold',
     salePrice: salePricePerKs,
-    // Only overwrite currency if parser found one and ticket doesn't have a mismatched value.
-    // In practice the sale email should be in the same currency as the purchase, so we
-    // keep the original ticket currency as source-of-truth and trust the parsed amount.
-    currency: ticket.currency || p.currency || getDefaultTicketCurrency(),
+    // ticket.currency = purchase currency (kept as-is). saleCurrency is stored ONLY
+    // when the sale email reports a different currency (e.g. bought in GBP for Arsenal,
+    // but StubHub pays in EUR). Without this split, dashboard would re-interpret the
+    // EUR amount as if it were GBP and apply the GBP→EUR rate, inflating revenue.
+    currency: purchaseCcy,
+    saleCurrency: emailCcy !== purchaseCcy ? emailCcy : (ticket.saleCurrency || undefined),
     saleDate: new Date().toISOString().slice(0, 10),
     buyerName: p.buyerName || ticket.buyerName,
     buyerEmail: p.buyerEmail || ticket.buyerEmail,
