@@ -1849,7 +1849,7 @@ function renderTickets() {
         })()}">${formatMoney(calcCostInPrimary(t), primary)}${(Number(t.quantity) || 1) > 1 ? ` <span class="per-ks">(${formatMoney(calcCostInPrimary(t) / (Number(t.quantity) || 1), primary)}/ks)</span>` : ''}</td>
         <td class="col-sale" title="${(() => {
           if (!isSoldOrDelivered) return '';
-          const origCcy = ticketCurrency(t);
+          const origCcy = saleCurrency(t);
           const isMixed = origCcy !== primary;
           const perKs = (Number(t.quantity) || 1) > 1 ? 'Cena za 1 ks: ' + formatMoney(t.salePrice, origCcy) + '\n' : '';
           const orig = isMixed ? `Původní cena: ${formatMoney(calcRevenue(t), origCcy)}` : '';
@@ -2801,11 +2801,10 @@ function renderPayoutsPage() {
   const paid = all.filter(p => p.isPaid);
   const overdue = all.filter(p => p.isOverdue);
   
-  // p.amount is in each ticket's own currency. When summing, convert to the
-  // primary currency so the header cards show consistent totals across mixed
-  // currencies. Per-row amounts below stay in the ticket's own currency —
-  // they're naturally scoped to one ticket.
-  const toPrimary = (p, amt) => convertCurrency(Number(amt) || 0, ticketCurrency(p.ticket), getPrimaryCurrency());
+  // p.amount is the sale revenue, denominated in saleCurrency. Convert from
+  // saleCurrency (not ticketCurrency, which is purchase ccy) to primary so the
+  // header cards show consistent totals across mixed currencies.
+  const toPrimary = (p, amt) => convertCurrency(Number(amt) || 0, saleCurrency(p.ticket), getPrimaryCurrency());
   const pendingSum = pending.reduce((s, p) => s + toPrimary(p, p.amount), 0);
   const paidSum = paid.reduce((s, p) => {
     const amt = p.ticket.paidOutAmount !== null && p.ticket.paidOutAmount !== undefined ? Number(p.ticket.paidOutAmount) : p.amount;
@@ -2826,7 +2825,7 @@ function renderPayoutsPage() {
   if (upcoming.length > 0) {
     const n = upcoming[0];
     const dayLabel = n.daysLeft === 0 ? 'dnes' : (n.daysLeft === 1 ? 'zítra' : `za ${n.daysLeft} dní`);
-    $('#payNext').innerHTML = `${escapeHtml(n.ticket.eventName || '—')} <span style="color:var(--text-tertiary); font-size:12px;">(${dayLabel}, ${formatMoney(n.amount, ticketCurrency(n.ticket))})</span>`;
+    $('#payNext').innerHTML = `${escapeHtml(n.ticket.eventName || '—')} <span style="color:var(--text-tertiary); font-size:12px;">(${dayLabel}, ${formatMoney(n.amount, saleCurrency(n.ticket))})</span>`;
   } else {
     $('#payNext').textContent = '—';
   }
@@ -2853,7 +2852,7 @@ function renderPayoutsPage() {
     if (p.isPaid) {
       const paidAmount = t.paidOutAmount !== null && t.paidOutAmount !== undefined ? Number(t.paidOutAmount) : p.amount;
       const diff = paidAmount - p.amount;
-      const tc = ticketCurrency(t);
+      const tc = saleCurrency(t);
       const diffLabel = Math.abs(diff) < 0.01 ? '' : ` <span style="color:${diff >= 0 ? 'var(--green-bright)' : 'var(--red-bright)'}">(${diff >= 0 ? '+' : ''}${formatMoney(diff, tc)})</span>`;
       payoutStatusCell = `<span class="status-pill status-sold" title="Přijato ${formatDate(t.paidOutDate)} - ${formatMoney(paidAmount, tc)}">✓ Vyplaceno</span>${diffLabel}`;
       actionCell = `<button class="btn btn-dark btn-sm" data-p-action="unpaid" data-id="${t.id}" title="Vrátit zpět na čekání">↶ Vrátit</button>`;
@@ -2877,7 +2876,7 @@ function renderPayoutsPage() {
         <td><strong>${escapeHtml(t.eventName || '—')}</strong></td>
         <td>${t.eventDate ? formatDate(t.eventDate) : '—'}</td>
         <td>${t.quantity || 1}</td>
-        <td><strong>${formatMoney(p.amount, ticketCurrency(t))}</strong></td>
+        <td><strong>${formatMoney(p.amount, saleCurrency(t))}</strong></td>
         <td>${escapeHtml(t.platform || '—')}${ruleInfo}</td>
         <td>${status}</td>
         <td>${p.expectedDate ? formatDate(p.expectedDate) : '—'}</td>
@@ -2918,7 +2917,7 @@ function openPayoutPaidModal(ticket) {
     </div>
     <div class="sell-info-row">
       <span class="sell-info-label">Očekáváno:</span>
-      <span class="sell-info-value"><strong>${formatMoney(amount, ticketCurrency(ticket))}</strong>${expectedDate ? ` (${formatDate(expectedDate)})` : ''}</span>
+      <span class="sell-info-value"><strong>${formatMoney(amount, saleCurrency(ticket))}</strong>${expectedDate ? ` (${formatDate(expectedDate)})` : ''}</span>
     </div>
   `;
   $('#payPaidDate').value = new Date().toISOString().slice(0, 10);
@@ -3068,13 +3067,13 @@ function checkUpcomingPayouts() {
     // Overdue sum may span multiple currencies → convert each to primary for a
     // single meaningful total in the toast.
     const primary = getPrimaryCurrency();
-    const sumOverdue = overdue.reduce((s, p) => s + convertCurrency(p.amount, ticketCurrency(p.ticket), primary), 0);
+    const sumOverdue = overdue.reduce((s, p) => s + convertCurrency(p.amount, saleCurrency(p.ticket), primary), 0);
     toast(`💸 ${overdue.length} výplat po termínu (${formatMoney(sumOverdue, primary)}) - zkontroluj účet!`, 'error', 10000);
   }
   if (incoming.length > 0) {
     incoming.forEach(p => {
       const label = p.daysLeft === 0 ? 'DNES' : (p.daysLeft === 1 ? 'zítra' : `za ${p.daysLeft} dny`);
-      toast(`💰 Výplata ${label}: ${p.ticket.eventName} (${formatMoney(p.amount, ticketCurrency(p.ticket))})`, 'info', 8000);
+      toast(`💰 Výplata ${label}: ${p.ticket.eventName} (${formatMoney(p.amount, saleCurrency(p.ticket))})`, 'info', 8000);
     });
   }
 }
@@ -4830,8 +4829,9 @@ function renderCharts(sold, all) {
       const name = t.eventName || '—';
       if (!events[name]) events[name] = { purchases: [], sales: [] };
       const tc = ticketCurrency(t);
+      const sc = saleCurrency(t);
       events[name].purchases.push(convertCurrency(Number(t.purchasePrice) || 0, tc, primary));
-      events[name].sales.push(convertCurrency(Number(t.salePrice) || 0, tc, primary));
+      events[name].sales.push(convertCurrency(Number(t.salePrice) || 0, sc, primary));
     });
     const labels = Object.keys(events).slice(0, 6);
     const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
