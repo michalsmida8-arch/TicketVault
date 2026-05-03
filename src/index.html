@@ -388,6 +388,7 @@
           <button class="cat-chip cat-concert active" data-cat="concert">🎵 Koncerty a ostatní</button>
           <button class="cat-chip cat-football" data-cat="football">⚽ Fotbal</button>
           <button class="cat-chip cat-other" data-cat="other">🎫 Jiné</button>
+          <button class="cat-chip cat-selected" data-cat="selected" style="display:none;" title="Filtrovat na vybrané řádky — totaly nahoře se přepočítají">🎯 Vybrané <span class="cat-chip-count" data-cat-count>0</span></button>
         </div>
 
         <!-- STAT CARDS -->
@@ -482,8 +483,12 @@
         </div>
 
         <div class="bulk-actions" id="bulkActions" style="display:none;">
-          <span id="bulkCount">0 vybráno</span>
-          <button class="btn btn-danger" id="btnBulkDelete">Smazat vybrané</button>
+          <span class="bulk-count" id="bulkCount">0 vybráno</span>
+          <div class="bulk-summary" id="bulkSummary"></div>
+          <div class="bulk-buttons">
+            <button class="btn btn-primary" id="btnBulkEdit">✎ Hromadná editace</button>
+            <button class="btn btn-danger" id="btnBulkDelete">Smazat vybrané</button>
+          </div>
         </div>
       </div>
 
@@ -516,6 +521,7 @@
           <button class="cat-chip cat-concert active" data-cat="concert">🎵 Koncerty a ostatní</button>
           <button class="cat-chip cat-football" data-cat="football">⚽ Fotbal</button>
           <button class="cat-chip cat-other" data-cat="other">🎫 Jiné</button>
+          <button class="cat-chip cat-selected" data-cat="selected" style="display:none;" title="Filtrovat na vybrané řádky — totaly nahoře se přepočítají">🎯 Vybrané <span class="cat-chip-count" data-cat-count>0</span></button>
         </div>
 
         <!-- FILTERS -->
@@ -848,6 +854,7 @@
           <table class="tickets-table payouts-table">
             <thead>
               <tr>
+                <th class="col-check"><input type="checkbox" id="pSelectAll"></th>
                 <th>EVENT</th>
                 <th>DATUM EVENTU</th>
                 <th>KS</th>
@@ -866,6 +873,16 @@
             <div class="empty-icon">💰</div>
             <div class="empty-title">Žádné výplaty</div>
             <div class="empty-text">Zde se objeví výplaty, jakmile prodáš některou vstupenku.</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="pBulkActions" style="display:none;">
+          <span class="bulk-count" id="pBulkCount">0 vybráno</span>
+          <div class="bulk-summary" id="pBulkSummary"></div>
+          <div class="bulk-buttons">
+            <button class="btn btn-success" id="btnPBulkPaid">💰 Označit přijaté</button>
+            <button class="btn btn-primary" id="btnPBulkEdit">✎ Hromadná editace</button>
+            <button class="btn btn-danger" id="btnPBulkDelete">Smazat</button>
           </div>
         </div>
       </div>
@@ -1786,6 +1803,41 @@
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>
         <button class="btn btn-primary" id="btnConfirmSell">Potvrdit prodej</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Bulk Edit (tickets + payouts) -->
+  <div class="modal" id="modalBulkEdit">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3 id="bulkEditTitle">Hromadná editace</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="bulk-edit-info" id="bulkEditInfo">
+          Změna se aplikuje na <strong id="bulkEditCount">0</strong> položek.
+          Současné hodnoty se přepíší novou hodnotou níže.
+        </div>
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Pole k úpravě</label>
+            <select id="bulkEditField">
+              <!-- options populated by JS based on context -->
+            </select>
+          </div>
+          <div class="form-group form-full" id="bulkEditValueWrap">
+            <label id="bulkEditValueLabel">Nová hodnota</label>
+            <!-- input rendered dynamically based on field type -->
+            <div id="bulkEditValueSlot"></div>
+            <div class="sell-hint" id="bulkEditValueHint" style="margin-top:6px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnBulkEditApply">Aplikovat</button>
       </div>
     </div>
   </div>

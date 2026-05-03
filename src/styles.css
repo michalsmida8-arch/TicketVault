@@ -902,6 +902,129 @@ button:focus-visible {
   border: 1px solid var(--purple);
   border-radius: var(--radius-md);
   font-size: 12px;
+  flex-wrap: wrap;
+  /* Stick to the bottom of the scrollable .main viewport so the user sees the
+     bar immediately after selecting rows, even with a long table. Tall enough
+     z-index to clear the table; backdrop shadow lifts it visually off rows. */
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--purple);
+  /* Backdrop-filter pops the bar over content scrolling underneath. */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.bulk-count {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  padding: 4px 10px;
+  background: rgba(167, 139, 250, 0.15);
+  border-radius: var(--radius-sm);
+}
+
+.bulk-summary {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  flex-wrap: wrap;
+  flex: 1;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+  min-height: 30px;
+}
+
+.bulk-summary:empty {
+  display: none;
+}
+
+.bulk-summary-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.bulk-summary-label {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.bulk-summary-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bulk-summary-value.profit-positive { color: var(--green-bright); }
+.bulk-summary-value.profit-negative { color: var(--red-bright); }
+.bulk-summary-value.roi-positive { color: var(--green-bright); }
+.bulk-summary-value.roi-negative { color: var(--red-bright); }
+
+.bulk-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.bulk-edit-info {
+  padding: 12px 14px;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.bulk-edit-info strong {
+  color: #c4b5fd;
+}
+
+#bulkEditValueSlot input,
+#bulkEditValueSlot select,
+#bulkEditValueSlot textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+#bulkEditValueSlot input:focus,
+#bulkEditValueSlot select:focus,
+#bulkEditValueSlot textarea:focus {
+  outline: none;
+  border-color: var(--purple);
+}
+
+#bulkEditValueSlot textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+#bulkEditValueSlot .price-with-currency {
+  display: flex;
+  gap: 6px;
+}
+
+#bulkEditValueSlot .price-with-currency input {
+  flex: 1;
+}
+
+#bulkEditValueSlot .price-with-currency select {
+  width: auto;
+  min-width: 90px;
 }
 
 /* ============ EMPTY STATE ============ */
@@ -4680,6 +4803,38 @@ html[data-privacy="1"] body.privacy-mode { visibility: visible; }
 
 .cat-chip[data-cat="other"].active {
   background: #6b7280; /* neutral grey */
+}
+
+/* Selection chip — pulses gently to draw attention when active. Uses a
+   bluish-cyan so it doesn't clash with the existing 4 category colors. */
+.cat-chip[data-cat="selected"] {
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+}
+.cat-chip[data-cat="selected"]:hover {
+  background: rgba(56, 189, 248, 0.1);
+  color: #7dd3fc;
+}
+.cat-chip[data-cat="selected"].active {
+  background: #0ea5e9; /* sky-500 */
+  color: #fff;
+}
+.cat-chip-count {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  min-width: 18px;
+  text-align: center;
+}
+.cat-chip[data-cat="selected"]:not(.active) .cat-chip-count {
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
 }
 
 /* Light theme adjustments — active chips use the same accent but text gets

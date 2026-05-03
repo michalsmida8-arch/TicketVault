@@ -9,6 +9,9 @@ let state = {
   editingTicket: null,
   sellingTicket: null,
   selectedIds: new Set(),
+  selectedPayoutIds: new Set(),
+  // Context for the shared Bulk Edit modal: 'tickets' or 'payouts'.
+  bulkEditCtx: null,
   sortBy: 'eventDate',
   sortDir: 'desc',
   filters: {
@@ -184,14 +187,32 @@ function applyUiPrefsToUI() {
 
 // Mark the chip matching state.dashboardCategory as `.active` in BOTH toggles
 // (#categoryToggle on Dashboard, #categoryToggleStats on Stats). Called whenever
-// the category changes so the two views stay visually in sync.
+// the category changes so the two views stay visually in sync. Also handles
+// the 'selected' chip: shows it only when there's an active multi-selection,
+// updates its count badge, and auto-deactivates the filter when selection
+// is cleared (otherwise we'd show an empty filtered view).
 function syncCategoryToggleUI() {
+  const selCount = state.selectedIds.size;
+  // Auto-fallback: if 'selected' is the active filter but selection is now
+  // empty (e.g. user deselected all rows), drop back to 'all' so the user
+  // doesn't end up staring at an empty dashboard.
+  if (state.dashboardCategory === 'selected' && selCount === 0) {
+    state.dashboardCategory = 'all';
+    if (typeof saveUiPrefs === 'function') saveUiPrefs();
+  }
   ['#categoryToggle', '#categoryToggleStats'].forEach(sel => {
     const container = $(sel);
     if (!container) return;
     container.querySelectorAll('.cat-chip').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.cat === state.dashboardCategory);
     });
+    // Show/hide the 'selected' chip + update count badge.
+    const selChip = container.querySelector('.cat-chip[data-cat="selected"]');
+    if (selChip) {
+      selChip.style.display = selCount > 0 ? '' : 'none';
+      const countEl = selChip.querySelector('[data-cat-count]');
+      if (countEl) countEl.textContent = selCount;
+    }
   });
 }
 
@@ -1721,8 +1742,12 @@ function getFilteredTickets() {
   const f = state.filters;
 
   // Category filter — Dashboard's chip toggle. 'all' = no filter.
+  // 'selected' is a pseudo-category that filters to whatever rows the user has
+  // multi-selected; useful for inspecting totals of an arbitrary subset.
   // Tickets without category default to 'concert' (set by main.js migration).
-  if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+  if (state.dashboardCategory === 'selected') {
+    list = list.filter(t => state.selectedIds.has(t.id));
+  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
     list = list.filter(t => (t.category || 'concert') === state.dashboardCategory);
   }
   
@@ -1772,9 +1797,12 @@ function calcHoldDays(t) {
 function renderStats() {
   // Apply the dashboard category filter so the 5 stat cards (Profit / Spent /
   // Revenue / Sold / Stock) reflect ONLY the selected category — same scope
-  // as the table below them.
+  // as the table below them. 'selected' is the pseudo-category that filters
+  // to multi-select chosen rows, mirroring the same logic in getFilteredTickets.
   let all = state.db.tickets;
-  if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+  if (state.dashboardCategory === 'selected') {
+    all = all.filter(t => state.selectedIds.has(t.id));
+  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
     all = all.filter(t => (t.category || 'concert') === state.dashboardCategory);
   }
   const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered');
@@ -1806,6 +1834,12 @@ function renderTickets() {
   if (list.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
+    // Filter narrowed everything away → drop selection + hide bulk bar so it
+    // doesn't show "5 vybráno" when there's literally nothing on screen.
+    state.selectedIds.clear();
+    renderBulkActions();
+    const saEmpty = $('#selectAll');
+    if (saEmpty) { saEmpty.checked = false; saEmpty.indeterminate = false; }
     return;
   }
   empty.style.display = 'none';
@@ -1971,9 +2005,35 @@ function renderTickets() {
       const id = cb.dataset.id;
       if (cb.checked) state.selectedIds.add(id);
       else state.selectedIds.delete(id);
+      // Keep header checkbox in sync with row state — checked when ALL visible
+      // rows selected, indeterminate when SOME, unchecked when none.
+      const sa = $('#selectAll');
+      if (sa) {
+        const visibleSelected = list.filter(t => state.selectedIds.has(t.id)).length;
+        sa.checked = visibleSelected === list.length;
+        sa.indeterminate = visibleSelected > 0 && visibleSelected < list.length;
+      }
+      // If the "🎯 Vybrané" filter is active, the row we just unchecked must
+      // disappear from view (and the stat cards above must drop its totals).
+      // renderTickets re-runs getFilteredTickets which honors the chip filter;
+      // renderStats does the same for the cards on top.
+      if (state.dashboardCategory === 'selected') {
+        renderStats();
+        renderTickets();
+        return; // renderTickets already calls renderBulkActions at the end
+      }
       renderBulkActions();
     });
   });
+
+  // Sync header checkbox state on each render (e.g. after filter changes).
+  const saHeader = $('#selectAll');
+  if (saHeader) {
+    const visibleSelected = list.filter(t => state.selectedIds.has(t.id)).length;
+    saHeader.checked = list.length > 0 && visibleSelected === list.length;
+    saHeader.indeterminate = visibleSelected > 0 && visibleSelected < list.length;
+  }
+  renderBulkActions();
   
   // Mute/unmute listeners
   tbody.querySelectorAll('[data-mute-id]').forEach(btn => {
@@ -1991,14 +2051,106 @@ function renderTickets() {
 }
 
 function renderBulkActions() {
+  // Keep the "🎯 Vybrané" chip in sync with selection state on every change —
+  // visibility, count badge, and auto-fallback to 'all' if selection emptied.
+  syncCategoryToggleUI();
+
   const bar = $('#bulkActions');
   const count = state.selectedIds.size;
-  if (count > 0) {
-    bar.style.display = 'flex';
-    $('#bulkCount').textContent = `${count} vybráno`;
-  } else {
+  if (count === 0) {
     bar.style.display = 'none';
+    return;
   }
+  bar.style.display = 'flex';
+  $('#bulkCount').textContent = `${count} vybráno`;
+
+  // Compute summary in primary (EUR) currency over the selected tickets.
+  // Profit/cost/revenue helpers already handle per-ticket conversion to primary.
+  const selected = state.db.tickets.filter(t => state.selectedIds.has(t.id));
+  const primary = getPrimaryCurrency();
+  let totalCost = 0;
+  let totalRevenue = 0;
+  let totalProfit = 0;
+  let costForRoi = 0; // only count cost of SOLD/DELIVERED tickets for honest ROI
+  selected.forEach(t => {
+    totalCost += calcCostInPrimary(t);
+    if (t.status === 'sold' || t.status === 'delivered') {
+      totalRevenue += calcRevenueInPrimary(t);
+      totalProfit += calcProfitInPrimary(t);
+      costForRoi += calcCostInPrimary(t);
+    }
+  });
+  const roi = costForRoi > 0 ? (totalProfit / costForRoi) * 100 : 0;
+  const profitClass = totalProfit >= 0 ? 'profit-positive' : 'profit-negative';
+  const roiClass = roi >= 0 ? 'roi-positive' : 'roi-negative';
+
+  $('#bulkSummary').innerHTML = `
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Nákup</span>
+      <span class="bulk-summary-value">${formatMoney(totalCost, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Prodej</span>
+      <span class="bulk-summary-value">${formatMoney(totalRevenue, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Zisk</span>
+      <span class="bulk-summary-value ${profitClass}">${totalProfit >= 0 ? '+' : ''}${formatMoney(totalProfit, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">ROI</span>
+      <span class="bulk-summary-value ${roiClass}">${costForRoi > 0 ? (roi >= 0 ? '+' : '') + roi.toFixed(1) + ' %' : '—'}</span>
+    </div>
+  `;
+}
+
+// ============ PAYOUTS BULK ACTIONS ============
+// Mirrors renderBulkActions but for the Payouts view. Operates on the
+// payout objects (which wrap tickets) so we can sum p.amount in saleCurrency.
+function renderPayoutBulkActions() {
+  const bar = $('#pBulkActions');
+  if (!bar) return;
+  const count = state.selectedPayoutIds.size;
+  if (count === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  $('#pBulkCount').textContent = `${count} vybráno`;
+
+  const all = getPayoutTickets();
+  const selected = all.filter(p => state.selectedPayoutIds.has(p.ticket.id));
+  const primary = getPrimaryCurrency();
+
+  let totalToReceive = 0; // pending only — what's still owed
+  let totalReceived = 0;  // already paid out
+  let overdueCount = 0;
+  selected.forEach(p => {
+    const amt = convertCurrency(Number(p.amount) || 0, saleCurrency(p.ticket), primary);
+    if (p.isPaid) {
+      const paidRaw = (p.ticket.paidOutAmount !== null && p.ticket.paidOutAmount !== undefined)
+        ? Number(p.ticket.paidOutAmount) : Number(p.amount);
+      totalReceived += convertCurrency(paidRaw, saleCurrency(p.ticket), primary);
+    } else {
+      totalToReceive += amt;
+      if (p.isOverdue) overdueCount++;
+    }
+  });
+
+  $('#pBulkSummary').innerHTML = `
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">K přijetí</span>
+      <span class="bulk-summary-value">${formatMoney(totalToReceive, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Vyplaceno</span>
+      <span class="bulk-summary-value">${formatMoney(totalReceived, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Po termínu</span>
+      <span class="bulk-summary-value ${overdueCount > 0 ? 'profit-negative' : ''}">${overdueCount}</span>
+    </div>
+  `;
 }
 
 function populateYearFilter() {
@@ -3459,6 +3611,12 @@ function renderPayoutsPage() {
   if (list.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
+    // Nothing visible → clear any stale payout selection so the bulk bar
+    // doesn't sit there with old counts after a filter change.
+    state.selectedPayoutIds.clear();
+    renderPayoutBulkActions();
+    const saEmpty = $('#pSelectAll');
+    if (saEmpty) { saEmpty.checked = false; saEmpty.indeterminate = false; }
     return;
   }
   empty.style.display = 'none';
@@ -3495,6 +3653,7 @@ function renderPayoutsPage() {
     
     return `
       <tr data-id="${t.id}" class="${p.isOverdue && !p.isPaid ? 'row-urgent' : ''} ${p.isPaid ? 'row-paid' : ''}">
+        <td class="col-check"><input type="checkbox" class="row-check p-row-check" data-id="${t.id}" ${state.selectedPayoutIds.has(t.id) ? 'checked' : ''}></td>
         <td><strong>${escapeHtml(t.eventName || '—')}</strong></td>
         <td>${t.eventDate ? formatDate(t.eventDate) : '—'}</td>
         <td>${t.quantity || 1}</td>
@@ -3521,6 +3680,35 @@ function renderPayoutsPage() {
       else if (act === 'unpaid') unmarkPayoutPaid(id);
     });
   });
+
+  // Row checkboxes — track selection in a Set keyed by ticket id (payouts ARE
+  // tickets under the hood, so reusing the ticket id keeps things simple).
+  tbody.querySelectorAll('.p-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.selectedPayoutIds.add(id);
+      else state.selectedPayoutIds.delete(id);
+      // Sync selectAll header state.
+      const sa = $('#pSelectAll');
+      if (sa) {
+        const visible = list.length;
+        const selectedVisible = list.filter(p => state.selectedPayoutIds.has(p.ticket.id)).length;
+        sa.checked = visible > 0 && selectedVisible === visible;
+        sa.indeterminate = selectedVisible > 0 && selectedVisible < visible;
+      }
+      renderPayoutBulkActions();
+    });
+  });
+
+  // Sync selectAll on (re)render based on currently visible rows.
+  const sa = $('#pSelectAll');
+  if (sa) {
+    const visible = list.length;
+    const selectedVisible = list.filter(p => state.selectedPayoutIds.has(p.ticket.id)).length;
+    sa.checked = visible > 0 && selectedVisible === visible;
+    sa.indeterminate = selectedVisible > 0 && selectedVisible < visible;
+  }
+  renderPayoutBulkActions();
 }
 
 function openPayoutPaidModal(ticket) {
@@ -4802,8 +4990,11 @@ async function exportExpensesCsv() {
 function getStatsFilteredTickets() {
   let list = [...state.db.tickets];
   // Same category filter as Dashboard — both views share state.dashboardCategory
-  // so toggling chips on either side stays in sync.
-  if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+  // so toggling chips on either side stays in sync. 'selected' filters to the
+  // multi-select set, same as on Dashboard.
+  if (state.dashboardCategory === 'selected') {
+    list = list.filter(t => state.selectedIds.has(t.id));
+  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
     list = list.filter(t => (t.category || 'concert') === state.dashboardCategory);
   }
   const m = state.statsFilters?.month;
@@ -6572,6 +6763,274 @@ async function bulkDelete() {
   toast(`Smazáno ${ids.length} vstupenek`, 'success');
 }
 
+// ============ BULK EDIT MODAL (shared by Tickets + Payouts) ============
+// One modal serves both views. The user picks ONE field to change, types one
+// new value, and we patch every selected ticket via upsertTicket(). We don't
+// touch fields we weren't asked to touch — upsertTicket merges via spread, so
+// passing { id, status: 'sold' } only changes status.
+//
+// Field defs are declarative; each entry knows how to render its input and how
+// to extract the value when Apply is clicked. Adding a new field = one entry.
+
+const BULK_EDIT_FIELDS = [
+  // Status / classification
+  { key: 'status',          label: 'Status',                type: 'select',
+    options: [
+      { value: 'available', label: 'Koupeno' },
+      { value: 'listed',    label: 'Zalistováno' },
+      { value: 'sold',      label: 'Prodáno' },
+      { value: 'delivered', label: 'Doručeno ✓' },
+      { value: 'cancelled', label: 'Zrušeno' }
+    ]
+  },
+  { key: 'category',        label: 'Kategorie',             type: 'select',
+    options: [
+      { value: 'concert',  label: '🎵 Koncerty a ostatní' },
+      { value: 'football', label: '⚽ Fotbal' },
+      { value: 'other',    label: '🎫 Jiné' }
+    ]
+  },
+  // Identity / location
+  { key: 'eventName',       label: 'Název eventu',          type: 'text' },
+  { key: 'venue',           label: 'Místo (venue)',         type: 'text' },
+  { key: 'country',         label: 'Země',                  type: 'text' },
+  { key: 'section',         label: 'Sekce',                 type: 'text' },
+  { key: 'row',             label: 'Řada',                  type: 'text' },
+  // Account & platforms
+  { key: 'account',         label: 'Účet',                  type: 'text' },
+  { key: 'platform',        label: 'Platforma nákupu',      type: 'text' },
+  { key: 'salePlatform',    label: 'Platforma prodeje',     type: 'text' },
+  // Money — currency selectors mirror those in the ticket modal
+  { key: 'currency',        label: 'Měna nákupu',           type: 'currency' },
+  { key: 'saleCurrency',    label: 'Měna prodeje',          type: 'currency' },
+  { key: 'purchasePrice',   label: 'Nákupní cena (za 1 ks)',type: 'number',
+    hint: 'Cena se uloží na všechny vybrané vstupenky stejně.' },
+  { key: 'salePrice',       label: 'Prodejní cena (za 1 ks)', type: 'number',
+    hint: 'Cena se uloží na všechny vybrané vstupenky stejně.' },
+  // Dates
+  { key: 'eventDate',       label: 'Datum eventu',          type: 'date' },
+  { key: 'purchaseDate',    label: 'Datum nákupu',          type: 'date' },
+  { key: 'saleDate',        label: 'Datum prodeje',         type: 'date' },
+  // Notes
+  { key: 'notes',           label: 'Poznámka',              type: 'textarea' }
+];
+
+// Render the value-input portion of the modal based on the chosen field.
+function renderBulkEditValueSlot(field) {
+  const slot = $('#bulkEditValueSlot');
+  const labelEl = $('#bulkEditValueLabel');
+  const hintEl = $('#bulkEditValueHint');
+  if (!slot) return;
+  labelEl.textContent = 'Nová hodnota: ' + field.label;
+  hintEl.textContent = field.hint || '';
+
+  if (field.type === 'select') {
+    const opts = field.options.map(o =>
+      `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
+    ).join('');
+    slot.innerHTML = `<select id="bulkEditValue">${opts}</select>`;
+  } else if (field.type === 'currency') {
+    const opts = CURRENCIES.map(c =>
+      `<option value="${c.code}">${c.code} — ${escapeHtml(c.name)}</option>`
+    ).join('');
+    slot.innerHTML = `<select id="bulkEditValue">${opts}</select>`;
+    const sel = $('#bulkEditValue');
+    if (sel) sel.value = getPrimaryCurrency();
+  } else if (field.type === 'number') {
+    slot.innerHTML = `<input type="number" id="bulkEditValue" step="0.01" placeholder="0.00">`;
+  } else if (field.type === 'date') {
+    slot.innerHTML = `<input type="date" id="bulkEditValue">`;
+  } else if (field.type === 'textarea') {
+    slot.innerHTML = `<textarea id="bulkEditValue" rows="3" placeholder="Zadej hodnotu..."></textarea>`;
+  } else { // text
+    slot.innerHTML = `<input type="text" id="bulkEditValue" placeholder="Zadej hodnotu...">`;
+  }
+}
+
+// Open the modal in either 'tickets' or 'payouts' context. The two contexts
+// look up the selection from different Sets; everything else is shared.
+function openBulkEditModal(ctx) {
+  const ids = ctx === 'payouts'
+    ? [...state.selectedPayoutIds]
+    : [...state.selectedIds];
+  if (!ids.length) return;
+
+  state.bulkEditCtx = ctx;
+  $('#bulkEditCount').textContent = ids.length;
+  $('#bulkEditTitle').textContent = ctx === 'payouts'
+    ? 'Hromadná editace výplat'
+    : 'Hromadná editace vstupenek';
+  $('#btnBulkEditApply').textContent = `Aplikovat na ${ids.length}`;
+
+  // Populate field dropdown.
+  const fieldSel = $('#bulkEditField');
+  fieldSel.innerHTML = BULK_EDIT_FIELDS.map(f =>
+    `<option value="${f.key}">${escapeHtml(f.label)}</option>`
+  ).join('');
+
+  // Default selection — sensible per context.
+  fieldSel.value = ctx === 'payouts' ? 'salePrice' : 'status';
+  renderBulkEditValueSlot(BULK_EDIT_FIELDS.find(f => f.key === fieldSel.value));
+
+  $('#modalBulkEdit').classList.add('active');
+}
+
+// Wire up the field-change listener once on init (see initBulkEdit below).
+function onBulkEditFieldChange() {
+  const key = $('#bulkEditField').value;
+  const field = BULK_EDIT_FIELDS.find(f => f.key === key);
+  if (field) renderBulkEditValueSlot(field);
+}
+
+async function applyBulkEdit() {
+  const ctx = state.bulkEditCtx;
+  if (!ctx) return;
+  const ids = ctx === 'payouts'
+    ? [...state.selectedPayoutIds]
+    : [...state.selectedIds];
+  if (!ids.length) { closeModal('modalBulkEdit'); return; }
+
+  const fieldKey = $('#bulkEditField').value;
+  const field = BULK_EDIT_FIELDS.find(f => f.key === fieldKey);
+  if (!field) return;
+
+  const valEl = $('#bulkEditValue');
+  if (!valEl) return;
+
+  // Coerce + validate the value based on field type.
+  let value;
+  if (field.type === 'number') {
+    const raw = valEl.value;
+    if (raw === '' || raw === null || raw === undefined) {
+      toast('Zadej hodnotu', 'error');
+      return;
+    }
+    value = Number(raw);
+    if (!isFinite(value)) {
+      toast('Neplatné číslo', 'error');
+      return;
+    }
+  } else if (field.type === 'date') {
+    value = valEl.value || null; // empty date is allowed (clears the field)
+  } else {
+    value = valEl.value;
+  }
+
+  // Confirm before doing it — bulk edit is hard to undo.
+  const fmtVal = field.type === 'select'
+    ? (field.options.find(o => o.value === value)?.label || value)
+    : (value === '' || value === null ? '(prázdné)' : value);
+  const res = await window.api.confirm({
+    type: 'question',
+    buttons: ['Zrušit', 'Aplikovat'],
+    title: 'Potvrdit hromadnou editaci',
+    message: `Změnit pole "${field.label}" na "${fmtVal}" u ${ids.length} ${ctx === 'payouts' ? 'výplat' : 'vstupenek'}?`,
+    detail: 'Akci nelze hromadně vrátit zpět (lze ručně po jednom).'
+  });
+  if (res !== 1) return;
+
+  // Apply to each ticket. We must send the FULL merged ticket (not just a
+  // patch) because main.js forwards exactly what we send to cloudUpsertTicket
+  // — sending only { id, field: value } would clobber the cloud copy.
+  // Run sequentially to avoid hammering the cloud endpoint.
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const existing = state.db.tickets.find(t => t.id === id);
+    if (!existing) { fail++; continue; }
+    const merged = { ...existing, [fieldKey]: value };
+    try {
+      await window.api.upsertTicket(merged);
+      ok++;
+    } catch (e) {
+      console.error('Bulk edit failed for', id, e);
+      fail++;
+    }
+  }
+
+  closeModal('modalBulkEdit');
+  await refreshDb();
+
+  if (fail === 0) {
+    toast(`Upraveno ${ok} ${ctx === 'payouts' ? 'výplat' : 'vstupenek'}`, 'success');
+  } else {
+    toast(`Upraveno ${ok}, selhalo ${fail}`, 'error', 5000);
+  }
+}
+
+// ============ PAYOUT BULK ACTIONS ============
+
+async function bulkMarkPaidPayouts() {
+  const ids = [...state.selectedPayoutIds];
+  if (!ids.length) return;
+
+  // Skip already-paid tickets so we don't overwrite their stored paidOutDate.
+  const tickets = state.db.tickets.filter(t => ids.includes(t.id));
+  const toPay = tickets.filter(t => !t.paidOut);
+  const skipping = tickets.length - toPay.length;
+
+  if (toPay.length === 0) {
+    toast('Všechny vybrané jsou už označené jako přijaté', 'info');
+    return;
+  }
+
+  const res = await window.api.confirm({
+    type: 'question',
+    buttons: ['Zrušit', 'Označit přijaté'],
+    title: 'Hromadné označení přijatých',
+    message: `Označit ${toPay.length} výplat jako přijaté k dnešnímu datu?`,
+    detail: skipping > 0
+      ? `${skipping} už označených bude přeskočeno. Částka = očekávaná částka (lze ručně upravit po jedné).`
+      : 'Částka = očekávaná částka (lze ručně upravit po jedné).'
+  });
+  if (res !== 1) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  let ok = 0, fail = 0;
+  for (const t of toPay) {
+    // Use the same expected amount the Payouts view shows: salePrice * qty.
+    // That's what calcRevenue does, denominated in saleCurrency.
+    const amount = (Number(t.salePrice) || 0) * (Number(t.quantity) || 1);
+    try {
+      const r = await window.api.markPayoutPaid({
+        ticketId: t.id,
+        paidOutDate: today,
+        paidOutAmount: amount
+      });
+      if (r && r.success !== false) ok++; else fail++;
+    } catch (e) {
+      console.error('markPayoutPaid failed for', t.id, e);
+      fail++;
+    }
+  }
+
+  state.selectedPayoutIds.clear();
+  await refreshDb();
+  if (fail === 0) {
+    toast(`Označeno ${ok} výplat jako přijaté`, 'success');
+  } else {
+    toast(`Označeno ${ok}, selhalo ${fail}`, 'error', 5000);
+  }
+}
+
+async function bulkDeletePayoutTickets() {
+  const ids = [...state.selectedPayoutIds];
+  if (!ids.length) return;
+
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Hromadné smazání',
+    message: `Opravdu smazat ${ids.length} prodaných vstupenek?`,
+    detail: 'Smaže se celý záznam vstupenky včetně historie výplaty. Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+
+  await window.api.deleteTickets(ids);
+  state.selectedPayoutIds.clear();
+  await refreshDb();
+  toast(`Smazáno ${ids.length} vstupenek`, 'success');
+}
+
 // ============ SYNC & EXPORT/IMPORT ============
 async function syncNow() {
   await refreshDb();
@@ -6673,7 +7132,13 @@ function setupEventListeners() {
   // Clicking any chip on either page sets state.dashboardCategory and re-renders
   // both Dashboard (stat cards + table) and Stats (KPIs + charts) so they stay in sync.
   function setDashboardCategory(cat) {
-    if (!['all', 'football', 'concert', 'other'].includes(cat)) return;
+    if (!['all', 'football', 'concert', 'other', 'selected'].includes(cat)) return;
+    // 'selected' is a pseudo-category — only meaningful when there's an actual
+    // selection. Guard against activating an empty filter (would show 0 rows).
+    if (cat === 'selected' && state.selectedIds.size === 0) {
+      toast('Nejdřív si naklikej řádky v tabulce', 'info', 2500);
+      return;
+    }
     state.dashboardCategory = cat;
     saveUiPrefs();
     syncCategoryToggleUI();
@@ -6875,6 +7340,26 @@ function setupEventListeners() {
   });
   
   $('#btnBulkDelete').addEventListener('click', bulkDelete);
+  $('#btnBulkEdit')?.addEventListener('click', () => openBulkEditModal('tickets'));
+
+  // Bulk-Edit modal — wire up once. Field-change repaints the value slot,
+  // Apply runs the patch loop. Shared between Tickets and Payouts contexts.
+  $('#bulkEditField')?.addEventListener('change', onBulkEditFieldChange);
+  $('#btnBulkEditApply')?.addEventListener('click', applyBulkEdit);
+
+  // PAYOUTS bulk actions: header checkbox + 3 action buttons.
+  $('#pSelectAll')?.addEventListener('change', (e) => {
+    const visible = getFilteredPayouts();
+    if (e.target.checked) {
+      visible.forEach(p => state.selectedPayoutIds.add(p.ticket.id));
+    } else {
+      visible.forEach(p => state.selectedPayoutIds.delete(p.ticket.id));
+    }
+    renderPayoutsPage();
+  });
+  $('#btnPBulkPaid')?.addEventListener('click', bulkMarkPaidPayouts);
+  $('#btnPBulkEdit')?.addEventListener('click', () => openBulkEditModal('payouts'));
+  $('#btnPBulkDelete')?.addEventListener('click', bulkDeletePayoutTickets);
   
   // MEMBERSHIPS
   $('#btnAddMembership')?.addEventListener('click', () => openMembershipModal());
