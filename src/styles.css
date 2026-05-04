@@ -351,6 +351,370 @@ button:focus-visible {
   flex-shrink: 0;
 }
 
+/* ============ MARKETPLACE NAV ITEMS ============ */
+/* Stubhub/Viagogo sidebar buttons — same layout as data-view items but with
+   colored brand chips instead of generic SVG icons. The "↗" button on the
+   right is a click-target that opens the site in the system browser without
+   activating the sidebar item itself. */
+.nav-marketplace {
+  position: relative;
+}
+
+.nav-mkt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.nav-mkt-stubhub { background: #ff5800; } /* Stubhub orange */
+.nav-mkt-viagogo { background: #1565c0; } /* Viagogo blue */
+.nav-mkt-salespro { background: #6b21a8; } /* SalesPro purple — distinct from main Stubhub */
+.nav-mkt-invviagogo { background: #0e7c66; } /* inv.viagogo teal — distinct from main Viagogo */
+
+.nav-mkt-ext {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.nav-marketplace:hover .nav-mkt-ext {
+  opacity: 0.7;
+}
+
+.nav-mkt-ext:hover {
+  opacity: 1 !important;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ============ MARKETPLACE VIEWS (embedded webviews) ============ */
+/* The default .view.active is `display:block` + fadeIn animation (transform).
+   Both break webview rendering: block doesn't make a flex container, and
+   `transform` on a webview ancestor causes the GPU layer to clip incorrectly.
+   We need higher specificity than `.view.active` (chained class) and we
+   nuke the inherited animation. .main:has() at the bottom of this file
+   removes the .main padding/overflow when a marketplace view is active. */
+
+.view.marketplace-view.active {
+  display: flex !important;
+  flex-direction: column;
+  position: absolute;
+  inset: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
+  /* Cancel inherited fadeIn — `transform` on a webview parent breaks rendering. */
+  animation: none !important;
+  transform: none !important;
+  /* Fallback in case absolute positioning fails (e.g. .main was repositioned
+     by something else) — explicit height + width keeps the layout intact. */
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+
+.mkt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mkt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.mkt-btn:hover {
+  background: var(--bg-hover);
+}
+
+.mkt-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The "⚡ Přidat do TicketVault" button stands out — it's the action that
+   exits the webview into the TicketVault data layer. Purple to match brand. */
+.mkt-btn-primary {
+  background: var(--purple);
+  color: #fff;
+  font-weight: 600;
+}
+
+.mkt-btn-primary:hover {
+  background: var(--purple-hover, #8b5cf6);
+  filter: brightness(1.1);
+}
+
+.mkt-btn-primary:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+/* ============ MARKETPLACE MATCH PICKER ============ */
+/* Shown after ⚡ Quick-Add when matching tickets are found in DB. User picks
+   which ticket the scraped sale/listing belongs to → we patch that ticket. */
+
+.mkt-match-summary {
+  padding: 14px 16px;
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.mkt-match-summary-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mkt-match-summary-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mkt-match-summary-meta strong {
+  color: var(--text-primary);
+}
+
+.mkt-match-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 2px;
+}
+
+.mkt-match-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.mkt-match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.mkt-match-filter {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.mkt-match-filter:focus {
+  outline: none;
+  border-color: var(--purple);
+}
+
+#mktMatchRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mkt-match-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mkt-match-row:hover {
+  border-color: var(--purple);
+  background: var(--bg-hover);
+  transform: translateX(2px);
+}
+
+.mkt-match-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mkt-match-row-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mkt-match-row-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mkt-match-row-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mkt-match-row-status {
+  flex-shrink: 0;
+}
+
+.mkt-match-row-action {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--purple);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.mkt-match-row:hover .mkt-match-row-action {
+  opacity: 1;
+}
+
+/* When a match is "perfect" (listing ID matches), highlight it */
+.mkt-match-row.perfect-match {
+  border-color: var(--green-bright, #10b981);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.mkt-match-row.perfect-match::before {
+  content: "★";
+  color: var(--green-bright, #10b981);
+  font-size: 16px;
+  margin-right: -6px;
+}
+
+.mkt-match-empty {
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.mkt-url {
+  flex: 1;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
+  cursor: text;
+}
+
+/* Webview container: takes remaining space, scrollable, contains webview. */
+.mkt-webview-wrap {
+  flex: 1 1 auto;
+  position: relative;
+  background: #fff;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+  /* Explicit width/height as fallback in case flex sizing fails. */
+  width: 100%;
+}
+
+.mkt-webview {
+  /* <webview> is an inline-flex element by default in Electron — force it
+     to be a block-level element filling the wrapper. !important needed
+     because Electron's user-agent stylesheet sets display:inline-flex. */
+  display: flex !important;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.mkt-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  z-index: 5;
+  /* Hidden by default — JS toggles this when did-start-loading fires. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.mkt-loading.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mkt-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--purple);
+  border-radius: 50%;
+  animation: mkt-spin 0.8s linear infinite;
+}
+
+@keyframes mkt-spin {
+  to { transform: rotate(360deg); }
+}
+
 .sidebar-footer {
   padding: 12px;
   border-top: 1px solid var(--border-subtle);
@@ -382,6 +746,21 @@ button:focus-visible {
 .main {
   overflow-y: auto;
   padding: 28px 36px;
+  /* When a marketplace-view is active inside .main, the view itself is
+     position:absolute and needs .main as anchor. Adding position:relative
+     here is harmless to other views (which are statically positioned). */
+  position: relative;
+}
+
+/* When a marketplace view is active, kill the .main padding so the embedded
+   webview can fill the whole viewport edge-to-edge. The marketplace-view
+   itself uses absolute positioning and its own internal padding.
+   Two selectors for redundancy: `:has()` is the modern way, the body-class
+   variant is a JS-set fallback in case :has() doesn't kick in. */
+.main:has(.marketplace-view.active),
+body.marketplace-active .main {
+  padding: 0;
+  overflow: hidden;
 }
 
 .view {
@@ -896,23 +1275,34 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 16px;
   padding: 12px 16px;
   background: var(--bg-card);
   border: 1px solid var(--purple);
   border-radius: var(--radius-md);
   font-size: 12px;
   flex-wrap: wrap;
-  /* Stick to the bottom of the scrollable .main viewport so the user sees the
-     bar immediately after selecting rows, even with a long table. Tall enough
-     z-index to clear the table; backdrop shadow lifts it visually off rows. */
-  position: sticky;
+  /* Fixed-position pin at the bottom of the viewport. Sticky was unreliable
+     in shorter windows — the bar would land below the fold and the user would
+     have to scroll down to see it. Fixed solves that and behaves consistently
+     across window sizes. left/right offsets line up with .main's padding so
+     the bar visually aligns with the table edges. */
+  position: fixed;
   bottom: 16px;
-  z-index: 20;
+  /* 220px = sidebar width, +20px breathing room */
+  left: 240px;
+  right: 20px;
+  z-index: 30;
   box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--purple);
   /* Backdrop-filter pops the bar over content scrolling underneath. */
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+}
+
+/* When the bulk action bar is visible, give .main extra bottom padding so
+   that the user can scroll past the last table row without it being hidden
+   underneath the bar. We toggle a body class from JS when selections change. */
+body.bulk-bar-visible .main {
+  padding-bottom: 90px;
 }
 
 .bulk-count {
@@ -2494,18 +2884,20 @@ button:focus-visible {
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 200px;
+  /* Wide enough to fit typical Gmail/Outlook addresses without truncation.
+     Was 200px (truncated) — bumped to 320px which fits "michal.smida8885@gmail.com"
+     and similar long addresses. The copy button still sits to the right. */
+  max-width: 360px;
   position: relative;
 }
 
 .email-cell .cell-text {
   display: inline-block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
+  /* Allow wrapping for very long addresses instead of cropping. */
+  white-space: normal;
+  word-break: break-all;
   vertical-align: middle;
+  max-width: 320px;
 }
 
 .email-status-dot {

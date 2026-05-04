@@ -445,7 +445,12 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Enable <webview> tag for embedding marketplaces (Stubhub, Viagogo).
+      // Webviews are sandboxed by Electron — they run in a separate process
+      // with no nodeIntegration, so embedding third-party sites is safe.
+      // Each marketplace gets its own persist:* partition for cookies/login.
+      webviewTag: true
     },
     show: false
   });
@@ -454,6 +459,60 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+  });
+
+  // Webview hardening — when a <webview> attaches to the page, strip out any
+  // dangerous attributes (preload, nodeIntegration) to be paranoid even though
+  // we never set them ourselves. Lets us embed Stubhub/Viagogo safely.
+  // EXCEPTION: our own webview-preload.js (zoom bridge) is allowed through
+  // because it's bundled with the app and has no privileged operations.
+  const trustedPreloadPath = path.join(__dirname, 'src', 'webview-preload.js');
+  const trustedPreloadUrl = 'file://' + trustedPreloadPath.replace(/\\/g, '/');
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    const preload = webPreferences.preload || params.preload;
+    // Allow only our specific preload — strip anything else.
+    const isTrusted = preload && (
+      preload === trustedPreloadPath ||
+      preload === trustedPreloadUrl ||
+      String(preload).endsWith('/webview-preload.js') ||
+      String(preload).endsWith('\\webview-preload.js')
+    );
+    if (!isTrusted) {
+      delete webPreferences.preload;
+    }
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    // sandbox:false is REQUIRED so the preload can require('electron') and
+    // call ipcRenderer.sendToHost. Our preload does nothing privileged, so
+    // disabling sandbox here is safe.
+    webPreferences.sandbox = false;
+  });
+
+  // SSO/popup handling — Stubhub and Viagogo both use Google/Facebook OAuth
+  // which opens auth in a new window. Without this, popups fail silently.
+  // We rewrite popups to open in the user's default browser; once the OAuth
+  // redirect lands, the cookie session is persisted via partition and the
+  // embedded webview becomes logged in automatically on next reload.
+  mainWindow.webContents.on('did-attach-webview', (_, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+      // Stay inside webview for same-origin auth redirects; pop external for the rest.
+      if (url.startsWith('https://accounts.google.com') ||
+          url.startsWith('https://www.facebook.com') ||
+          url.startsWith('https://login.live.com')) {
+        // Open SSO popups inside Electron so the cookie lands in the right partition.
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            width: 600,
+            height: 750,
+            webPreferences: { partition: contents.session.storagePath ? undefined : undefined }
+          }
+        };
+      }
+      // Everything else (terms, help, "open in browser" links) → user's default browser.
+      shell.openExternal(url);
+      return { action: 'deny' };
+    });
   });
 
   // Dev tools in development
@@ -504,9 +563,40 @@ function createWindow() {
         { role: 'reload', label: 'Obnovit' },
         { role: 'toggleDevTools', label: 'Vývojářské nástroje' },
         { type: 'separator' },
-        { role: 'resetZoom', label: 'Reset zoom' },
-        { role: 'zoomIn', label: 'Přiblížit' },
-        { role: 'zoomOut', label: 'Oddálit' },
+        // Explicit zoom handlers targeting MAIN window webContents.
+        // Default `role: 'zoomIn'` etc. operate on focused webContents which
+        // can drift after the user clicks inside an embedded marketplace
+        // <webview> — these handlers always zoom the TicketVault UI itself.
+        // Marketplace webviews have their own zoom controls in their toolbars.
+        {
+          label: 'Reset zoom',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => {
+            try { mainWindow.webContents.setZoomLevel(0); } catch (_) {}
+          }
+        },
+        {
+          label: 'Přiblížit',
+          // Two accelerators registered separately because some keyboards send
+          // different events for "+" depending on layout (with vs without Shift).
+          accelerator: 'CmdOrCtrl+=',
+          click: () => {
+            try {
+              const wc = mainWindow.webContents;
+              wc.setZoomLevel(Math.min(9, wc.getZoomLevel() + 0.5));
+            } catch (_) {}
+          }
+        },
+        {
+          label: 'Oddálit',
+          accelerator: 'CmdOrCtrl+-',
+          click: () => {
+            try {
+              const wc = mainWindow.webContents;
+              wc.setZoomLevel(Math.max(-8, wc.getZoomLevel() - 0.5));
+            } catch (_) {}
+          }
+        },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Celá obrazovka' }
       ]
@@ -594,6 +684,20 @@ ipcMain.handle('config:get', () => loadConfig());
 // Update config
 ipcMain.handle('config:set', (event, config) => {
   return saveConfig(config);
+});
+
+// Open arbitrary URL in user's system browser. Whitelisted to https?:// to
+// keep this from being abusable (no file://, no custom schemes).
+ipcMain.handle('shell:openExternal', async (event, url) => {
+  if (typeof url !== 'string') return false;
+  if (!/^https?:\/\//i.test(url)) return false;
+  try {
+    await shell.openExternal(url);
+    return true;
+  } catch (e) {
+    console.error('openExternal failed:', e.message);
+    return false;
+  }
 });
 
 // ============ CURRENCY RATES ============

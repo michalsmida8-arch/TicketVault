@@ -311,6 +311,32 @@
           <span class="nav-badge" id="simBadge" style="display:none;"></span>
         </button>
 
+        <div class="nav-section-label">MARKETPLACES</div>
+
+        <button class="nav-item nav-marketplace" data-view="stubhub" title="Stubhub seller portál uvnitř aplikace">
+          <span class="nav-mkt-icon nav-mkt-stubhub">SH</span>
+          Stubhub
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://www.stubhub.ie/my/sales">↗</span>
+        </button>
+        <button class="nav-item nav-marketplace" data-view="viagogo" title="Viagogo seller portál uvnitř aplikace">
+          <span class="nav-mkt-icon nav-mkt-viagogo">VG</span>
+          Viagogo
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://my.viagogo.com/sales">↗</span>
+        </button>
+
+        <div class="nav-section-label">INVENTORY TOOLS</div>
+
+        <button class="nav-item nav-marketplace" data-view="salespro" title="Stubhub SalesPro broker portál uvnitř aplikace">
+          <span class="nav-mkt-icon nav-mkt-salespro">SP</span>
+          SalesPro
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://salespro.stubhub.ie/">↗</span>
+        </button>
+        <button class="nav-item nav-marketplace" data-view="invviagogo" title="Viagogo broker inventory portál">
+          <span class="nav-mkt-icon nav-mkt-invviagogo">IV</span>
+          inv.viagogo
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://inv.viagogo.com/">↗</span>
+        </button>
+
         <div class="nav-section-label">NÁSTROJE</div>
 
         <button class="nav-item" id="navSync">
@@ -1031,6 +1057,7 @@
                 <th>JMÉNO</th>
                 <th>PŘÍJMENÍ</th>
                 <th>EMAIL</th>
+                <th>HESLO</th>
                 <th>AKCE</th>
               </tr>
             </thead>
@@ -1463,6 +1490,127 @@
           </p>
         </div>
       </div>
+
+      <!-- STUBHUB MARKETPLACE WEBVIEW -->
+      <div class="view marketplace-view" id="view-stubhub">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="stubhub" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="stubhub" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="stubhub" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="stubhub" title="Domů (Sales)">🏠</button>
+          <div class="mkt-url" id="mktUrlStubhub">https://www.stubhub.ie</div>
+          <button class="mkt-btn mkt-btn-primary" data-mkt-action="quickadd" data-mkt="stubhub" title="Vytáhnout data ze stránky a přidat vstupenku do TicketVault">⚡ Přidat do TicketVault</button>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="stubhub" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="stubhub" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="stubhub" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://www.stubhub.ie/my/sales" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-stubhub"
+            class="mkt-webview"
+            src="https://www.stubhub.ie/my/sales"
+            partition="persist:stubhub"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingStubhub">
+            <div class="mkt-spinner"></div>
+            <div>Načítám Stubhub…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIAGOGO MARKETPLACE WEBVIEW -->
+      <div class="view marketplace-view" id="view-viagogo">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="viagogo" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="viagogo" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="viagogo" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="viagogo" title="Domů (Sales)">🏠</button>
+          <div class="mkt-url" id="mktUrlViagogo">https://my.viagogo.com/sales</div>
+          <button class="mkt-btn mkt-btn-primary" data-mkt-action="quickadd" data-mkt="viagogo" title="Vytáhnout data ze stránky a přidat vstupenku do TicketVault">⚡ Přidat do TicketVault</button>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="viagogo" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="viagogo" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="viagogo" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://my.viagogo.com/sales" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-viagogo"
+            class="mkt-webview"
+            src="https://my.viagogo.com/sales"
+            partition="persist:viagogo"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingViagogo">
+            <div class="mkt-spinner"></div>
+            <div>Načítám Viagogo…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SALESPRO STUBHUB MARKETPLACE WEBVIEW -->
+      <!-- SalesPro is the broker portal (separate from stubhub.ie seller view).
+           No ⚡ Quick-Add here — page structure is dashboard-like, not per-sale,
+           so the scraper pattern doesn't apply. Use Stubhub.ie for that. -->
+      <div class="view marketplace-view" id="view-salespro">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="salespro" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="salespro" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="salespro" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="salespro" title="Domů">🏠</button>
+          <div class="mkt-url" id="mktUrlSalespro">https://salespro.stubhub.ie</div>
+          <button class="mkt-btn mkt-btn-primary" data-mkt-action="quickadd" data-mkt="salespro" title="Vytáhnout data ze stránky a přidat vstupenku do TicketVault">⚡ Přidat do TicketVault</button>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="salespro" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="salespro" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="salespro" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://salespro.stubhub.ie/" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-salespro"
+            class="mkt-webview"
+            src="https://salespro.stubhub.ie/"
+            partition="persist:salespro"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingSalespro">
+            <div class="mkt-spinner"></div>
+            <div>Načítám SalesPro…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INV.VIAGOGO INVENTORY TOOL WEBVIEW -->
+      <!-- Like SalesPro: broker dashboard, no ⚡ Quick-Add (page structure
+           is not per-sale). Uses its own persist:invviagogo session so the
+           login is independent from public viagogo.com. -->
+      <div class="view marketplace-view" id="view-invviagogo">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="invviagogo" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="invviagogo" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="invviagogo" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="invviagogo" title="Domů">🏠</button>
+          <div class="mkt-url" id="mktUrlInvviagogo">https://inv.viagogo.com</div>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="invviagogo" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="invviagogo" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="invviagogo" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://inv.viagogo.com/" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-invviagogo"
+            class="mkt-webview"
+            src="https://inv.viagogo.com/"
+            partition="persist:invviagogo"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingInvviagogo">
+            <div class="mkt-spinner"></div>
+            <div>Načítám inv.viagogo…</div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -1838,6 +1986,32 @@
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>
         <button class="btn btn-primary" id="btnBulkEditApply">Aplikovat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Marketplace Match Picker (sales/listings → existing tickets) -->
+  <div class="modal" id="modalMktMatch">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="mktMatchTitle">Přiřadit k existující vstupence</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="mkt-match-summary" id="mktMatchSummary">
+          <!-- Populated by JS: scraped data summary -->
+        </div>
+        <div class="mkt-match-action-bar">
+          <span class="mkt-match-count" id="mktMatchCount">Nalezeno 0 vstupenek</span>
+          <button class="btn btn-dark btn-sm" id="btnMktMatchNew">+ Vytvořit novou vstupenku místo přiřazení</button>
+        </div>
+        <div class="mkt-match-list" id="mktMatchList">
+          <!-- Populated by JS: list of matching ticket cards -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
       </div>
     </div>
   </div>
@@ -2219,6 +2393,13 @@
           <div class="form-group form-full">
             <label>Email *</label>
             <input type="email" id="mbfEmail" placeholder="jan.novak@gmail.com">
+          </div>
+          <div class="form-group form-full">
+            <label>Heslo k emailu</label>
+            <div class="input-with-action">
+              <input type="password" id="mbfPassword" placeholder="•••••••••" autocomplete="new-password">
+              <button class="btn btn-dark btn-sm" id="mbfPasswordToggle" type="button" title="Zobrazit/skrýt heslo">👁</button>
+            </div>
           </div>
           <div class="form-group form-full">
             <label>Poznámka</label>
