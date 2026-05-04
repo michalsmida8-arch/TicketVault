@@ -9,6 +9,9 @@ let state = {
   editingTicket: null,
   sellingTicket: null,
   selectedIds: new Set(),
+  selectedPayoutIds: new Set(),
+  // Context for the shared Bulk Edit modal: 'tickets' or 'payouts'.
+  bulkEditCtx: null,
   sortBy: 'eventDate',
   sortDir: 'desc',
   filters: {
@@ -19,6 +22,11 @@ let state = {
     dateFrom: '',
     dateTo: ''
   },
+  // Category filter — applies to BOTH Dashboard and Stats views (synced).
+  // Defaults to 'concert' since per user, most existing tickets are concerts;
+  // football/other are tagged manually via Edit modal.
+  // Values: 'all' | 'football' | 'concert' | 'other'
+  dashboardCategory: 'concert',
   statsFilters: {
     month: '',
     year: ''
@@ -32,6 +40,18 @@ let state = {
   editingMembership: null,
   selectedMembershipIds: new Set(),
   revealedPasswords: new Set(),
+  mailboxFilters: {
+    search: ''
+  },
+  editingMailbox: null,
+  selectedMailboxIds: new Set(),
+  simcardFilters: {
+    search: '',
+    operator: '',
+    status: ''
+  },
+  editingSimcard: null,
+  selectedSimcardIds: new Set(),
   expenseFilters: {
     search: '',
     type: '',      // '', 'expense', or 'income'
@@ -68,8 +88,11 @@ function saveUiPrefs() {
       sortBy: state.sortBy,
       sortDir: state.sortDir,
       filters: state.filters,
+      dashboardCategory: state.dashboardCategory,
       statsFilters: state.statsFilters,
       membershipFilters: state.membershipFilters,
+      mailboxFilters: state.mailboxFilters,
+      simcardFilters: state.simcardFilters,
       expenseFilters: state.expenseFilters,
       payoutFilters: state.payoutFilters,
       inboxFilters: state.inboxFilters
@@ -90,8 +113,14 @@ function loadUiPrefs() {
     if (typeof prefs.sortBy === 'string') state.sortBy = prefs.sortBy;
     if (prefs.sortDir === 'asc' || prefs.sortDir === 'desc') state.sortDir = prefs.sortDir;
     if (prefs.filters) Object.assign(state.filters, prefs.filters);
+    if (typeof prefs.dashboardCategory === 'string' &&
+        ['all', 'football', 'concert', 'other'].includes(prefs.dashboardCategory)) {
+      state.dashboardCategory = prefs.dashboardCategory;
+    }
     if (prefs.statsFilters) Object.assign(state.statsFilters, prefs.statsFilters);
     if (prefs.membershipFilters) Object.assign(state.membershipFilters, prefs.membershipFilters);
+    if (prefs.mailboxFilters) Object.assign(state.mailboxFilters, prefs.mailboxFilters);
+    if (prefs.simcardFilters) Object.assign(state.simcardFilters, prefs.simcardFilters);
     if (prefs.expenseFilters) Object.assign(state.expenseFilters, prefs.expenseFilters);
     if (prefs.payoutFilters) Object.assign(state.payoutFilters, prefs.payoutFilters);
     if (prefs.inboxFilters) Object.assign(state.inboxFilters, prefs.inboxFilters);
@@ -141,6 +170,50 @@ function applyUiPrefsToUI() {
   set('#mFilterTeam', m.team);
   set('#mFilterOwner', m.owner);
   set('#mFilterGroup', m.group);
+
+  // Mailbox filters
+  const mb = state.mailboxFilters;
+  set('#mbFilterSearch', mb.search);
+
+  // SIM card filters
+  const sc = state.simcardFilters;
+  set('#scFilterSearch', sc.search);
+  set('#scFilterOperator', sc.operator);
+  set('#scFilterStatus', sc.status);
+
+  // Sync the category chip toggle (Dashboard + Stats)
+  syncCategoryToggleUI();
+}
+
+// Mark the chip matching state.dashboardCategory as `.active` in BOTH toggles
+// (#categoryToggle on Dashboard, #categoryToggleStats on Stats). Called whenever
+// the category changes so the two views stay visually in sync. Also handles
+// the 'selected' chip: shows it only when there's an active multi-selection,
+// updates its count badge, and auto-deactivates the filter when selection
+// is cleared (otherwise we'd show an empty filtered view).
+function syncCategoryToggleUI() {
+  const selCount = state.selectedIds.size;
+  // Auto-fallback: if 'selected' is the active filter but selection is now
+  // empty (e.g. user deselected all rows), drop back to 'all' so the user
+  // doesn't end up staring at an empty dashboard.
+  if (state.dashboardCategory === 'selected' && selCount === 0) {
+    state.dashboardCategory = 'all';
+    if (typeof saveUiPrefs === 'function') saveUiPrefs();
+  }
+  ['#categoryToggle', '#categoryToggleStats'].forEach(sel => {
+    const container = $(sel);
+    if (!container) return;
+    container.querySelectorAll('.cat-chip').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.cat === state.dashboardCategory);
+    });
+    // Show/hide the 'selected' chip + update count badge.
+    const selChip = container.querySelector('.cat-chip[data-cat="selected"]');
+    if (selChip) {
+      selChip.style.display = selCount > 0 ? '' : 'none';
+      const countEl = selChip.querySelector('[data-cat-count]');
+      if (countEl) countEl.textContent = selCount;
+    }
+  });
 }
 
 // ============ UTILS ============
@@ -527,6 +600,8 @@ async function proceedAfterLogin() {
   // to form inputs and sort indicators. Then re-render with the restored state.
   applyUiPrefsToUI();
   render();
+  // Show urgent SIM count in sidebar from the start, even before user opens the tab.
+  if (typeof updateSimBadge === 'function') updateSimBadge();
   
   // Menu listeners
   window.api.onMenuAction((action) => {
@@ -788,12 +863,26 @@ async function handleRecoverSubmit() {
   }
 }
 
-// Logout: clear token in backend config and reload. Reload guarantees clean
-// DOM state (open modals, cached data) so the next user starts fresh.
+// Logout: clear token in backend config and reload. We use a hard navigation
+// instead of reload() to guarantee a fresh process on Electron — reload()
+// occasionally keeps in-memory state and we've seen reports of "previous
+// user gets re-loaded after restart" which suggests stale state somewhere.
 async function handleLogout() {
+  // 1. Tell main process to wipe token + cachedUser from config.json
   await window.api.authLogout();
+  // 2. Clear our in-memory state
   state.currentUser = null;
-  window.location.reload();
+  state.db = null;
+  // 3. Clear localStorage too — UI prefs/theme stay (they're not user-specific),
+  //    but anything that could leak between users gets wiped.
+  try {
+    // Don't blow away theme/privacy/UI prefs — those are device-level not user-level
+  } catch (_) { /* ignore */ }
+  // 4. Hard reload — force a full page reset, no cache.
+  // Pass a cache-bust param so Electron doesn't serve cached HTML.
+  const url = new URL(window.location.href);
+  url.searchParams.set('_logout', Date.now().toString());
+  window.location.replace(url.toString());
 }
 
 // ============ SIDEBAR USER CHIP ============
@@ -1651,6 +1740,16 @@ function render() {
 function getFilteredTickets() {
   let list = [...state.db.tickets];
   const f = state.filters;
+
+  // Category filter — Dashboard's chip toggle. 'all' = no filter.
+  // 'selected' is a pseudo-category that filters to whatever rows the user has
+  // multi-selected; useful for inspecting totals of an arbitrary subset.
+  // Tickets without category default to 'concert' (set by main.js migration).
+  if (state.dashboardCategory === 'selected') {
+    list = list.filter(t => state.selectedIds.has(t.id));
+  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+    list = list.filter(t => (t.category || 'concert') === state.dashboardCategory);
+  }
   
   if (f.search) {
     const q = f.search.toLowerCase();
@@ -1696,7 +1795,16 @@ function calcHoldDays(t) {
 }
 
 function renderStats() {
-  const all = state.db.tickets;
+  // Apply the dashboard category filter so the 5 stat cards (Profit / Spent /
+  // Revenue / Sold / Stock) reflect ONLY the selected category — same scope
+  // as the table below them. 'selected' is the pseudo-category that filters
+  // to multi-select chosen rows, mirroring the same logic in getFilteredTickets.
+  let all = state.db.tickets;
+  if (state.dashboardCategory === 'selected') {
+    all = all.filter(t => state.selectedIds.has(t.id));
+  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+    all = all.filter(t => (t.category || 'concert') === state.dashboardCategory);
+  }
   const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered');
 
   // Aggregate in primary currency since tickets may have mixed currencies.
@@ -1726,6 +1834,12 @@ function renderTickets() {
   if (list.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
+    // Filter narrowed everything away → drop selection + hide bulk bar so it
+    // doesn't show "5 vybráno" when there's literally nothing on screen.
+    state.selectedIds.clear();
+    renderBulkActions();
+    const saEmpty = $('#selectAll');
+    if (saEmpty) { saEmpty.checked = false; saEmpty.indeterminate = false; }
     return;
   }
   empty.style.display = 'none';
@@ -1835,7 +1949,7 @@ function renderTickets() {
         })()}">${formatMoney(calcCostInPrimary(t), primary)}${(Number(t.quantity) || 1) > 1 ? ` <span class="per-ks">(${formatMoney(calcCostInPrimary(t) / (Number(t.quantity) || 1), primary)}/ks)</span>` : ''}</td>
         <td class="col-sale" title="${(() => {
           if (!isSoldOrDelivered) return '';
-          const origCcy = ticketCurrency(t);
+          const origCcy = saleCurrency(t);
           const isMixed = origCcy !== primary;
           const perKs = (Number(t.quantity) || 1) > 1 ? 'Cena za 1 ks: ' + formatMoney(t.salePrice, origCcy) + '\n' : '';
           const orig = isMixed ? `Původní cena: ${formatMoney(calcRevenue(t), origCcy)}` : '';
@@ -1891,9 +2005,35 @@ function renderTickets() {
       const id = cb.dataset.id;
       if (cb.checked) state.selectedIds.add(id);
       else state.selectedIds.delete(id);
+      // Keep header checkbox in sync with row state — checked when ALL visible
+      // rows selected, indeterminate when SOME, unchecked when none.
+      const sa = $('#selectAll');
+      if (sa) {
+        const visibleSelected = list.filter(t => state.selectedIds.has(t.id)).length;
+        sa.checked = visibleSelected === list.length;
+        sa.indeterminate = visibleSelected > 0 && visibleSelected < list.length;
+      }
+      // If the "🎯 Vybrané" filter is active, the row we just unchecked must
+      // disappear from view (and the stat cards above must drop its totals).
+      // renderTickets re-runs getFilteredTickets which honors the chip filter;
+      // renderStats does the same for the cards on top.
+      if (state.dashboardCategory === 'selected') {
+        renderStats();
+        renderTickets();
+        return; // renderTickets already calls renderBulkActions at the end
+      }
       renderBulkActions();
     });
   });
+
+  // Sync header checkbox state on each render (e.g. after filter changes).
+  const saHeader = $('#selectAll');
+  if (saHeader) {
+    const visibleSelected = list.filter(t => state.selectedIds.has(t.id)).length;
+    saHeader.checked = list.length > 0 && visibleSelected === list.length;
+    saHeader.indeterminate = visibleSelected > 0 && visibleSelected < list.length;
+  }
+  renderBulkActions();
   
   // Mute/unmute listeners
   tbody.querySelectorAll('[data-mute-id]').forEach(btn => {
@@ -1911,14 +2051,106 @@ function renderTickets() {
 }
 
 function renderBulkActions() {
+  // Keep the "🎯 Vybrané" chip in sync with selection state on every change —
+  // visibility, count badge, and auto-fallback to 'all' if selection emptied.
+  syncCategoryToggleUI();
+
   const bar = $('#bulkActions');
   const count = state.selectedIds.size;
-  if (count > 0) {
-    bar.style.display = 'flex';
-    $('#bulkCount').textContent = `${count} vybráno`;
-  } else {
+  if (count === 0) {
     bar.style.display = 'none';
+    return;
   }
+  bar.style.display = 'flex';
+  $('#bulkCount').textContent = `${count} vybráno`;
+
+  // Compute summary in primary (EUR) currency over the selected tickets.
+  // Profit/cost/revenue helpers already handle per-ticket conversion to primary.
+  const selected = state.db.tickets.filter(t => state.selectedIds.has(t.id));
+  const primary = getPrimaryCurrency();
+  let totalCost = 0;
+  let totalRevenue = 0;
+  let totalProfit = 0;
+  let costForRoi = 0; // only count cost of SOLD/DELIVERED tickets for honest ROI
+  selected.forEach(t => {
+    totalCost += calcCostInPrimary(t);
+    if (t.status === 'sold' || t.status === 'delivered') {
+      totalRevenue += calcRevenueInPrimary(t);
+      totalProfit += calcProfitInPrimary(t);
+      costForRoi += calcCostInPrimary(t);
+    }
+  });
+  const roi = costForRoi > 0 ? (totalProfit / costForRoi) * 100 : 0;
+  const profitClass = totalProfit >= 0 ? 'profit-positive' : 'profit-negative';
+  const roiClass = roi >= 0 ? 'roi-positive' : 'roi-negative';
+
+  $('#bulkSummary').innerHTML = `
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Nákup</span>
+      <span class="bulk-summary-value">${formatMoney(totalCost, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Prodej</span>
+      <span class="bulk-summary-value">${formatMoney(totalRevenue, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Zisk</span>
+      <span class="bulk-summary-value ${profitClass}">${totalProfit >= 0 ? '+' : ''}${formatMoney(totalProfit, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">ROI</span>
+      <span class="bulk-summary-value ${roiClass}">${costForRoi > 0 ? (roi >= 0 ? '+' : '') + roi.toFixed(1) + ' %' : '—'}</span>
+    </div>
+  `;
+}
+
+// ============ PAYOUTS BULK ACTIONS ============
+// Mirrors renderBulkActions but for the Payouts view. Operates on the
+// payout objects (which wrap tickets) so we can sum p.amount in saleCurrency.
+function renderPayoutBulkActions() {
+  const bar = $('#pBulkActions');
+  if (!bar) return;
+  const count = state.selectedPayoutIds.size;
+  if (count === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  $('#pBulkCount').textContent = `${count} vybráno`;
+
+  const all = getPayoutTickets();
+  const selected = all.filter(p => state.selectedPayoutIds.has(p.ticket.id));
+  const primary = getPrimaryCurrency();
+
+  let totalToReceive = 0; // pending only — what's still owed
+  let totalReceived = 0;  // already paid out
+  let overdueCount = 0;
+  selected.forEach(p => {
+    const amt = convertCurrency(Number(p.amount) || 0, saleCurrency(p.ticket), primary);
+    if (p.isPaid) {
+      const paidRaw = (p.ticket.paidOutAmount !== null && p.ticket.paidOutAmount !== undefined)
+        ? Number(p.ticket.paidOutAmount) : Number(p.amount);
+      totalReceived += convertCurrency(paidRaw, saleCurrency(p.ticket), primary);
+    } else {
+      totalToReceive += amt;
+      if (p.isOverdue) overdueCount++;
+    }
+  });
+
+  $('#pBulkSummary').innerHTML = `
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">K přijetí</span>
+      <span class="bulk-summary-value">${formatMoney(totalToReceive, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Vyplaceno</span>
+      <span class="bulk-summary-value">${formatMoney(totalReceived, primary)}</span>
+    </div>
+    <div class="bulk-summary-item">
+      <span class="bulk-summary-label">Po termínu</span>
+      <span class="bulk-summary-value ${overdueCount > 0 ? 'profit-negative' : ''}">${overdueCount}</span>
+    </div>
+  `;
 }
 
 function populateYearFilter() {
@@ -2253,6 +2485,8 @@ function switchView(name) {
   
   if (name === 'stats') renderStatsPage();
   if (name === 'memberships') renderMembershipsPage();
+  if (name === 'mailboxes') renderMailboxesPage();
+  if (name === 'simcards') renderSimcardsPage();
   if (name === 'expenses') renderExpensesPage();
   if (name === 'payouts') renderPayoutsPage();
   if (name === 'inbox') renderInboxPage();
@@ -2677,6 +2911,560 @@ async function bulkDeleteMemberships() {
   toast(`Smazáno ${ids.length} membershipů`, 'success');
 }
 
+// ============ MAILBOXES (Emailové schránky) ============
+function getFilteredMailboxes() {
+  const list = state.db.mailboxes || [];
+  const f = state.mailboxFilters;
+  const q = (f.search || '').toLowerCase().trim();
+  return list.filter(mb => {
+    if (q) {
+      const hay = `${mb.firstName || ''} ${mb.lastName || ''} ${mb.email || ''} ${mb.notes || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    // Sort by lastName, then firstName
+    const la = (a.lastName || '').toLowerCase();
+    const lb = (b.lastName || '').toLowerCase();
+    if (la !== lb) return la.localeCompare(lb, 'cs');
+    return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase(), 'cs');
+  });
+}
+
+function renderMailboxesPage() {
+  const list = getFilteredMailboxes();
+  const tbody = $('#mailboxesBody');
+  const empty = $('#mbEmptyState');
+  if (!tbody) return;
+
+  if (list.length === 0) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    renderMbBulkActions();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  tbody.innerHTML = list.map(mb => {
+    const checked = state.selectedMailboxIds.has(mb.id) ? 'checked' : '';
+    return `
+      <tr data-id="${mb.id}">
+        <td class="col-check"><input type="checkbox" class="mb-row-check" data-id="${mb.id}" ${checked}></td>
+        <td>${escapeHtml(mb.firstName || '—')}</td>
+        <td>${escapeHtml(mb.lastName || '—')}</td>
+        <td class="email-cell" title="${escapeHtml(mb.email || '')}">
+          <span class="cell-text">${escapeHtml(mb.email || '—')}</span>
+          ${mb.email ? `<button class="copy-btn" data-copy="${escapeHtml(mb.email)}" title="Kopírovat email">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>` : ''}
+        </td>
+        <td class="col-actions">
+          <div class="actions-cell">
+            <button class="btn btn-dark btn-sm" data-mb-action="edit" data-id="${mb.id}">Edit</button>
+            <button class="btn btn-danger btn-sm" data-mb-action="delete" data-id="${mb.id}">Del</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Bind row actions
+  tbody.querySelectorAll('[data-mb-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const act = btn.dataset.mbAction;
+      if (act === 'edit') openMailboxModal((state.db.mailboxes || []).find(x => x.id === id));
+      else if (act === 'delete') deleteMailbox(id);
+    });
+  });
+
+  // Copy buttons
+  tbody.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const text = btn.dataset.copy;
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+        btn.classList.add('copied');
+        toast('Zkopírováno do schránky', 'success', 1500);
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.classList.remove('copied');
+        }, 1200);
+      } catch (err) {
+        toast('Chyba kopírování: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Row checkboxes
+  tbody.querySelectorAll('.mb-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.selectedMailboxIds.add(id);
+      else state.selectedMailboxIds.delete(id);
+      renderMbBulkActions();
+    });
+  });
+
+  renderMbBulkActions();
+}
+
+function renderMbBulkActions() {
+  const bar = $('#mbBulkActions');
+  if (!bar) return;
+  const count = state.selectedMailboxIds.size;
+  if (count > 0) {
+    bar.style.display = 'flex';
+    $('#mbBulkCount').textContent = `${count} vybráno`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function openMailboxModal(mb = null) {
+  const isEditing = mb && mb.id;
+  state.editingMailbox = isEditing ? mb : null;
+  $('#mbModalTitle').textContent = isEditing ? 'Upravit schránku' : 'Přidat schránku';
+  $('#mbfFirstName').value = mb?.firstName || '';
+  $('#mbfLastName').value = mb?.lastName || '';
+  $('#mbfEmail').value = mb?.email || '';
+  $('#mbfNotes').value = mb?.notes || '';
+  $('#modalMailbox').classList.add('active');
+  $('#mbfFirstName').focus();
+}
+
+async function saveMailbox() {
+  const firstName = $('#mbfFirstName').value.trim();
+  const lastName = $('#mbfLastName').value.trim();
+  const email = $('#mbfEmail').value.trim();
+  if (!firstName) { toast('Zadej jméno', 'error'); return; }
+  if (!lastName) { toast('Zadej příjmení', 'error'); return; }
+  if (!email) { toast('Zadej email', 'error'); return; }
+
+  const mb = {
+    ...(state.editingMailbox || {}),
+    firstName,
+    lastName,
+    email,
+    notes: $('#mbfNotes').value.trim()
+  };
+
+  const saved = await window.api.upsertMailbox(mb);
+  if (!state.db.mailboxes) state.db.mailboxes = [];
+  const idx = state.db.mailboxes.findIndex(x => x.id === saved.id);
+  if (idx >= 0) state.db.mailboxes[idx] = saved;
+  else state.db.mailboxes.push(saved);
+
+  closeModal('modalMailbox');
+  toast(state.editingMailbox ? 'Schránka upravena' : 'Schránka přidána', 'success');
+  renderMailboxesPage();
+}
+
+async function deleteMailbox(id) {
+  const mb = (state.db.mailboxes || []).find(x => x.id === id);
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Smazat schránku',
+    message: `Opravdu smazat ${mb?.firstName || ''} ${mb?.lastName || ''} (${mb?.email || ''})?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteMailbox(id);
+  state.db.mailboxes = (state.db.mailboxes || []).filter(x => x.id !== id);
+  state.selectedMailboxIds.delete(id);
+  renderMailboxesPage();
+  toast('Schránka smazána', 'success');
+}
+
+async function bulkDeleteMailboxes() {
+  const ids = [...state.selectedMailboxIds];
+  if (!ids.length) return;
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Hromadné smazání',
+    message: `Opravdu smazat ${ids.length} schránek?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteMailboxes(ids);
+  state.db.mailboxes = (state.db.mailboxes || []).filter(x => !ids.includes(x.id));
+  state.selectedMailboxIds.clear();
+  renderMailboxesPage();
+  toast(`Smazáno ${ids.length} schránek`, 'success');
+}
+
+// ============ SIM CARDS ============
+// Computes urgency status for an expiry date.
+// Returns one of: 'ok' | 'warn' (<30d) | 'urgent' (<7d) | 'expired' (past)
+function getSimcardStatus(expiryISO) {
+  if (!expiryISO) return 'ok';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(expiryISO);
+  exp.setHours(0, 0, 0, 0);
+  const diffMs = exp.getTime() - today.getTime();
+  const diffDays = Math.round(diffMs / 86400000);
+  if (diffDays < 0) return 'expired';
+  if (diffDays < 7) return 'urgent';
+  if (diffDays < 30) return 'warn';
+  return 'ok';
+}
+
+// Days remaining until expiry (negative = past)
+function getDaysUntilExpiry(expiryISO) {
+  if (!expiryISO) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(expiryISO);
+  exp.setHours(0, 0, 0, 0);
+  return Math.round((exp.getTime() - today.getTime()) / 86400000);
+}
+
+function formatExpiryDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('cs-CZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch (e) {
+    return iso;
+  }
+}
+
+// Adds 1 calendar year to an ISO date string (YYYY-MM-DD).
+// If the input is empty/invalid, anchors on today.
+function addOneYear(isoDate) {
+  let d;
+  if (isoDate) {
+    d = new Date(isoDate);
+    if (isNaN(d.getTime())) d = new Date();
+  } else {
+    d = new Date();
+  }
+  d.setFullYear(d.getFullYear() + 1);
+  // Return as YYYY-MM-DD (local)
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getFilteredSimcards() {
+  const list = state.db.simcards || [];
+  const f = state.simcardFilters;
+  const q = (f.search || '').toLowerCase().trim();
+  return list.filter(sc => {
+    if (q) {
+      const hay = `${sc.operator || ''} ${sc.phone || ''} ${sc.owner || ''} ${sc.notes || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (f.operator && sc.operator !== f.operator) return false;
+    if (f.status) {
+      const status = getSimcardStatus(sc.expiry);
+      if (status !== f.status) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    // Sort by expiry ascending (most urgent first), missing dates last
+    if (!a.expiry && !b.expiry) return 0;
+    if (!a.expiry) return 1;
+    if (!b.expiry) return -1;
+    return a.expiry.localeCompare(b.expiry);
+  });
+}
+
+function getSimOperators() {
+  // Prefer the list stored in DB (synced via cloud); fall back to defaults
+  const fromDb = (state.db && Array.isArray(state.db.simOperators)) ? state.db.simOperators : null;
+  if (fromDb && fromDb.length) return fromDb;
+  return ['T-Mobile', 'O2', 'Vodafone', 'Kaktus'];
+}
+
+function populateSimcardFilters() {
+  const sel = $('#scFilterOperator');
+  if (!sel) return;
+  const current = state.simcardFilters.operator;
+  // Build options from operators in use + known operators (deduped)
+  const usedSet = new Set();
+  (state.db.simcards || []).forEach(sc => { if (sc.operator) usedSet.add(sc.operator); });
+  getSimOperators().forEach(op => usedSet.add(op));
+  const opts = ['<option value="">Všichni operátoři</option>']
+    .concat([...usedSet].sort().map(op => `<option value="${escapeHtml(op)}">${escapeHtml(op)}</option>`));
+  sel.innerHTML = opts.join('');
+  sel.value = current || '';
+}
+
+function populateSimOperatorSelect(currentValue = '') {
+  const sel = $('#scfOperator');
+  if (!sel) return;
+  const ops = getSimOperators();
+  // Make sure currentValue (from existing record) is always selectable even if removed from defaults
+  const set = new Set(ops);
+  if (currentValue && !set.has(currentValue)) ops.unshift(currentValue);
+  sel.innerHTML = ops.map(op => `<option value="${escapeHtml(op)}">${escapeHtml(op)}</option>`).join('');
+  sel.value = currentValue || ops[0] || '';
+}
+
+function renderSimcardsPage() {
+  populateSimcardFilters();
+  const list = getFilteredSimcards();
+  const tbody = $('#simcardsBody');
+  const empty = $('#scEmptyState');
+  if (!tbody) return;
+
+  if (list.length === 0) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    renderScBulkActions();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  tbody.innerHTML = list.map(sc => {
+    const checked = state.selectedSimcardIds.has(sc.id) ? 'checked' : '';
+    const status = getSimcardStatus(sc.expiry);
+    const days = getDaysUntilExpiry(sc.expiry);
+
+    let statusBadge = '';
+    let rowClass = '';
+    let extendBtnClass = 'btn btn-extend btn-sm';
+    if (status === 'expired') {
+      statusBadge = `<span class="expiry-status status-expired">❌ Vypršelo (${Math.abs(days)} d)</span>`;
+      rowClass = 'row-expired';
+      extendBtnClass += ' urgent';
+    } else if (status === 'urgent') {
+      statusBadge = `<span class="expiry-status status-urgent">🔥 ${days} dní</span>`;
+      rowClass = 'row-urgent';
+      extendBtnClass += ' urgent';
+    } else if (status === 'warn') {
+      statusBadge = `<span class="expiry-status status-warn">⚠ ${days} dní</span>`;
+      rowClass = 'row-warn';
+    } else if (sc.expiry) {
+      statusBadge = `<span class="expiry-status status-ok">✓ ${days} dní</span>`;
+    } else {
+      statusBadge = `<span class="expiry-status status-ok" style="opacity:0.5">—</span>`;
+    }
+
+    const expiryClass = `expiry-cell expiry-${status}`;
+
+    return `
+      <tr data-id="${sc.id}" class="${rowClass}">
+        <td class="col-check"><input type="checkbox" class="sc-row-check" data-id="${sc.id}" ${checked}></td>
+        <td class="operator-cell">${escapeHtml(sc.operator || '—')}</td>
+        <td class="phone-cell">
+          ${escapeHtml(sc.phone || '—')}
+          ${sc.phone ? `<button class="copy-btn" data-copy="${escapeHtml(sc.phone)}" title="Kopírovat číslo">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>` : ''}
+        </td>
+        <td class="${expiryClass}">${formatExpiryDate(sc.expiry)}</td>
+        <td>${statusBadge}</td>
+        <td style="color:var(--text-secondary);font-size:12px">${escapeHtml(sc.notes || '—')}</td>
+        <td class="col-actions">
+          <div class="actions-cell">
+            <button class="${extendBtnClass}" data-sc-action="extend" data-id="${sc.id}" title="Prodloužit datum expirace o 1 rok">↻ Prodlouženo</button>
+            <button class="btn btn-dark btn-sm" data-sc-action="edit" data-id="${sc.id}">Edit</button>
+            <button class="btn btn-danger btn-sm" data-sc-action="delete" data-id="${sc.id}">Del</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Bind row actions
+  tbody.querySelectorAll('[data-sc-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const act = btn.dataset.scAction;
+      if (act === 'edit') openSimcardModal((state.db.simcards || []).find(x => x.id === id));
+      else if (act === 'delete') deleteSimcard(id);
+      else if (act === 'extend') extendSimcardExpiry(id);
+    });
+  });
+
+  // Copy buttons
+  tbody.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const text = btn.dataset.copy;
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+        btn.classList.add('copied');
+        toast('Zkopírováno do schránky', 'success', 1500);
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.classList.remove('copied');
+        }, 1200);
+      } catch (err) {
+        toast('Chyba kopírování: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Row checkboxes
+  tbody.querySelectorAll('.sc-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.selectedSimcardIds.add(id);
+      else state.selectedSimcardIds.delete(id);
+      renderScBulkActions();
+    });
+  });
+
+  renderScBulkActions();
+  updateSimBadge();
+}
+
+function renderScBulkActions() {
+  const bar = $('#scBulkActions');
+  if (!bar) return;
+  const count = state.selectedSimcardIds.size;
+  if (count > 0) {
+    bar.style.display = 'flex';
+    $('#scBulkCount').textContent = `${count} vybráno`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+// Sidebar badge — count of SIM cards that are urgent or expired
+function updateSimBadge() {
+  const badge = $('#simBadge');
+  if (!badge) return;
+  const list = state.db.simcards || [];
+  let count = 0;
+  list.forEach(sc => {
+    const s = getSimcardStatus(sc.expiry);
+    if (s === 'urgent' || s === 'expired') count++;
+  });
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function openSimcardModal(sc = null) {
+  const isEditing = sc && sc.id;
+  state.editingSimcard = isEditing ? sc : null;
+  $('#scModalTitle').textContent = isEditing ? 'Upravit SIM' : 'Přidat SIM';
+  populateSimOperatorSelect(sc?.operator || '');
+  $('#scfPhone').value = sc?.phone || '';
+  $('#scfExpiry').value = sc?.expiry || '';
+  $('#scfOwner').value = sc?.owner || '';
+  $('#scfNotes').value = sc?.notes || '';
+  $('#modalSimcard').classList.add('active');
+  $('#scfPhone').focus();
+}
+
+async function saveSimcard() {
+  const operator = $('#scfOperator').value;
+  const phone = $('#scfPhone').value.trim();
+  const expiry = $('#scfExpiry').value;
+  if (!operator) { toast('Zadej operátora', 'error'); return; }
+  if (!phone) { toast('Zadej telefonní číslo', 'error'); return; }
+  if (!expiry) { toast('Zadej datum expirace', 'error'); return; }
+
+  const sc = {
+    ...(state.editingSimcard || {}),
+    operator,
+    phone,
+    expiry,
+    owner: $('#scfOwner').value.trim(),
+    notes: $('#scfNotes').value.trim()
+  };
+
+  const saved = await window.api.upsertSimcard(sc);
+  if (!state.db.simcards) state.db.simcards = [];
+  const idx = state.db.simcards.findIndex(x => x.id === saved.id);
+  if (idx >= 0) state.db.simcards[idx] = saved;
+  else state.db.simcards.push(saved);
+
+  closeModal('modalSimcard');
+  toast(state.editingSimcard ? 'SIM upravena' : 'SIM přidána', 'success');
+  renderSimcardsPage();
+}
+
+async function deleteSimcard(id) {
+  const sc = (state.db.simcards || []).find(x => x.id === id);
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Smazat SIM',
+    message: `Opravdu smazat ${sc?.operator || ''} — ${sc?.phone || ''}?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteSimcard(id);
+  state.db.simcards = (state.db.simcards || []).filter(x => x.id !== id);
+  state.selectedSimcardIds.delete(id);
+  renderSimcardsPage();
+  toast('SIM smazána', 'success');
+}
+
+async function bulkDeleteSimcards() {
+  const ids = [...state.selectedSimcardIds];
+  if (!ids.length) return;
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Hromadné smazání',
+    message: `Opravdu smazat ${ids.length} SIM karet?`,
+    detail: 'Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+  await window.api.deleteSimcards(ids);
+  state.db.simcards = (state.db.simcards || []).filter(x => !ids.includes(x.id));
+  state.selectedSimcardIds.clear();
+  renderSimcardsPage();
+  toast(`Smazáno ${ids.length} SIM karet`, 'success');
+}
+
+// "Prodlouženo" button — extends the expiry by 1 calendar year from
+// the CURRENT expiry date (if set). If the SIM already expired, anchors on today
+// instead so the user actually gets a future date (not yet another past date).
+async function extendSimcardExpiry(id) {
+  const sc = (state.db.simcards || []).find(x => x.id === id);
+  if (!sc) return;
+  const status = getSimcardStatus(sc.expiry);
+  // For expired SIMs: anchor on today (so "+1 year" gives a useful future date)
+  // For all others: extend from current expiry (preserves the renewal cadence)
+  const baseDate = (status === 'expired' || !sc.expiry) ? null : sc.expiry;
+  const newExpiry = addOneYear(baseDate);
+
+  const updated = { ...sc, expiry: newExpiry };
+  const saved = await window.api.upsertSimcard(updated);
+  const idx = state.db.simcards.findIndex(x => x.id === id);
+  if (idx >= 0) state.db.simcards[idx] = saved;
+
+  toast(`Prodlouženo do ${formatExpiryDate(newExpiry)}`, 'success', 2500);
+  renderSimcardsPage();
+}
+
+async function addCustomSimOperator() {
+  const name = (prompt('Název nového operátora:') || '').trim();
+  if (!name) return;
+  const res = await window.api.addSimOperator(name);
+  if (res && res.success) {
+    // Update local DB cache so getSimOperators() returns the new value
+    if (!state.db.simOperators) state.db.simOperators = [];
+    if (Array.isArray(res.operators)) state.db.simOperators = res.operators;
+    populateSimOperatorSelect(name);
+    toast(`Operátor "${name}" přidán`, 'success');
+  } else {
+    toast(res?.error || 'Nepodařilo se přidat operátora', 'error');
+  }
+}
+
 // ============ PAYOUTS ============
 function findPayoutRule(platform) {
   if (!platform) return null;
@@ -2692,18 +3480,33 @@ function findPayoutRule(platform) {
 function calculatePayoutDate(ticket) {
   const rule = findPayoutRule(ticket.platform);
   if (!rule) return null;
-  
+
   let baseDateStr;
-  if (rule.baseDate === 'eventDate') baseDateStr = ticket.eventDate;
-  else if (rule.baseDate === 'saleDate') baseDateStr = ticket.saleDate;
-  else if (rule.baseDate === 'deliveryDate') {
-    // If ticket is delivered, use delivery date (= when status became "delivered" → updated)
-    // For simplicity, use saleDate + estimated delivery buffer (1 day)
-    // If ticket has deliveryDate field, use it
-    baseDateStr = ticket.deliveryDate || ticket.saleDate;
+  if (rule.baseDate === 'eventDate') {
+    baseDateStr = ticket.eventDate;
+  } else if (rule.baseDate === 'saleDate') {
+    baseDateStr = ticket.saleDate;
+  } else if (rule.baseDate === 'deliveryDate') {
+    // "Po doručení" pravidlo se NESMÍ aktivovat dokud ticket NENÍ doručený.
+    // Dřív kód padal na ticket.saleDate jako fallback, takže prodaný-ale-nedoručený
+    // ticket se choval jako by už byl doručený a počítal výplatu od saleDate.
+    // Teď: bez status=delivered nevracíme nic → sloupec ZBÝVÁ ukáže "—" a
+    // STAV VÝPLATY se chová neutrálně (žádné falešné "po termínu").
+    if (ticket.status !== 'delivered') return null;
+    // Použij timestamp kdy bylo "Doručeno" potvrzeno (deliveredAt nastavuje
+    // markDelivered v ISO formátu); pokud chybí (starší ticket před zavedením
+    // pole), fallbackuj na saleDate aby starý záznam stále něco ukazoval.
+    if (ticket.deliveryDate) {
+      baseDateStr = ticket.deliveryDate;
+    } else if (ticket.deliveredAt) {
+      baseDateStr = String(ticket.deliveredAt).slice(0, 10);
+    } else {
+      baseDateStr = ticket.saleDate;
+    }
+  } else {
+    baseDateStr = ticket.eventDate || ticket.saleDate;
   }
-  else baseDateStr = ticket.eventDate || ticket.saleDate;
-  
+
   if (!baseDateStr) return null;
   const d = new Date(baseDateStr);
   if (isNaN(d)) return null;
@@ -2787,11 +3590,10 @@ function renderPayoutsPage() {
   const paid = all.filter(p => p.isPaid);
   const overdue = all.filter(p => p.isOverdue);
   
-  // p.amount is in each ticket's own currency. When summing, convert to the
-  // primary currency so the header cards show consistent totals across mixed
-  // currencies. Per-row amounts below stay in the ticket's own currency —
-  // they're naturally scoped to one ticket.
-  const toPrimary = (p, amt) => convertCurrency(Number(amt) || 0, ticketCurrency(p.ticket), getPrimaryCurrency());
+  // p.amount is the sale revenue, denominated in saleCurrency. Convert from
+  // saleCurrency (not ticketCurrency, which is purchase ccy) to primary so the
+  // header cards show consistent totals across mixed currencies.
+  const toPrimary = (p, amt) => convertCurrency(Number(amt) || 0, saleCurrency(p.ticket), getPrimaryCurrency());
   const pendingSum = pending.reduce((s, p) => s + toPrimary(p, p.amount), 0);
   const paidSum = paid.reduce((s, p) => {
     const amt = p.ticket.paidOutAmount !== null && p.ticket.paidOutAmount !== undefined ? Number(p.ticket.paidOutAmount) : p.amount;
@@ -2812,7 +3614,7 @@ function renderPayoutsPage() {
   if (upcoming.length > 0) {
     const n = upcoming[0];
     const dayLabel = n.daysLeft === 0 ? 'dnes' : (n.daysLeft === 1 ? 'zítra' : `za ${n.daysLeft} dní`);
-    $('#payNext').innerHTML = `${escapeHtml(n.ticket.eventName || '—')} <span style="color:var(--text-tertiary); font-size:12px;">(${dayLabel}, ${formatMoney(n.amount, ticketCurrency(n.ticket))})</span>`;
+    $('#payNext').innerHTML = `${escapeHtml(n.ticket.eventName || '—')} <span style="color:var(--text-tertiary); font-size:12px;">(${dayLabel}, ${formatMoney(n.amount, saleCurrency(n.ticket))})</span>`;
   } else {
     $('#payNext').textContent = '—';
   }
@@ -2824,6 +3626,12 @@ function renderPayoutsPage() {
   if (list.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
+    // Nothing visible → clear any stale payout selection so the bulk bar
+    // doesn't sit there with old counts after a filter change.
+    state.selectedPayoutIds.clear();
+    renderPayoutBulkActions();
+    const saEmpty = $('#pSelectAll');
+    if (saEmpty) { saEmpty.checked = false; saEmpty.indeterminate = false; }
     return;
   }
   empty.style.display = 'none';
@@ -2839,7 +3647,7 @@ function renderPayoutsPage() {
     if (p.isPaid) {
       const paidAmount = t.paidOutAmount !== null && t.paidOutAmount !== undefined ? Number(t.paidOutAmount) : p.amount;
       const diff = paidAmount - p.amount;
-      const tc = ticketCurrency(t);
+      const tc = saleCurrency(t);
       const diffLabel = Math.abs(diff) < 0.01 ? '' : ` <span style="color:${diff >= 0 ? 'var(--green-bright)' : 'var(--red-bright)'}">(${diff >= 0 ? '+' : ''}${formatMoney(diff, tc)})</span>`;
       payoutStatusCell = `<span class="status-pill status-sold" title="Přijato ${formatDate(t.paidOutDate)} - ${formatMoney(paidAmount, tc)}">✓ Vyplaceno</span>${diffLabel}`;
       actionCell = `<button class="btn btn-dark btn-sm" data-p-action="unpaid" data-id="${t.id}" title="Vrátit zpět na čekání">↶ Vrátit</button>`;
@@ -2848,6 +3656,12 @@ function renderPayoutsPage() {
       actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
     } else if (p.expectedDate) {
       payoutStatusCell = '<span class="status-pill" style="background:rgba(167, 139, 250, 0.15);color:#c4b5fd;border:1px solid rgba(167, 139, 250, 0.35)">⏳ Čeká</span>';
+      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
+    } else if (p.rule && p.rule.baseDate === 'deliveryDate' && t.status !== 'delivered') {
+      // Pravidlo "po doručení" existuje, ale ticket ještě není doručený zákazníkovi.
+      // Jasný hint co s tím má uživatel udělat — nezobrazujeme ani "Po termínu" ani
+      // "Neznámé pravidlo" (oboje by bylo zavádějící).
+      payoutStatusCell = '<span class="status-pill" style="background:rgba(251, 191, 36, 0.12);color:#fbbf24;border:1px solid rgba(251, 191, 36, 0.35)" title="Pravidlo se aktivuje až po označení \'Doručeno\'">📦 Čeká na doručení</span>';
       actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
     } else {
       payoutStatusCell = '<span class="status-pill status-cancelled">? Neznámé pravidlo</span>';
@@ -2860,14 +3674,15 @@ function renderPayoutsPage() {
     
     return `
       <tr data-id="${t.id}" class="${p.isOverdue && !p.isPaid ? 'row-urgent' : ''} ${p.isPaid ? 'row-paid' : ''}">
+        <td class="col-check"><input type="checkbox" class="row-check p-row-check" data-id="${t.id}" ${state.selectedPayoutIds.has(t.id) ? 'checked' : ''}></td>
         <td><strong>${escapeHtml(t.eventName || '—')}</strong></td>
         <td>${t.eventDate ? formatDate(t.eventDate) : '—'}</td>
         <td>${t.quantity || 1}</td>
-        <td><strong>${formatMoney(p.amount, ticketCurrency(t))}</strong></td>
+        <td><strong>${formatMoney(p.amount, saleCurrency(t))}</strong></td>
         <td>${escapeHtml(t.platform || '—')}${ruleInfo}</td>
         <td>${status}</td>
         <td>${p.expectedDate ? formatDate(p.expectedDate) : '—'}</td>
-        <td>${p.isPaid ? '—' : `<span class="days-badge ${urgency.class}">${urgency.label}</span>`}</td>
+        <td>${(p.isPaid || !p.expectedDate) ? '—' : `<span class="days-badge ${urgency.class}">${urgency.label}</span>`}</td>
         <td>${payoutStatusCell}</td>
         <td class="col-actions"><div class="actions-cell">${actionCell}</div></td>
       </tr>
@@ -2886,6 +3701,35 @@ function renderPayoutsPage() {
       else if (act === 'unpaid') unmarkPayoutPaid(id);
     });
   });
+
+  // Row checkboxes — track selection in a Set keyed by ticket id (payouts ARE
+  // tickets under the hood, so reusing the ticket id keeps things simple).
+  tbody.querySelectorAll('.p-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.selectedPayoutIds.add(id);
+      else state.selectedPayoutIds.delete(id);
+      // Sync selectAll header state.
+      const sa = $('#pSelectAll');
+      if (sa) {
+        const visible = list.length;
+        const selectedVisible = list.filter(p => state.selectedPayoutIds.has(p.ticket.id)).length;
+        sa.checked = visible > 0 && selectedVisible === visible;
+        sa.indeterminate = selectedVisible > 0 && selectedVisible < visible;
+      }
+      renderPayoutBulkActions();
+    });
+  });
+
+  // Sync selectAll on (re)render based on currently visible rows.
+  const sa = $('#pSelectAll');
+  if (sa) {
+    const visible = list.length;
+    const selectedVisible = list.filter(p => state.selectedPayoutIds.has(p.ticket.id)).length;
+    sa.checked = visible > 0 && selectedVisible === visible;
+    sa.indeterminate = selectedVisible > 0 && selectedVisible < visible;
+  }
+  renderPayoutBulkActions();
 }
 
 function openPayoutPaidModal(ticket) {
@@ -2904,7 +3748,7 @@ function openPayoutPaidModal(ticket) {
     </div>
     <div class="sell-info-row">
       <span class="sell-info-label">Očekáváno:</span>
-      <span class="sell-info-value"><strong>${formatMoney(amount, ticketCurrency(ticket))}</strong>${expectedDate ? ` (${formatDate(expectedDate)})` : ''}</span>
+      <span class="sell-info-value"><strong>${formatMoney(amount, saleCurrency(ticket))}</strong>${expectedDate ? ` (${formatDate(expectedDate)})` : ''}</span>
     </div>
   `;
   $('#payPaidDate').value = new Date().toISOString().slice(0, 10);
@@ -3054,13 +3898,13 @@ function checkUpcomingPayouts() {
     // Overdue sum may span multiple currencies → convert each to primary for a
     // single meaningful total in the toast.
     const primary = getPrimaryCurrency();
-    const sumOverdue = overdue.reduce((s, p) => s + convertCurrency(p.amount, ticketCurrency(p.ticket), primary), 0);
+    const sumOverdue = overdue.reduce((s, p) => s + convertCurrency(p.amount, saleCurrency(p.ticket), primary), 0);
     toast(`💸 ${overdue.length} výplat po termínu (${formatMoney(sumOverdue, primary)}) - zkontroluj účet!`, 'error', 10000);
   }
   if (incoming.length > 0) {
     incoming.forEach(p => {
       const label = p.daysLeft === 0 ? 'DNES' : (p.daysLeft === 1 ? 'zítra' : `za ${p.daysLeft} dny`);
-      toast(`💰 Výplata ${label}: ${p.ticket.eventName} (${formatMoney(p.amount, ticketCurrency(p.ticket))})`, 'info', 8000);
+      toast(`💰 Výplata ${label}: ${p.ticket.eventName} (${formatMoney(p.amount, saleCurrency(p.ticket))})`, 'info', 8000);
     });
   }
 }
@@ -3397,12 +4241,18 @@ async function applyInboxSale(inboxId, ticketId) {
     const remaining = ticketQty - emailQty;
 
     const splitNote = `Rozděleno: ${emailQty} z ${ticketQty} ks prodáno (z emailu)`;
+    const purchaseCcy = ticket.currency || p.currency || getDefaultTicketCurrency();
+    const emailCcy = p.currency || purchaseCcy;
+    // Only store saleCurrency when the sale email is in a different currency than
+    // the ticket was bought in (e.g. bought in GBP but StubHub paid out in EUR).
+    // If they match, leave it undefined so getRevenueInPrimary falls back to ticket.currency.
     const soldTicket = {
       ...ticket,
       quantity: emailQty,
       status: 'sold',
       salePrice: salePricePerKs,
-      currency: ticket.currency || p.currency || getDefaultTicketCurrency(),
+      currency: purchaseCcy,
+      saleCurrency: emailCcy !== purchaseCcy ? emailCcy : (ticket.saleCurrency || undefined),
       saleDate: new Date().toISOString().slice(0, 10),
       buyerName: p.buyerName || ticket.buyerName,
       buyerEmail: p.buyerEmail || ticket.buyerEmail,
@@ -3447,14 +4297,18 @@ async function applyInboxSale(inboxId, ticketId) {
   }
 
   // FULL SALE (emailQty === ticketQty, or the warning fallback above).
+  const purchaseCcy = ticket.currency || p.currency || getDefaultTicketCurrency();
+  const emailCcy = p.currency || purchaseCcy;
   const updated = {
     ...ticket,
     status: 'sold',
     salePrice: salePricePerKs,
-    // Only overwrite currency if parser found one and ticket doesn't have a mismatched value.
-    // In practice the sale email should be in the same currency as the purchase, so we
-    // keep the original ticket currency as source-of-truth and trust the parsed amount.
-    currency: ticket.currency || p.currency || getDefaultTicketCurrency(),
+    // ticket.currency = purchase currency (kept as-is). saleCurrency is stored ONLY
+    // when the sale email reports a different currency (e.g. bought in GBP for Arsenal,
+    // but StubHub pays in EUR). Without this split, dashboard would re-interpret the
+    // EUR amount as if it were GBP and apply the GBP→EUR rate, inflating revenue.
+    currency: purchaseCcy,
+    saleCurrency: emailCcy !== purchaseCcy ? emailCcy : (ticket.saleCurrency || undefined),
     saleDate: new Date().toISOString().slice(0, 10),
     buyerName: p.buyerName || ticket.buyerName,
     buyerEmail: p.buyerEmail || ticket.buyerEmail,
@@ -4156,6 +5010,14 @@ async function exportExpensesCsv() {
 // ============ STATS PAGE ============
 function getStatsFilteredTickets() {
   let list = [...state.db.tickets];
+  // Same category filter as Dashboard — both views share state.dashboardCategory
+  // so toggling chips on either side stays in sync. 'selected' filters to the
+  // multi-select set, same as on Dashboard.
+  if (state.dashboardCategory === 'selected') {
+    list = list.filter(t => state.selectedIds.has(t.id));
+  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
+    list = list.filter(t => (t.category || 'concert') === state.dashboardCategory);
+  }
   const m = state.statsFilters?.month;
   const y = state.statsFilters?.year;
   if (m) list = list.filter(t => t.eventDate && new Date(t.eventDate).getMonth() + 1 === parseInt(m));
@@ -4816,8 +5678,9 @@ function renderCharts(sold, all) {
       const name = t.eventName || '—';
       if (!events[name]) events[name] = { purchases: [], sales: [] };
       const tc = ticketCurrency(t);
+      const sc = saleCurrency(t);
       events[name].purchases.push(convertCurrency(Number(t.purchasePrice) || 0, tc, primary));
-      events[name].sales.push(convertCurrency(Number(t.salePrice) || 0, tc, primary));
+      events[name].sales.push(convertCurrency(Number(t.salePrice) || 0, sc, primary));
     });
     const labels = Object.keys(events).slice(0, 6);
     const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -5140,6 +6003,13 @@ function openTicketModal(ticket = null) {
   $('#modalTitle').textContent = isEditing ? 'Upravit vstupenku' : (ticket ? 'Klonovat vstupenku (nová kopie)' : 'Přidat vstupenku');
   
   $('#fEventName').value = ticket?.eventName || '';
+  // Category — for new tickets, default to whatever's currently selected on
+  // Dashboard (so adding a ticket while looking at Koncerty pre-fills 'concert').
+  // Falls back to 'concert' if Dashboard is on 'all'.
+  const defaultCat = (state.dashboardCategory && state.dashboardCategory !== 'all')
+    ? state.dashboardCategory
+    : 'concert';
+  $('#fCategory').value = ticket?.category || defaultCat;
   $('#fEventDate').value = ticket?.eventDate || '';
   $('#fVenue').value = ticket?.venue || '';
   $('#fCountry').value = ticket?.country || '';
@@ -5446,6 +6316,8 @@ async function saveTicket() {
   const ticket = {
     ...(state.editingTicket || {}),
     eventName: name,
+    // Category — football / concert / other. Drives Dashboard + Stats filtering.
+    category: $('#fCategory')?.value || 'concert',
     eventDate: date,
     venue: $('#fVenue').value.trim(),
     country: $('#fCountry').value.trim() || undefined,
@@ -5912,6 +6784,274 @@ async function bulkDelete() {
   toast(`Smazáno ${ids.length} vstupenek`, 'success');
 }
 
+// ============ BULK EDIT MODAL (shared by Tickets + Payouts) ============
+// One modal serves both views. The user picks ONE field to change, types one
+// new value, and we patch every selected ticket via upsertTicket(). We don't
+// touch fields we weren't asked to touch — upsertTicket merges via spread, so
+// passing { id, status: 'sold' } only changes status.
+//
+// Field defs are declarative; each entry knows how to render its input and how
+// to extract the value when Apply is clicked. Adding a new field = one entry.
+
+const BULK_EDIT_FIELDS = [
+  // Status / classification
+  { key: 'status',          label: 'Status',                type: 'select',
+    options: [
+      { value: 'available', label: 'Koupeno' },
+      { value: 'listed',    label: 'Zalistováno' },
+      { value: 'sold',      label: 'Prodáno' },
+      { value: 'delivered', label: 'Doručeno ✓' },
+      { value: 'cancelled', label: 'Zrušeno' }
+    ]
+  },
+  { key: 'category',        label: 'Kategorie',             type: 'select',
+    options: [
+      { value: 'concert',  label: '🎵 Koncerty a ostatní' },
+      { value: 'football', label: '⚽ Fotbal' },
+      { value: 'other',    label: '🎫 Jiné' }
+    ]
+  },
+  // Identity / location
+  { key: 'eventName',       label: 'Název eventu',          type: 'text' },
+  { key: 'venue',           label: 'Místo (venue)',         type: 'text' },
+  { key: 'country',         label: 'Země',                  type: 'text' },
+  { key: 'section',         label: 'Sekce',                 type: 'text' },
+  { key: 'row',             label: 'Řada',                  type: 'text' },
+  // Account & platforms
+  { key: 'account',         label: 'Účet',                  type: 'text' },
+  { key: 'platform',        label: 'Platforma nákupu',      type: 'text' },
+  { key: 'salePlatform',    label: 'Platforma prodeje',     type: 'text' },
+  // Money — currency selectors mirror those in the ticket modal
+  { key: 'currency',        label: 'Měna nákupu',           type: 'currency' },
+  { key: 'saleCurrency',    label: 'Měna prodeje',          type: 'currency' },
+  { key: 'purchasePrice',   label: 'Nákupní cena (za 1 ks)',type: 'number',
+    hint: 'Cena se uloží na všechny vybrané vstupenky stejně.' },
+  { key: 'salePrice',       label: 'Prodejní cena (za 1 ks)', type: 'number',
+    hint: 'Cena se uloží na všechny vybrané vstupenky stejně.' },
+  // Dates
+  { key: 'eventDate',       label: 'Datum eventu',          type: 'date' },
+  { key: 'purchaseDate',    label: 'Datum nákupu',          type: 'date' },
+  { key: 'saleDate',        label: 'Datum prodeje',         type: 'date' },
+  // Notes
+  { key: 'notes',           label: 'Poznámka',              type: 'textarea' }
+];
+
+// Render the value-input portion of the modal based on the chosen field.
+function renderBulkEditValueSlot(field) {
+  const slot = $('#bulkEditValueSlot');
+  const labelEl = $('#bulkEditValueLabel');
+  const hintEl = $('#bulkEditValueHint');
+  if (!slot) return;
+  labelEl.textContent = 'Nová hodnota: ' + field.label;
+  hintEl.textContent = field.hint || '';
+
+  if (field.type === 'select') {
+    const opts = field.options.map(o =>
+      `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
+    ).join('');
+    slot.innerHTML = `<select id="bulkEditValue">${opts}</select>`;
+  } else if (field.type === 'currency') {
+    const opts = CURRENCIES.map(c =>
+      `<option value="${c.code}">${c.code} — ${escapeHtml(c.name)}</option>`
+    ).join('');
+    slot.innerHTML = `<select id="bulkEditValue">${opts}</select>`;
+    const sel = $('#bulkEditValue');
+    if (sel) sel.value = getPrimaryCurrency();
+  } else if (field.type === 'number') {
+    slot.innerHTML = `<input type="number" id="bulkEditValue" step="0.01" placeholder="0.00">`;
+  } else if (field.type === 'date') {
+    slot.innerHTML = `<input type="date" id="bulkEditValue">`;
+  } else if (field.type === 'textarea') {
+    slot.innerHTML = `<textarea id="bulkEditValue" rows="3" placeholder="Zadej hodnotu..."></textarea>`;
+  } else { // text
+    slot.innerHTML = `<input type="text" id="bulkEditValue" placeholder="Zadej hodnotu...">`;
+  }
+}
+
+// Open the modal in either 'tickets' or 'payouts' context. The two contexts
+// look up the selection from different Sets; everything else is shared.
+function openBulkEditModal(ctx) {
+  const ids = ctx === 'payouts'
+    ? [...state.selectedPayoutIds]
+    : [...state.selectedIds];
+  if (!ids.length) return;
+
+  state.bulkEditCtx = ctx;
+  $('#bulkEditCount').textContent = ids.length;
+  $('#bulkEditTitle').textContent = ctx === 'payouts'
+    ? 'Hromadná editace výplat'
+    : 'Hromadná editace vstupenek';
+  $('#btnBulkEditApply').textContent = `Aplikovat na ${ids.length}`;
+
+  // Populate field dropdown.
+  const fieldSel = $('#bulkEditField');
+  fieldSel.innerHTML = BULK_EDIT_FIELDS.map(f =>
+    `<option value="${f.key}">${escapeHtml(f.label)}</option>`
+  ).join('');
+
+  // Default selection — sensible per context.
+  fieldSel.value = ctx === 'payouts' ? 'salePrice' : 'status';
+  renderBulkEditValueSlot(BULK_EDIT_FIELDS.find(f => f.key === fieldSel.value));
+
+  $('#modalBulkEdit').classList.add('active');
+}
+
+// Wire up the field-change listener once on init (see initBulkEdit below).
+function onBulkEditFieldChange() {
+  const key = $('#bulkEditField').value;
+  const field = BULK_EDIT_FIELDS.find(f => f.key === key);
+  if (field) renderBulkEditValueSlot(field);
+}
+
+async function applyBulkEdit() {
+  const ctx = state.bulkEditCtx;
+  if (!ctx) return;
+  const ids = ctx === 'payouts'
+    ? [...state.selectedPayoutIds]
+    : [...state.selectedIds];
+  if (!ids.length) { closeModal('modalBulkEdit'); return; }
+
+  const fieldKey = $('#bulkEditField').value;
+  const field = BULK_EDIT_FIELDS.find(f => f.key === fieldKey);
+  if (!field) return;
+
+  const valEl = $('#bulkEditValue');
+  if (!valEl) return;
+
+  // Coerce + validate the value based on field type.
+  let value;
+  if (field.type === 'number') {
+    const raw = valEl.value;
+    if (raw === '' || raw === null || raw === undefined) {
+      toast('Zadej hodnotu', 'error');
+      return;
+    }
+    value = Number(raw);
+    if (!isFinite(value)) {
+      toast('Neplatné číslo', 'error');
+      return;
+    }
+  } else if (field.type === 'date') {
+    value = valEl.value || null; // empty date is allowed (clears the field)
+  } else {
+    value = valEl.value;
+  }
+
+  // Confirm before doing it — bulk edit is hard to undo.
+  const fmtVal = field.type === 'select'
+    ? (field.options.find(o => o.value === value)?.label || value)
+    : (value === '' || value === null ? '(prázdné)' : value);
+  const res = await window.api.confirm({
+    type: 'question',
+    buttons: ['Zrušit', 'Aplikovat'],
+    title: 'Potvrdit hromadnou editaci',
+    message: `Změnit pole "${field.label}" na "${fmtVal}" u ${ids.length} ${ctx === 'payouts' ? 'výplat' : 'vstupenek'}?`,
+    detail: 'Akci nelze hromadně vrátit zpět (lze ručně po jednom).'
+  });
+  if (res !== 1) return;
+
+  // Apply to each ticket. We must send the FULL merged ticket (not just a
+  // patch) because main.js forwards exactly what we send to cloudUpsertTicket
+  // — sending only { id, field: value } would clobber the cloud copy.
+  // Run sequentially to avoid hammering the cloud endpoint.
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const existing = state.db.tickets.find(t => t.id === id);
+    if (!existing) { fail++; continue; }
+    const merged = { ...existing, [fieldKey]: value };
+    try {
+      await window.api.upsertTicket(merged);
+      ok++;
+    } catch (e) {
+      console.error('Bulk edit failed for', id, e);
+      fail++;
+    }
+  }
+
+  closeModal('modalBulkEdit');
+  await refreshDb();
+
+  if (fail === 0) {
+    toast(`Upraveno ${ok} ${ctx === 'payouts' ? 'výplat' : 'vstupenek'}`, 'success');
+  } else {
+    toast(`Upraveno ${ok}, selhalo ${fail}`, 'error', 5000);
+  }
+}
+
+// ============ PAYOUT BULK ACTIONS ============
+
+async function bulkMarkPaidPayouts() {
+  const ids = [...state.selectedPayoutIds];
+  if (!ids.length) return;
+
+  // Skip already-paid tickets so we don't overwrite their stored paidOutDate.
+  const tickets = state.db.tickets.filter(t => ids.includes(t.id));
+  const toPay = tickets.filter(t => !t.paidOut);
+  const skipping = tickets.length - toPay.length;
+
+  if (toPay.length === 0) {
+    toast('Všechny vybrané jsou už označené jako přijaté', 'info');
+    return;
+  }
+
+  const res = await window.api.confirm({
+    type: 'question',
+    buttons: ['Zrušit', 'Označit přijaté'],
+    title: 'Hromadné označení přijatých',
+    message: `Označit ${toPay.length} výplat jako přijaté k dnešnímu datu?`,
+    detail: skipping > 0
+      ? `${skipping} už označených bude přeskočeno. Částka = očekávaná částka (lze ručně upravit po jedné).`
+      : 'Částka = očekávaná částka (lze ručně upravit po jedné).'
+  });
+  if (res !== 1) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  let ok = 0, fail = 0;
+  for (const t of toPay) {
+    // Use the same expected amount the Payouts view shows: salePrice * qty.
+    // That's what calcRevenue does, denominated in saleCurrency.
+    const amount = (Number(t.salePrice) || 0) * (Number(t.quantity) || 1);
+    try {
+      const r = await window.api.markPayoutPaid({
+        ticketId: t.id,
+        paidOutDate: today,
+        paidOutAmount: amount
+      });
+      if (r && r.success !== false) ok++; else fail++;
+    } catch (e) {
+      console.error('markPayoutPaid failed for', t.id, e);
+      fail++;
+    }
+  }
+
+  state.selectedPayoutIds.clear();
+  await refreshDb();
+  if (fail === 0) {
+    toast(`Označeno ${ok} výplat jako přijaté`, 'success');
+  } else {
+    toast(`Označeno ${ok}, selhalo ${fail}`, 'error', 5000);
+  }
+}
+
+async function bulkDeletePayoutTickets() {
+  const ids = [...state.selectedPayoutIds];
+  if (!ids.length) return;
+
+  const res = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Smazat'],
+    title: 'Hromadné smazání',
+    message: `Opravdu smazat ${ids.length} prodaných vstupenek?`,
+    detail: 'Smaže se celý záznam vstupenky včetně historie výplaty. Akci nelze vrátit.'
+  });
+  if (res !== 1) return;
+
+  await window.api.deleteTickets(ids);
+  state.selectedPayoutIds.clear();
+  await refreshDb();
+  toast(`Smazáno ${ids.length} vstupenek`, 'success');
+}
+
 // ============ SYNC & EXPORT/IMPORT ============
 async function syncNow() {
   await refreshDb();
@@ -6008,7 +7148,38 @@ function setupEventListeners() {
   
   // Add event
   $('#btnAddEvent').addEventListener('click', () => openTicketModal());
-  
+
+  // CATEGORY CHIP TOGGLE — wires up BOTH the Dashboard and Stats toggles.
+  // Clicking any chip on either page sets state.dashboardCategory and re-renders
+  // both Dashboard (stat cards + table) and Stats (KPIs + charts) so they stay in sync.
+  function setDashboardCategory(cat) {
+    if (!['all', 'football', 'concert', 'other', 'selected'].includes(cat)) return;
+    // 'selected' is a pseudo-category — only meaningful when there's an actual
+    // selection. Guard against activating an empty filter (would show 0 rows).
+    if (cat === 'selected' && state.selectedIds.size === 0) {
+      toast('Nejdřív si naklikej řádky v tabulce', 'info', 2500);
+      return;
+    }
+    state.dashboardCategory = cat;
+    saveUiPrefs();
+    syncCategoryToggleUI();
+    // Re-render whichever view is visible. Both functions are cheap so we just
+    // call both — no need to gate on currentView.
+    renderStats();
+    renderTickets();
+    if (state.currentView === 'stats') renderStatsPage();
+  }
+
+  ['#categoryToggle', '#categoryToggleStats'].forEach(sel => {
+    const container = $(sel);
+    if (!container) return;
+    container.querySelectorAll('.cat-chip').forEach(btn => {
+      btn.addEventListener('click', () => setDashboardCategory(btn.dataset.cat));
+    });
+  });
+  // Sync at boot so persisted preference shows correct active chip.
+  syncCategoryToggleUI();
+
   // Modal closes
   $$('[data-close]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -6190,6 +7361,26 @@ function setupEventListeners() {
   });
   
   $('#btnBulkDelete').addEventListener('click', bulkDelete);
+  $('#btnBulkEdit')?.addEventListener('click', () => openBulkEditModal('tickets'));
+
+  // Bulk-Edit modal — wire up once. Field-change repaints the value slot,
+  // Apply runs the patch loop. Shared between Tickets and Payouts contexts.
+  $('#bulkEditField')?.addEventListener('change', onBulkEditFieldChange);
+  $('#btnBulkEditApply')?.addEventListener('click', applyBulkEdit);
+
+  // PAYOUTS bulk actions: header checkbox + 3 action buttons.
+  $('#pSelectAll')?.addEventListener('change', (e) => {
+    const visible = getFilteredPayouts();
+    if (e.target.checked) {
+      visible.forEach(p => state.selectedPayoutIds.add(p.ticket.id));
+    } else {
+      visible.forEach(p => state.selectedPayoutIds.delete(p.ticket.id));
+    }
+    renderPayoutsPage();
+  });
+  $('#btnPBulkPaid')?.addEventListener('click', bulkMarkPaidPayouts);
+  $('#btnPBulkEdit')?.addEventListener('click', () => openBulkEditModal('payouts'));
+  $('#btnPBulkDelete')?.addEventListener('click', bulkDeletePayoutTickets);
   
   // MEMBERSHIPS
   $('#btnAddMembership')?.addEventListener('click', () => openMembershipModal());
@@ -6250,6 +7441,63 @@ function setupEventListeners() {
     renderMembershipsPage();
   });
   $('#btnMBulkDelete')?.addEventListener('click', bulkDeleteMemberships);
+  
+  // MAILBOXES
+  $('#btnAddMailbox')?.addEventListener('click', () => openMailboxModal());
+  $('#btnSaveMailbox')?.addEventListener('click', saveMailbox);
+  $('#mbFilterSearch')?.addEventListener('input', (e) => {
+    state.mailboxFilters.search = e.target.value;
+    saveUiPrefs();
+    renderMailboxesPage();
+  });
+  $('#btnMbReset')?.addEventListener('click', () => {
+    state.mailboxFilters = { search: '' };
+    $('#mbFilterSearch').value = '';
+    saveUiPrefs();
+    renderMailboxesPage();
+  });
+  $('#mbSelectAll')?.addEventListener('change', (e) => {
+    const filtered = getFilteredMailboxes();
+    if (e.target.checked) filtered.forEach(mb => state.selectedMailboxIds.add(mb.id));
+    else filtered.forEach(mb => state.selectedMailboxIds.delete(mb.id));
+    renderMailboxesPage();
+  });
+  $('#btnMbBulkDelete')?.addEventListener('click', bulkDeleteMailboxes);
+
+  // SIM CARDS
+  $('#btnAddSimcard')?.addEventListener('click', () => openSimcardModal());
+  $('#btnSaveSimcard')?.addEventListener('click', saveSimcard);
+  $('#scfAddOperator')?.addEventListener('click', addCustomSimOperator);
+  $('#scFilterSearch')?.addEventListener('input', (e) => {
+    state.simcardFilters.search = e.target.value;
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#scFilterOperator')?.addEventListener('change', (e) => {
+    state.simcardFilters.operator = e.target.value;
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#scFilterStatus')?.addEventListener('change', (e) => {
+    state.simcardFilters.status = e.target.value;
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#btnScReset')?.addEventListener('click', () => {
+    state.simcardFilters = { search: '', operator: '', status: '' };
+    $('#scFilterSearch').value = '';
+    $('#scFilterOperator').value = '';
+    $('#scFilterStatus').value = '';
+    saveUiPrefs();
+    renderSimcardsPage();
+  });
+  $('#scSelectAll')?.addEventListener('change', (e) => {
+    const filtered = getFilteredSimcards();
+    if (e.target.checked) filtered.forEach(sc => state.selectedSimcardIds.add(sc.id));
+    else filtered.forEach(sc => state.selectedSimcardIds.delete(sc.id));
+    renderSimcardsPage();
+  });
+  $('#btnScBulkDelete')?.addEventListener('click', bulkDeleteSimcards);
   
   // EXPENSES
   $('#btnAddExpense')?.addEventListener('click', () => openExpenseModal());

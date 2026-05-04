@@ -902,6 +902,129 @@ button:focus-visible {
   border: 1px solid var(--purple);
   border-radius: var(--radius-md);
   font-size: 12px;
+  flex-wrap: wrap;
+  /* Stick to the bottom of the scrollable .main viewport so the user sees the
+     bar immediately after selecting rows, even with a long table. Tall enough
+     z-index to clear the table; backdrop shadow lifts it visually off rows. */
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--purple);
+  /* Backdrop-filter pops the bar over content scrolling underneath. */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.bulk-count {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  padding: 4px 10px;
+  background: rgba(167, 139, 250, 0.15);
+  border-radius: var(--radius-sm);
+}
+
+.bulk-summary {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  flex-wrap: wrap;
+  flex: 1;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+  min-height: 30px;
+}
+
+.bulk-summary:empty {
+  display: none;
+}
+
+.bulk-summary-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.bulk-summary-label {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.bulk-summary-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bulk-summary-value.profit-positive { color: var(--green-bright); }
+.bulk-summary-value.profit-negative { color: var(--red-bright); }
+.bulk-summary-value.roi-positive { color: var(--green-bright); }
+.bulk-summary-value.roi-negative { color: var(--red-bright); }
+
+.bulk-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.bulk-edit-info {
+  padding: 12px 14px;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.bulk-edit-info strong {
+  color: #c4b5fd;
+}
+
+#bulkEditValueSlot input,
+#bulkEditValueSlot select,
+#bulkEditValueSlot textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+#bulkEditValueSlot input:focus,
+#bulkEditValueSlot select:focus,
+#bulkEditValueSlot textarea:focus {
+  outline: none;
+  border-color: var(--purple);
+}
+
+#bulkEditValueSlot textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+#bulkEditValueSlot .price-with-currency {
+  display: flex;
+  gap: 6px;
+}
+
+#bulkEditValueSlot .price-with-currency input {
+  flex: 1;
+}
+
+#bulkEditValueSlot .price-with-currency select {
+  width: auto;
+  min-width: 90px;
 }
 
 /* ============ EMPTY STATE ============ */
@@ -4462,3 +4585,291 @@ body.privacy-mode::before {
    DOMContentLoaded fires and moves the class to <body>. */
 html[data-privacy="1"] body { visibility: hidden; }
 html[data-privacy="1"] body.privacy-mode { visibility: visible; }
+
+/* ============ MAILBOXES ============ */
+.mailboxes-table td {
+  font-size: 13px;
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.mailboxes-table th {
+  padding: 12px 14px;
+  font-size: 10px;
+}
+
+.mailboxes-table .email-cell {
+  max-width: none;
+}
+
+/* ============ SIM CARDS ============ */
+.simcards-table td {
+  font-size: 13px;
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.simcards-table th {
+  padding: 12px 14px;
+  font-size: 10px;
+}
+
+.simcards-table .phone-cell {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.simcards-table .operator-cell {
+  font-weight: 600;
+}
+
+/* SIM expiry status pills (date cell + status badge) */
+.expiry-cell {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.expiry-cell.expiry-ok {
+  color: var(--text-secondary);
+}
+
+.expiry-cell.expiry-warn {
+  color: #fcd34d;
+}
+
+.expiry-cell.expiry-urgent {
+  color: #fca5a5;
+}
+
+.expiry-cell.expiry-expired {
+  color: #fca5a5;
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.expiry-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.expiry-status.status-ok {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.expiry-status.status-warn {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.expiry-status.status-urgent {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+
+.expiry-status.status-expired {
+  background: rgba(120, 120, 130, 0.2);
+  color: #b3b3bd;
+  border: 1px solid rgba(120, 120, 130, 0.4);
+}
+
+/* Whole row background tint based on urgency */
+.simcards-table tr.row-warn td {
+  background: rgba(251, 191, 36, 0.04);
+}
+
+.simcards-table tr.row-urgent td {
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.simcards-table tr.row-expired td {
+  background: rgba(120, 120, 130, 0.05);
+}
+
+/* "Prodloužit o rok" button styled like an action pill */
+.btn-extend {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--blue);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn-extend:hover {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.btn-extend.urgent {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.btn-extend.urgent:hover {
+  background: rgba(239, 68, 68, 0.28);
+}
+
+[data-theme="light"] .btn-extend {
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .btn-extend.urgent {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .expiry-cell.expiry-warn {
+  color: #b45309;
+}
+
+[data-theme="light"] .expiry-cell.expiry-urgent,
+[data-theme="light"] .expiry-cell.expiry-expired {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .expiry-status.status-warn {
+  color: #b45309;
+}
+
+[data-theme="light"] .expiry-status.status-urgent {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .expiry-status.status-expired {
+  color: #525260;
+}
+
+/* ============ CATEGORY TOGGLE (Dashboard + Stats) ============ */
+.category-toggle {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0 20px 0;
+  flex-wrap: wrap;
+}
+
+.cat-chip {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+}
+
+.cat-chip:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+/* Active styling per category — uses each category's accent color */
+.cat-chip.active {
+  color: var(--bg-primary);
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.cat-chip[data-cat="all"].active {
+  background: var(--purple);
+}
+
+.cat-chip[data-cat="football"].active {
+  background: #10b981; /* green — pitch */
+}
+
+.cat-chip[data-cat="concert"].active {
+  background: #f59e0b; /* amber — stage lights */
+}
+
+.cat-chip[data-cat="other"].active {
+  background: #6b7280; /* neutral grey */
+}
+
+/* Selection chip — pulses gently to draw attention when active. Uses a
+   bluish-cyan so it doesn't clash with the existing 4 category colors. */
+.cat-chip[data-cat="selected"] {
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+}
+.cat-chip[data-cat="selected"]:hover {
+  background: rgba(56, 189, 248, 0.1);
+  color: #7dd3fc;
+}
+.cat-chip[data-cat="selected"].active {
+  background: #0ea5e9; /* sky-500 */
+  color: #fff;
+}
+.cat-chip-count {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  min-width: 18px;
+  text-align: center;
+}
+.cat-chip[data-cat="selected"]:not(.active) .cat-chip-count {
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+/* Light theme adjustments — active chips use the same accent but text gets
+   a darker contrast since the background hue is brighter on light bg. */
+[data-theme="light"] .cat-chip.active {
+  color: #fff;
+}
+
+/* Show colored dot inside dropdown options for visual cue */
+.cat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.cat-pill.cat-football {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.cat-pill.cat-concert {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.cat-pill.cat-other {
+  background: rgba(107, 114, 128, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}

@@ -233,6 +233,9 @@ function getDefaultDb() {
     accounts: [],
     events: [],
     memberships: [],
+    mailboxes: [],
+    simcards: [],
+    simOperators: ['T-Mobile', 'O2', 'Vodafone', 'Kaktus'],
     expenses: [],
     payoutRules: [
       { platform: 'Viagogo', baseDate: 'eventDate', offsetDays: 8 },
@@ -254,9 +257,21 @@ function loadDb() {
       const data = JSON.parse(fs.readFileSync(config.dbPath, 'utf-8'));
       // Ensure schema
       if (!data.tickets) data.tickets = [];
+      // Migrate: tickets without `category` get 'concert' (per user instruction —
+      // concerts dominate their existing inventory, so this minimizes the manual
+      // re-tag work; football tickets get re-categorized via Edit modal).
+      // Valid values: 'football' | 'concert' | 'other'.
+      data.tickets.forEach(t => {
+        if (!t.category) t.category = 'concert';
+      });
       if (!data.accounts) data.accounts = [];
       if (!data.events) data.events = [];
       if (!data.memberships) data.memberships = [];
+      if (!data.mailboxes) data.mailboxes = [];
+      if (!data.simcards) data.simcards = [];
+      if (!Array.isArray(data.simOperators) || data.simOperators.length === 0) {
+        data.simOperators = ['T-Mobile', 'O2', 'Vodafone', 'Kaktus'];
+      }
       if (!data.expenses) data.expenses = [];
       if (!data.inbox) data.inbox = [];
       if (!Array.isArray(data.users)) data.users = [];
@@ -667,8 +682,21 @@ ipcMain.handle('currency:autoRefreshIfStale', async () => {
 ipcMain.handle('auth:getState', async () => {
   const config = loadConfig();
   const apiUrl = (config.cloud && config.cloud.apiUrl) || '';
-  const token = (config.cloud && config.cloud.apiKey) || '';
+  let token = (config.cloud && config.cloud.apiKey) || '';
   const cachedUser = (config.cloud && config.cloud.cachedUser) || null;
+
+  // Sanity-check the token before treating it as valid. Real JWT tokens look
+  // like "xxx.yyy.zzz" with three dot-separated segments and at least ~30
+  // chars total. Legacy versions of the app sometimes wrote placeholder
+  // strings like "database" into apiKey, which causes mysterious "wrong
+  // user logged in" bugs because backend would accept it and return some
+  // default admin. If we detect a malformed token, wipe it.
+  if (token && (token.length < 30 || !token.includes('.'))) {
+    console.warn(`[auth:getState] malformed token detected ("${token.slice(0,20)}..."), wiping`);
+    clearAuthToken();
+    token = '';
+  }
+
   const state = {
     apiUrl,
     hasToken: !!token,
@@ -759,7 +787,22 @@ ipcMain.handle('auth:recover', async (event, { username, recoveryCode, newPasswo
 });
 
 ipcMain.handle('auth:logout', async () => {
+  // Debug log so we can see in production logs whether logout fired and what
+  // it cleared. Helps diagnose "previous user re-appears after restart" reports.
+  const before = loadConfig();
+  const tokenBefore = (before.cloud && before.cloud.apiKey) || '(none)';
+  const userBefore = (before.cloud && before.cloud.cachedUser?.username) || '(none)';
+  console.log(`[auth:logout] clearing — was: token=${tokenBefore.slice(0,8)}... user=${userBefore}`);
   clearAuthToken();
+  // Verify the wipe stuck — re-read config and assert token is gone.
+  // (Belt-and-suspenders against any race conditions or partial writes.)
+  const after = loadConfig();
+  const tokenAfter = (after.cloud && after.cloud.apiKey) || '';
+  if (tokenAfter) {
+    // Shouldn't happen, but if it did, force a second clear.
+    console.warn('[auth:logout] token survived first clear, retrying');
+    clearAuthToken();
+  }
   return { success: true };
 });
 
@@ -1196,6 +1239,139 @@ ipcMain.handle('db:importMembershipsCsv', async () => {
   }
 });
 
+// ============ MAILBOXES (emailové schránky) ============
+ipcMain.handle('db:upsertMailbox', async (event, mb) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.mailboxes) db.mailboxes = [];
+
+  if (mb.id) {
+    const idx = db.mailboxes.findIndex(x => x.id === mb.id);
+    if (idx >= 0) {
+      db.mailboxes[idx] = { ...db.mailboxes[idx], ...mb, updated: new Date().toISOString() };
+    } else {
+      db.mailboxes.push({ ...mb, created: new Date().toISOString() });
+    }
+  } else {
+    mb.id = 'mb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    mb.created = new Date().toISOString();
+    db.mailboxes.push(mb);
+  }
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); }
+    catch (e) {
+      console.error('Cloud push (mailbox) failed:', e.message);
+      return { ...mb, _cloudError: e.message };
+    }
+  }
+  return mb;
+});
+
+ipcMain.handle('db:deleteMailbox', async (event, id) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.mailboxes) db.mailboxes = [];
+  db.mailboxes = db.mailboxes.filter(x => x.id !== id);
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+ipcMain.handle('db:deleteMailboxes', async (event, ids) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.mailboxes) db.mailboxes = [];
+  db.mailboxes = db.mailboxes.filter(x => !ids.includes(x.id));
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+// ============ SIM CARDS ============
+ipcMain.handle('db:upsertSimcard', async (event, sc) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.simcards) db.simcards = [];
+
+  if (sc.id) {
+    const idx = db.simcards.findIndex(x => x.id === sc.id);
+    if (idx >= 0) {
+      db.simcards[idx] = { ...db.simcards[idx], ...sc, updated: new Date().toISOString() };
+    } else {
+      db.simcards.push({ ...sc, created: new Date().toISOString() });
+    }
+  } else {
+    sc.id = 'sc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    sc.created = new Date().toISOString();
+    db.simcards.push(sc);
+  }
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); }
+    catch (e) {
+      console.error('Cloud push (simcard) failed:', e.message);
+      return { ...sc, _cloudError: e.message };
+    }
+  }
+  return sc;
+});
+
+ipcMain.handle('db:deleteSimcard', async (event, id) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.simcards) db.simcards = [];
+  db.simcards = db.simcards.filter(x => x.id !== id);
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+ipcMain.handle('db:deleteSimcards', async (event, ids) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  if (!db.simcards) db.simcards = [];
+  db.simcards = db.simcards.filter(x => !ids.includes(x.id));
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); } catch (e) {
+      return { success: true, _cloudError: e.message };
+    }
+  }
+  return true;
+});
+
+// Add custom SIM operator (kept as a list in DB so it's reusable across devices via cloud sync)
+ipcMain.handle('db:addSimOperator', async (event, name) => {
+  const db = loadDb();
+  if (!Array.isArray(db.simOperators)) db.simOperators = [];
+  const trimmed = (name || '').trim();
+  if (!trimmed) return { success: false, error: 'Prázdný název' };
+  // Case-insensitive dedupe
+  const exists = db.simOperators.some(o => o.toLowerCase() === trimmed.toLowerCase());
+  if (!exists) {
+    db.simOperators.push(trimmed);
+    saveDb(db);
+    const cloud = getCloudConfig();
+    if (cloud) {
+      try { await cloudPushDb(db); } catch (e) {}
+    }
+  }
+  return { success: true, operators: db.simOperators };
+});
+
 // ============ EXPENSES ============
 ipcMain.handle('db:upsertExpense', async (event, e) => {
   const cloud = getCloudConfig();
@@ -1319,20 +1495,29 @@ ipcMain.handle('db:markPayoutPaid', async (event, { ticketId, paidOutDate, paidO
   const db = loadDb();
   const idx = db.tickets.findIndex(t => t.id === ticketId);
   if (idx < 0) return { success: false, error: 'Vstupenka nenalezena' };
-  db.tickets[idx] = {
+  const updatedTicket = {
     ...db.tickets[idx],
     paidOut: true,
     paidOutDate: paidOutDate || new Date().toISOString().slice(0, 10),
     paidOutAmount: (paidOutAmount === null || paidOutAmount === undefined || paidOutAmount === '') ? null : Number(paidOutAmount),
     updated: new Date().toISOString()
   };
+  db.tickets[idx] = updatedTicket;
   saveDb(db);
+  // Sync via cloudUpsertTicket (atomic single-ticket POST) instead of
+  // cloudPushDb (PUT /db replaces the whole DB). The whole-DB push was
+  // racy: when this device pushed an older snapshot it could overwrite
+  // edits made on other devices, and "paidOut" updates would silently
+  // disappear from the cloud. Single-ticket POST is the same path used
+  // by regular ticket edits and is known to sync reliably.
   if (cloud) {
-    try { await cloudPushDb(db); } catch (e) {
-      return { success: true, _cloudError: e.message };
+    try {
+      await cloudUpsertTicket(updatedTicket);
+    } catch (e) {
+      return { success: true, ticket: updatedTicket, _cloudError: e.message };
     }
   }
-  return { success: true, ticket: db.tickets[idx] };
+  return { success: true, ticket: updatedTicket };
 });
 
 ipcMain.handle('db:unmarkPayoutPaid', async (event, ticketId) => {
@@ -1340,16 +1525,19 @@ ipcMain.handle('db:unmarkPayoutPaid', async (event, ticketId) => {
   const db = loadDb();
   const idx = db.tickets.findIndex(t => t.id === ticketId);
   if (idx < 0) return { success: false, error: 'Vstupenka nenalezena' };
-  db.tickets[idx] = {
+  const updatedTicket = {
     ...db.tickets[idx],
     paidOut: false,
     paidOutDate: null,
     paidOutAmount: null,
     updated: new Date().toISOString()
   };
+  db.tickets[idx] = updatedTicket;
   saveDb(db);
   if (cloud) {
-    try { await cloudPushDb(db); } catch (e) {
+    try {
+      await cloudUpsertTicket(updatedTicket);
+    } catch (e) {
       return { success: true, _cloudError: e.message };
     }
   }

@@ -59,6 +59,17 @@ contextBridge.exposeInMainWorld('api', {
   exportMembershipsCsv: () => ipcRenderer.invoke('db:exportMembershipsCsv'),
   importMembershipsCsv: () => ipcRenderer.invoke('db:importMembershipsCsv'),
 
+  // Mailboxes (emailové schránky)
+  upsertMailbox: (mb) => ipcRenderer.invoke('db:upsertMailbox', mb),
+  deleteMailbox: (id) => ipcRenderer.invoke('db:deleteMailbox', id),
+  deleteMailboxes: (ids) => ipcRenderer.invoke('db:deleteMailboxes', ids),
+
+  // SIM cards
+  upsertSimcard: (sc) => ipcRenderer.invoke('db:upsertSimcard', sc),
+  deleteSimcard: (id) => ipcRenderer.invoke('db:deleteSimcard', id),
+  deleteSimcards: (ids) => ipcRenderer.invoke('db:deleteSimcards', ids),
+  addSimOperator: (name) => ipcRenderer.invoke('db:addSimOperator', name),
+
   // Expenses
   upsertExpense: (e) => ipcRenderer.invoke('db:upsertExpense', e),
   deleteExpense: (id) => ipcRenderer.invoke('db:deleteExpense', id),

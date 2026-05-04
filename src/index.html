@@ -293,6 +293,23 @@
           </svg>
           Membershipy
         </button>
+        <button class="nav-item" data-view="mailboxes">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+          Emailové schránky
+        </button>
+        <button class="nav-item" data-view="simcards">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="9" y1="10" x2="15" y2="10"/>
+            <line x1="9" y1="14" x2="15" y2="14"/>
+            <line x1="12" y1="10" x2="12" y2="18"/>
+          </svg>
+          SIM karty
+          <span class="nav-badge" id="simBadge" style="display:none;"></span>
+        </button>
 
         <div class="nav-section-label">NÁSTROJE</div>
 
@@ -364,6 +381,15 @@
             <span>+</span> Přidat event
           </button>
         </header>
+
+        <!-- CATEGORY TOGGLE — synced with Statistics -->
+        <div class="category-toggle" id="categoryToggle">
+          <button class="cat-chip" data-cat="all">Vše</button>
+          <button class="cat-chip cat-concert active" data-cat="concert">🎵 Koncerty a ostatní</button>
+          <button class="cat-chip cat-football" data-cat="football">⚽ Fotbal</button>
+          <button class="cat-chip cat-other" data-cat="other">🎫 Jiné</button>
+          <button class="cat-chip cat-selected" data-cat="selected" style="display:none;" title="Filtrovat na vybrané řádky — totaly nahoře se přepočítají">🎯 Vybrané <span class="cat-chip-count" data-cat-count>0</span></button>
+        </div>
 
         <!-- STAT CARDS -->
         <div class="stats-grid">
@@ -457,8 +483,12 @@
         </div>
 
         <div class="bulk-actions" id="bulkActions" style="display:none;">
-          <span id="bulkCount">0 vybráno</span>
-          <button class="btn btn-danger" id="btnBulkDelete">Smazat vybrané</button>
+          <span class="bulk-count" id="bulkCount">0 vybráno</span>
+          <div class="bulk-summary" id="bulkSummary"></div>
+          <div class="bulk-buttons">
+            <button class="btn btn-primary" id="btnBulkEdit">✎ Hromadná editace</button>
+            <button class="btn btn-danger" id="btnBulkDelete">Smazat vybrané</button>
+          </div>
         </div>
       </div>
 
@@ -483,6 +513,16 @@
         <header class="page-header">
           <h2 class="page-title">Statistiky</h2>
         </header>
+
+        <!-- CATEGORY TOGGLE — synced with Dashboard so switching from
+             stats to dashboard keeps the same category in view. -->
+        <div class="category-toggle" id="categoryToggleStats">
+          <button class="cat-chip" data-cat="all">Vše</button>
+          <button class="cat-chip cat-concert active" data-cat="concert">🎵 Koncerty a ostatní</button>
+          <button class="cat-chip cat-football" data-cat="football">⚽ Fotbal</button>
+          <button class="cat-chip cat-other" data-cat="other">🎫 Jiné</button>
+          <button class="cat-chip cat-selected" data-cat="selected" style="display:none;" title="Filtrovat na vybrané řádky — totaly nahoře se přepočítají">🎯 Vybrané <span class="cat-chip-count" data-cat-count>0</span></button>
+        </div>
 
         <!-- FILTERS -->
         <div class="filters stats-filters">
@@ -814,6 +854,7 @@
           <table class="tickets-table payouts-table">
             <thead>
               <tr>
+                <th class="col-check"><input type="checkbox" id="pSelectAll"></th>
                 <th>EVENT</th>
                 <th>DATUM EVENTU</th>
                 <th>KS</th>
@@ -832,6 +873,16 @@
             <div class="empty-icon">💰</div>
             <div class="empty-title">Žádné výplaty</div>
             <div class="empty-text">Zde se objeví výplaty, jakmile prodáš některou vstupenku.</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="pBulkActions" style="display:none;">
+          <span class="bulk-count" id="pBulkCount">0 vybráno</span>
+          <div class="bulk-summary" id="pBulkSummary"></div>
+          <div class="bulk-buttons">
+            <button class="btn btn-success" id="btnPBulkPaid">💰 Označit přijaté</button>
+            <button class="btn btn-primary" id="btnPBulkEdit">✎ Hromadná editace</button>
+            <button class="btn btn-danger" id="btnPBulkDelete">Smazat</button>
           </div>
         </div>
       </div>
@@ -953,6 +1004,102 @@
         <div class="bulk-actions" id="mBulkActions" style="display:none;">
           <span id="mBulkCount">0 vybráno</span>
           <button class="btn btn-danger" id="btnMBulkDelete">Smazat vybrané</button>
+        </div>
+      </div>
+
+      <!-- MAILBOXES VIEW -->
+      <div class="view" id="view-mailboxes">
+        <header class="page-header">
+          <h2 class="page-title">Emailové schránky</h2>
+          <button class="btn btn-primary" id="btnAddMailbox">
+            <span>+</span> Přidat schránku
+          </button>
+        </header>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <input type="text" class="filter-input" id="mbFilterSearch" placeholder="Hledat jméno, příjmení, email...">
+          <button class="btn btn-dark" id="btnMbReset">× Reset</button>
+        </div>
+
+        <!-- MAILBOXES TABLE -->
+        <div class="table-wrapper">
+          <table class="tickets-table mailboxes-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="mbSelectAll"></th>
+                <th>JMÉNO</th>
+                <th>PŘÍJMENÍ</th>
+                <th>EMAIL</th>
+                <th>AKCE</th>
+              </tr>
+            </thead>
+            <tbody id="mailboxesBody"></tbody>
+          </table>
+          <div class="empty-state" id="mbEmptyState" style="display:none;">
+            <div class="empty-icon">📧</div>
+            <div class="empty-title">Žádné emailové schránky</div>
+            <div class="empty-text">Přidej svou první schránku kliknutím na "+ Přidat schránku"</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="mbBulkActions" style="display:none;">
+          <span id="mbBulkCount">0 vybráno</span>
+          <button class="btn btn-danger" id="btnMbBulkDelete">Smazat vybrané</button>
+        </div>
+      </div>
+
+      <!-- SIM CARDS VIEW -->
+      <div class="view" id="view-simcards">
+        <header class="page-header">
+          <h2 class="page-title">SIM karty</h2>
+          <button class="btn btn-primary" id="btnAddSimcard">
+            <span>+</span> Přidat SIM
+          </button>
+        </header>
+
+        <!-- FILTERS -->
+        <div class="filters">
+          <input type="text" class="filter-input" id="scFilterSearch" placeholder="Hledat operátora, číslo...">
+          <select class="filter-select" id="scFilterOperator">
+            <option value="">Všichni operátoři</option>
+          </select>
+          <select class="filter-select" id="scFilterStatus">
+            <option value="">Všechny stavy</option>
+            <option value="ok">✓ V pořádku</option>
+            <option value="warn">⚠ Brzy vyprší (&lt;30 dní)</option>
+            <option value="urgent">🔥 Vyprší brzy (&lt;7 dní)</option>
+            <option value="expired">❌ Vypršelo</option>
+          </select>
+          <button class="btn btn-dark" id="btnScReset">× Reset</button>
+        </div>
+
+        <!-- SIM TABLE -->
+        <div class="table-wrapper">
+          <table class="tickets-table simcards-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="scSelectAll"></th>
+                <th>OPERÁTOR</th>
+                <th>TELEFONNÍ ČÍSLO</th>
+                <th>DATUM EXPIRACE</th>
+                <th>STAV</th>
+                <th>POZNÁMKA</th>
+                <th>AKCE</th>
+              </tr>
+            </thead>
+            <tbody id="simcardsBody"></tbody>
+          </table>
+          <div class="empty-state" id="scEmptyState" style="display:none;">
+            <div class="empty-icon">📱</div>
+            <div class="empty-title">Žádné SIM karty</div>
+            <div class="empty-text">Přidej svou první SIM kliknutím na "+ Přidat SIM"</div>
+          </div>
+        </div>
+
+        <div class="bulk-actions" id="scBulkActions" style="display:none;">
+          <span id="scBulkCount">0 vybráno</span>
+          <button class="btn btn-danger" id="btnScBulkDelete">Smazat vybrané</button>
         </div>
       </div>
 
@@ -1344,6 +1491,14 @@
             <input type="text" id="fEventName" placeholder="Arsenal FC vs Sporting CP">
           </div>
           <div class="form-group">
+            <label>Kategorie *</label>
+            <select id="fCategory">
+              <option value="concert" selected>🎵 Koncerty a ostatní</option>
+              <option value="football">⚽ Fotbal</option>
+              <option value="other">🎫 Jiné</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>Datum *</label>
             <input type="date" id="fEventDate">
           </div>
@@ -1648,6 +1803,41 @@
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>
         <button class="btn btn-primary" id="btnConfirmSell">Potvrdit prodej</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Bulk Edit (tickets + payouts) -->
+  <div class="modal" id="modalBulkEdit">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3 id="bulkEditTitle">Hromadná editace</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="bulk-edit-info" id="bulkEditInfo">
+          Změna se aplikuje na <strong id="bulkEditCount">0</strong> položek.
+          Současné hodnoty se přepíší novou hodnotou níže.
+        </div>
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Pole k úpravě</label>
+            <select id="bulkEditField">
+              <!-- options populated by JS based on context -->
+            </select>
+          </div>
+          <div class="form-group form-full" id="bulkEditValueWrap">
+            <label id="bulkEditValueLabel">Nová hodnota</label>
+            <!-- input rendered dynamically based on field type -->
+            <div id="bulkEditValueSlot"></div>
+            <div class="sell-hint" id="bulkEditValueHint" style="margin-top:6px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnBulkEditApply">Aplikovat</button>
       </div>
     </div>
   </div>
@@ -2004,6 +2194,83 @@
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>
         <button class="btn btn-primary" id="btnSaveMembership">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Add/Edit Mailbox -->
+  <div class="modal" id="modalMailbox">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="mbModalTitle">Přidat schránku</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Jméno *</label>
+            <input type="text" id="mbfFirstName" placeholder="Jan">
+          </div>
+          <div class="form-group">
+            <label>Příjmení *</label>
+            <input type="text" id="mbfLastName" placeholder="Novák">
+          </div>
+          <div class="form-group form-full">
+            <label>Email *</label>
+            <input type="email" id="mbfEmail" placeholder="jan.novak@gmail.com">
+          </div>
+          <div class="form-group form-full">
+            <label>Poznámka</label>
+            <textarea id="mbfNotes" rows="2" placeholder="Volitelná poznámka..."></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnSaveMailbox">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Add/Edit SIM card -->
+  <div class="modal" id="modalSimcard">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="scModalTitle">Přidat SIM</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Operátor *</label>
+            <div class="input-with-action">
+              <select id="scfOperator"></select>
+              <button class="btn btn-dark btn-sm" id="scfAddOperator" type="button" title="Přidat vlastního operátora">+</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Telefonní číslo *</label>
+            <input type="tel" id="scfPhone" placeholder="+420 703 988 459">
+          </div>
+          <div class="form-group">
+            <label>Datum expirace *</label>
+            <input type="date" id="scfExpiry">
+          </div>
+          <div class="form-group">
+            <label>Vlastník</label>
+            <input type="text" id="scfOwner" placeholder="Tichý David">
+          </div>
+          <div class="form-group form-full">
+            <label>Poznámka</label>
+            <textarea id="scfNotes" rows="2" placeholder="Volitelná poznámka..."></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnSaveSimcard">Uložit</button>
       </div>
     </div>
   </div>
