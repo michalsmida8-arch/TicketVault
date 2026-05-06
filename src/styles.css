@@ -85,8 +85,8 @@
   --border-subtle: #f0e8d4;
 
   --text-primary: #1a1714;     /* warm ink (not pure black) */
-  --text-secondary: #5a5248;
-  --text-tertiary: #8a7e6a;
+  --text-secondary: #3d3830;   /* darker — was #5a5248, popisky teď výrazně čitelné */
+  --text-tertiary: #5a5248;    /* darker — was #8a7e6a, axis labels / datumy / jemné popisky */
 
   /* Deeper gold on light bg for proper contrast */
   --purple: #a6873a;           /* primary gold, deeper for light bg */
@@ -4487,6 +4487,47 @@ tr:hover .copy-btn {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
+}
+
+/* COUNTRY column — ISO code badge + country name. The badge is a small
+   monospace tag with golden tint matching the app's accent palette; reads
+   like an airport/airline destination tag (compact, scannable, professional).
+   Switched from emoji flags in 1.15.3 — Windows Segoe UI Emoji often falls
+   back to letter pairs anyway, so a clean ISO badge is more reliable. */
+.col-country {
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.country-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.country-iso {
+  /* Compact badge, monospace so 2 letters always have identical width */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--purple-hover);
+  background: rgba(var(--purple-rgb), 0.12);
+  border: 1px solid rgba(var(--purple-rgb), 0.25);
+  border-radius: 4px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.country-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ============================================================

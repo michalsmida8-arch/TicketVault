@@ -519,6 +519,86 @@ const COUNTRIES = [
   ['Východní Timor', 'Timor-Leste'], ['Zambie', 'Zambia'], ['Zimbabwe', 'Zimbabwe']
 ];
 
+// Country → ISO-3166-1 alpha-2 code map for flag emoji rendering. Keys cover
+// both Czech canonical names and common English variants stored historically
+// (e.g. early imports from Stubhub/Viagogo before country normalization).
+// Lookup is case/diacritic-insensitive via normalizeCountryKey().
+const COUNTRY_TO_ISO = {
+  // Europe — events Michal handles most often live here
+  'velkabritanie': 'gb', 'velkábritánie': 'gb', 'spojenekralovstvi': 'gb', 'spojenékrálovství': 'gb', 'unitedkingdom': 'gb', 'uk': 'gb', 'england': 'gb', 'anglie': 'gb', 'scotland': 'gb', 'skotsko': 'gb', 'wales': 'gb',
+  'cesko': 'cz', 'česko': 'cz', 'ceskarepublika': 'cz', 'českárepublika': 'cz', 'czechrepublic': 'cz', 'czechia': 'cz',
+  'slovensko': 'sk', 'slovakia': 'sk',
+  'polsko': 'pl', 'poland': 'pl',
+  'nemecko': 'de', 'německo': 'de', 'germany': 'de',
+  'francie': 'fr', 'france': 'fr',
+  'spanelsko': 'es', 'španělsko': 'es', 'spain': 'es',
+  'italie': 'it', 'itálie': 'it', 'italy': 'it',
+  'portugalsko': 'pt', 'portugal': 'pt',
+  'rakousko': 'at', 'austria': 'at',
+  'nizozemsko': 'nl', 'netherlands': 'nl', 'holland': 'nl',
+  'belgie': 'be', 'belgium': 'be',
+  'svycarsko': 'ch', 'švýcarsko': 'ch', 'switzerland': 'ch',
+  'irsko': 'ie', 'ireland': 'ie',
+  'dansko': 'dk', 'dánsko': 'dk', 'denmark': 'dk',
+  'svedsko': 'se', 'švédsko': 'se', 'sweden': 'se',
+  'norsko': 'no', 'norway': 'no',
+  'finsko': 'fi', 'finland': 'fi',
+  'recko': 'gr', 'řecko': 'gr', 'greece': 'gr',
+  'madarsko': 'hu', 'maďarsko': 'hu', 'hungary': 'hu',
+  'rumunsko': 'ro', 'romania': 'ro',
+  'bulharsko': 'bg', 'bulgaria': 'bg',
+  'chorvatsko': 'hr', 'croatia': 'hr',
+  'slovinsko': 'si', 'slovenia': 'si',
+  'srbsko': 'rs', 'serbia': 'rs',
+  'turecko': 'tr', 'turkey': 'tr',
+  'ukrajina': 'ua', 'ukraine': 'ua',
+  'rusko': 'ru', 'russia': 'ru',
+  // Americas
+  'usa': 'us', 'spojenestaty': 'us', 'spojenéstáty': 'us', 'unitedstates': 'us', 'unitedstatesofamerica': 'us', 'amerika': 'us',
+  'kanada': 'ca', 'canada': 'ca',
+  'mexiko': 'mx', 'mexico': 'mx',
+  'brazilie': 'br', 'brazílie': 'br', 'brazil': 'br',
+  'argentina': 'ar',
+  // Asia / Middle East / Oceania
+  'japonsko': 'jp', 'japan': 'jp',
+  'cina': 'cn', 'čína': 'cn', 'china': 'cn',
+  'jiznikorea': 'kr', 'jižníkorea': 'kr', 'korea': 'kr', 'southkorea': 'kr',
+  'thajsko': 'th', 'thailand': 'th',
+  'singapur': 'sg', 'singapore': 'sg',
+  'vietnam': 'vn',
+  'indie': 'in', 'india': 'in',
+  'australie': 'au', 'austrálie': 'au', 'australia': 'au',
+  'novyzeland': 'nz', 'novýzéland': 'nz', 'newzealand': 'nz',
+  'spojeneArabskeemiraty': 'ae', 'spojenéarabskéemiráty': 'ae', 'uae': 'ae', 'unitedarabemirates': 'ae',
+  'sauasdkaarabie': 'sa', 'saudskaarabie': 'sa', 'saudskáarábie': 'sa', 'saudiarabia': 'sa',
+  'katar': 'qa', 'qatar': 'qa',
+  // Africa
+  'jihoafrickarepublika': 'za', 'jihoafrickárepublika': 'za', 'jar': 'za', 'southafrica': 'za',
+  'maroko': 'ma', 'morocco': 'ma',
+  'egypt': 'eg'
+};
+
+// Normalize a country string for ISO lookup: lowercase + strip diacritics + remove spaces/hyphens.
+// "Spojené království" → "spojenekralovstvi", "United Kingdom" → "unitedkingdom".
+function normalizeCountryKey(s) {
+  if (!s) return '';
+  return s.toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // strip diacritics
+    .toLowerCase()
+    .replace(/[\s\-_().,]/g, '');
+}
+
+// Public helper — given a country name in any common form, return its uppercase
+// ISO-3166-1 alpha-2 code ("GB", "CZ", "US"...) or empty string if unknown.
+// Used in the tickets table country column. Switched from emoji flags to ISO
+// codes in 1.15.3 because Windows often renders flag emoji as letter-pair
+// fallback (no flag glyph in Segoe UI Emoji), which looked worse than just
+// showing the code intentionally.
+function getCountryIso(country) {
+  const iso = COUNTRY_TO_ISO[normalizeCountryKey(country)];
+  return iso ? iso.toUpperCase() : '';
+}
+
 // Populate the #countryList datalist once the DOM is ready.
 // option value = canonical Czech name (what gets stored)
 // option text  = "Czech / alias1 / alias2 (English)" — datalist matches typed
@@ -1927,6 +2007,17 @@ function renderTickets() {
         </td>
         <td class="col-date">${t.eventDate || '—'}</td>
         <td>${escapeHtml(t.venue || '—')}</td>
+        <td class="col-country">${(() => {
+          // Country cell — ISO-code badge (e.g. "GB") + full country name.
+          // Empty/missing country shows a dim em-dash. Badge is golden-tinted
+          // to match the app's accent palette; the name uses muted text so
+          // the badge reads as the primary identifier at a glance.
+          const c = t.country;
+          if (!c) return '<span class="muted">—</span>';
+          const iso = getCountryIso(c);
+          const badge = iso ? `<span class="country-iso" title="${escapeHtml(c)}">${iso}</span>` : '';
+          return `<span class="country-cell" title="${escapeHtml(c)}">${badge}<span class="country-name">${escapeHtml(c)}</span></span>`;
+        })()}</td>
         <td>${escapeHtml([t.section, t.row].filter(Boolean).join(', ') || '—')}</td>
         <td>${escapeHtml(t.account || '—')}</td>
         <td>${(() => {
