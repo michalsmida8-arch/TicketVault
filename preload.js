@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('api', {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config) => ipcRenderer.invoke('config:set', config),
+  // Open URL in user's system browser (used by marketplace "↗" buttons).
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   // Auto-updater API. Renderer uses onUpdaterEvent to subscribe to updater
   // lifecycle (checking → available → progress → downloaded → error).
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),

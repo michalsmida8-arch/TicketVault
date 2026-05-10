@@ -519,6 +519,86 @@ const COUNTRIES = [
   ['Východní Timor', 'Timor-Leste'], ['Zambie', 'Zambia'], ['Zimbabwe', 'Zimbabwe']
 ];
 
+// Country → ISO-3166-1 alpha-2 code map for flag emoji rendering. Keys cover
+// both Czech canonical names and common English variants stored historically
+// (e.g. early imports from Stubhub/Viagogo before country normalization).
+// Lookup is case/diacritic-insensitive via normalizeCountryKey().
+const COUNTRY_TO_ISO = {
+  // Europe — events Michal handles most often live here
+  'velkabritanie': 'gb', 'velkábritánie': 'gb', 'spojenekralovstvi': 'gb', 'spojenékrálovství': 'gb', 'unitedkingdom': 'gb', 'uk': 'gb', 'england': 'gb', 'anglie': 'gb', 'scotland': 'gb', 'skotsko': 'gb', 'wales': 'gb',
+  'cesko': 'cz', 'česko': 'cz', 'ceskarepublika': 'cz', 'českárepublika': 'cz', 'czechrepublic': 'cz', 'czechia': 'cz',
+  'slovensko': 'sk', 'slovakia': 'sk',
+  'polsko': 'pl', 'poland': 'pl',
+  'nemecko': 'de', 'německo': 'de', 'germany': 'de',
+  'francie': 'fr', 'france': 'fr',
+  'spanelsko': 'es', 'španělsko': 'es', 'spain': 'es',
+  'italie': 'it', 'itálie': 'it', 'italy': 'it',
+  'portugalsko': 'pt', 'portugal': 'pt',
+  'rakousko': 'at', 'austria': 'at',
+  'nizozemsko': 'nl', 'netherlands': 'nl', 'holland': 'nl',
+  'belgie': 'be', 'belgium': 'be',
+  'svycarsko': 'ch', 'švýcarsko': 'ch', 'switzerland': 'ch',
+  'irsko': 'ie', 'ireland': 'ie',
+  'dansko': 'dk', 'dánsko': 'dk', 'denmark': 'dk',
+  'svedsko': 'se', 'švédsko': 'se', 'sweden': 'se',
+  'norsko': 'no', 'norway': 'no',
+  'finsko': 'fi', 'finland': 'fi',
+  'recko': 'gr', 'řecko': 'gr', 'greece': 'gr',
+  'madarsko': 'hu', 'maďarsko': 'hu', 'hungary': 'hu',
+  'rumunsko': 'ro', 'romania': 'ro',
+  'bulharsko': 'bg', 'bulgaria': 'bg',
+  'chorvatsko': 'hr', 'croatia': 'hr',
+  'slovinsko': 'si', 'slovenia': 'si',
+  'srbsko': 'rs', 'serbia': 'rs',
+  'turecko': 'tr', 'turkey': 'tr',
+  'ukrajina': 'ua', 'ukraine': 'ua',
+  'rusko': 'ru', 'russia': 'ru',
+  // Americas
+  'usa': 'us', 'spojenestaty': 'us', 'spojenéstáty': 'us', 'unitedstates': 'us', 'unitedstatesofamerica': 'us', 'amerika': 'us',
+  'kanada': 'ca', 'canada': 'ca',
+  'mexiko': 'mx', 'mexico': 'mx',
+  'brazilie': 'br', 'brazílie': 'br', 'brazil': 'br',
+  'argentina': 'ar',
+  // Asia / Middle East / Oceania
+  'japonsko': 'jp', 'japan': 'jp',
+  'cina': 'cn', 'čína': 'cn', 'china': 'cn',
+  'jiznikorea': 'kr', 'jižníkorea': 'kr', 'korea': 'kr', 'southkorea': 'kr',
+  'thajsko': 'th', 'thailand': 'th',
+  'singapur': 'sg', 'singapore': 'sg',
+  'vietnam': 'vn',
+  'indie': 'in', 'india': 'in',
+  'australie': 'au', 'austrálie': 'au', 'australia': 'au',
+  'novyzeland': 'nz', 'novýzéland': 'nz', 'newzealand': 'nz',
+  'spojeneArabskeemiraty': 'ae', 'spojenéarabskéemiráty': 'ae', 'uae': 'ae', 'unitedarabemirates': 'ae',
+  'sauasdkaarabie': 'sa', 'saudskaarabie': 'sa', 'saudskáarábie': 'sa', 'saudiarabia': 'sa',
+  'katar': 'qa', 'qatar': 'qa',
+  // Africa
+  'jihoafrickarepublika': 'za', 'jihoafrickárepublika': 'za', 'jar': 'za', 'southafrica': 'za',
+  'maroko': 'ma', 'morocco': 'ma',
+  'egypt': 'eg'
+};
+
+// Normalize a country string for ISO lookup: lowercase + strip diacritics + remove spaces/hyphens.
+// "Spojené království" → "spojenekralovstvi", "United Kingdom" → "unitedkingdom".
+function normalizeCountryKey(s) {
+  if (!s) return '';
+  return s.toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // strip diacritics
+    .toLowerCase()
+    .replace(/[\s\-_().,]/g, '');
+}
+
+// Public helper — given a country name in any common form, return its uppercase
+// ISO-3166-1 alpha-2 code ("GB", "CZ", "US"...) or empty string if unknown.
+// Used in the tickets table country column. Switched from emoji flags to ISO
+// codes in 1.15.3 because Windows often renders flag emoji as letter-pair
+// fallback (no flag glyph in Segoe UI Emoji), which looked worse than just
+// showing the code intentionally.
+function getCountryIso(country) {
+  const iso = COUNTRY_TO_ISO[normalizeCountryKey(country)];
+  return iso ? iso.toUpperCase() : '';
+}
+
 // Populate the #countryList datalist once the DOM is ready.
 // option value = canonical Czech name (what gets stored)
 // option text  = "Czech / alias1 / alias2 (English)" — datalist matches typed
@@ -1632,16 +1712,31 @@ function updateMutedRowUI() {
 function getTicketUrgency(t) {
   if (!t || !t.eventDate) return null;
   const days = daysUntil(t.eventDate);
-  if (days === null || days < 0) return null;  // past events ignored
-  
+  if (days === null) return null;
+
   const cfg = getAlertsConfig();
   const isMuted = cfg.mutedTicketIds.includes(t.id);
-  
-  // Sold (ale ne doručeno) a event do N dní → "potřebuje doručit"
+
+  // ── Past events ────────────────────────────────────────────────────────
+  // Event already happened but ticket isn't in a final state (sold+delivered).
+  // This is the loudest alert — money is potentially lost (unsold ticket =
+  // wasted inventory; sold-but-not-delivered = customer didn't get the ticket
+  // and is likely opening a chargeback/dispute right now).
+  if (days < 0) {
+    // Tickets in a "done" state (delivered or refunded) are fine — event is
+    // just history at that point, no action needed.
+    if (t.status === 'delivered' || t.status === 'refunded') return null;
+    // Anything else (available/listed/sold) past the event date = real problem.
+    const type = t.status === 'sold' ? 'past-undelivered' : 'past-unsold';
+    return { type, days, level: 'critical', muted: isMuted };
+  }
+
+  // ── Upcoming events ────────────────────────────────────────────────────
+  // Sold but not yet delivered, event soon → "needs delivery"
   if (t.status === 'sold' && days <= cfg.undeliveredDays) {
     return { type: 'undelivered', days, level: 'critical', muted: isMuted };
   }
-  // Dostupné nebo listed a event do N dní → "potřebuje prodat"
+  // Still available/listed, event soon → "needs sale"
   if ((t.status === 'available' || t.status === 'listed') && days <= cfg.unsoldDays) {
     return { type: 'unsold', days, level: 'warning', muted: isMuted };
   }
@@ -1668,14 +1763,17 @@ window.debugUrgency = debugUrgencyStatus;
 
 function countUrgentTickets() {
   const all = state.db.tickets || [];
-  let unsold = 0, undelivered = 0;
+  let unsold = 0, undelivered = 0, past = 0;
   for (const t of all) {
     const u = getTicketUrgency(t);
     if (!u) continue;
-    if (u.type === 'unsold') unsold++;
+    // Past-event types count as their own bucket — counted separately so we
+    // can highlight them more prominently in the K-dořešení tab if needed.
+    if (u.type === 'past-unsold' || u.type === 'past-undelivered') past++;
+    else if (u.type === 'unsold') unsold++;
     else if (u.type === 'undelivered') undelivered++;
   }
-  return { unsold, undelivered, total: unsold + undelivered };
+  return { unsold, undelivered, past, total: unsold + undelivered + past };
 }
 
 function updateSidebarBadge() {
@@ -1882,26 +1980,47 @@ function renderTickets() {
     
     // Pulsing dot + human-readable text + mute button
     let urgencyBadge = '';
+    let rowExtraClass = '';
     if (urgency) {
-      const daysText = urgency.days === 0
-        ? 'dnes je event'
-        : urgency.days === 1
-          ? 'zítra je event'
-          : `${urgency.days} dny do eventu`;
-      const action = urgency.type === 'undelivered' ? 'Doručit' : 'Prodat';
-      const dotClass = urgency.type === 'undelivered' ? 'urgent-dot-red' : 'urgent-dot-yellow';
+      // Past-event types use a clearer label since "−3 dny do eventu" reads weird.
+      let daysText;
+      if (urgency.type === 'past-unsold' || urgency.type === 'past-undelivered') {
+        const ago = Math.abs(urgency.days);
+        const action = urgency.type === 'past-undelivered' ? 'NEDORUČENO' : 'NEPRODÁNO';
+        daysText = ago === 0
+          ? `${action} · dnes byl event`
+          : ago === 1
+            ? `${action} · včera byl event`
+            : `${action} · event byl před ${ago} dny`;
+      } else {
+        daysText = urgency.days === 0
+          ? 'dnes je event'
+          : urgency.days === 1
+            ? 'zítra je event'
+            : `${urgency.days} dny do eventu`;
+      }
+      const action = (urgency.type === 'undelivered' || urgency.type === 'past-undelivered') ? 'Doručit' : 'Prodat';
+      // Past events get the red dot + a darker red chip variant. Add row class
+      // so the entire <tr> can show a subtle red background for visibility.
+      const isPast = urgency.type === 'past-unsold' || urgency.type === 'past-undelivered';
+      const dotClass = (urgency.type === 'undelivered' || isPast) ? 'urgent-dot-red' : 'urgent-dot-yellow';
+      const chipColorClass = isPast
+        ? 'urgent-chip-past'
+        : (urgency.type === 'undelivered' ? 'urgent-chip-red' : 'urgent-chip-yellow');
       const chipAnimClass = cfg.animations && !urgency.muted ? ' animated' : '';
       const chipMutedClass = urgency.muted ? ' muted' : '';
       const muteBtn = urgency.muted
         ? `<button class="urgent-mute-btn" data-unmute-id="${t.id}" title="Obnovit upozornění">🔔</button>`
         : `<button class="urgent-mute-btn" data-mute-id="${t.id}" title="Ztlumit upozornění pro tuto vstupenku">🔕</button>`;
       urgencyBadge = `
-        <span class="urgent-chip ${urgency.type === 'undelivered' ? 'urgent-chip-red' : 'urgent-chip-yellow'}${chipAnimClass}${chipMutedClass}" 
+        <span class="urgent-chip ${chipColorClass}${chipAnimClass}${chipMutedClass}"
               title="${action} — ${daysText}${urgency.muted ? ' (ztlumené)' : ''}">
           <span class="urgent-dot ${dotClass}${cfg.animations && !urgency.muted ? ' animated' : ''}"></span>
           <span class="urgent-chip-text">${daysText}</span>
           ${muteBtn}
         </span>`;
+      // Mark the row visually if event is past and ticket isn't resolved.
+      if (isPast && !urgency.muted) rowExtraClass = ' row-past-event';
     }
     
     // External IDs link (small icon next to event name)
@@ -1914,7 +2033,7 @@ function renderTickets() {
     }
     
     return `
-      <tr data-id="${t.id}" class="${rowClass}">
+      <tr data-id="${t.id}" class="${rowClass}${rowExtraClass}">
         <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" ${checked}></td>
         <td>
           <div class="event-cell">
@@ -1927,6 +2046,17 @@ function renderTickets() {
         </td>
         <td class="col-date">${t.eventDate || '—'}</td>
         <td>${escapeHtml(t.venue || '—')}</td>
+        <td class="col-country">${(() => {
+          // Country cell — ISO-code badge (e.g. "GB") + full country name.
+          // Empty/missing country shows a dim em-dash. Badge is golden-tinted
+          // to match the app's accent palette; the name uses muted text so
+          // the badge reads as the primary identifier at a glance.
+          const c = t.country;
+          if (!c) return '<span class="muted">—</span>';
+          const iso = getCountryIso(c);
+          const badge = iso ? `<span class="country-iso" title="${escapeHtml(c)}">${iso}</span>` : '';
+          return `<span class="country-cell" title="${escapeHtml(c)}">${badge}<span class="country-name">${escapeHtml(c)}</span></span>`;
+        })()}</td>
         <td>${escapeHtml([t.section, t.row].filter(Boolean).join(', ') || '—')}</td>
         <td>${escapeHtml(t.account || '—')}</td>
         <td>${(() => {
@@ -2183,11 +2313,22 @@ function collectTodoItems() {
   const notListed = [];
   const unsold = [];
   const undelivered = [];
+  const pastEvent = [];
 
   for (const t of all) {
     if (cfg.mutedTicketIds.includes(t.id)) continue;
 
     const days = t.eventDate ? daysUntil(t.eventDate) : null;
+
+    // PAST EVENT — date already gone but ticket isn't in a final state
+    // (delivered/refunded). Highest priority bucket. Sort by how recently the
+    // event passed, most recent first.
+    if (days !== null && days < 0) {
+      if (t.status !== 'delivered' && t.status !== 'refunded') {
+        pastEvent.push({ ticket: t, days });
+      }
+      continue;
+    }
 
     // "K zalistování": status=available, no day threshold. Skip past events.
     if (cfg.todoShowNotListed &&
@@ -2215,8 +2356,10 @@ function collectTodoItems() {
   notListed.sort((a, b) => a.days - b.days);
   unsold.sort((a, b) => a.days - b.days);
   undelivered.sort((a, b) => a.days - b.days);
+  // Past events: sort by how recently the event was (smallest |days| first).
+  pastEvent.sort((a, b) => Math.abs(a.days) - Math.abs(b.days));
 
-  return { notListed, unsold, undelivered };
+  return { notListed, unsold, undelivered, pastEvent };
 }
 
 function getTodoUrgencyLevel(days) {
@@ -2239,6 +2382,12 @@ function renderTodoItem(item, kind) {
     level = 'low';
     daysNum = '●';
     daysLabel = 'KOUPENO';
+  } else if (kind === 'pastEvent') {
+    // Past event = always critical urgency. Show how many days AGO.
+    level = 'critical';
+    const ago = Math.abs(item.days);
+    daysNum = ago === 0 ? '!' : ago;
+    daysLabel = ago === 0 ? 'DNES' : ago === 1 ? 'VČERA' : 'DNÍ ZPĚT';
   } else {
     // Threshold depends on which action is pending: selling vs delivering.
     const threshold = kind === 'unsold' ? cfg.todoUnsoldDays : cfg.todoUndeliveredDays;
@@ -2274,6 +2423,15 @@ function renderTodoItem(item, kind) {
     primaryAction = `<button class="btn btn-success btn-sm" data-todo-action="sell" data-id="${t.id}">Prodat</button>`;
   } else if (kind === 'undelivered') {
     primaryAction = `<button class="btn btn-deliver btn-sm" data-todo-action="deliver" data-id="${t.id}">✓ Doručit</button>`;
+  } else if (kind === 'pastEvent') {
+    // For past events, the right action depends on current status: if sold but
+    // not delivered, prompt to deliver. Otherwise just open Edit so user can
+    // mark it refunded / delivered / whatever applies.
+    if (t.status === 'sold') {
+      primaryAction = `<button class="btn btn-deliver btn-sm" data-todo-action="deliver" data-id="${t.id}">✓ Doručit</button>`;
+    } else {
+      primaryAction = `<button class="btn btn-dark btn-sm" data-todo-action="edit" data-id="${t.id}">Vyřešit</button>`;
+    }
   } else { // notListed
     // Quick action: mark as Zalistováno (status=listed) directly.
     // Opens sell/listing flow — actually just flips status in one click.
@@ -2300,8 +2458,8 @@ function renderTodoItem(item, kind) {
 }
 
 function renderTodoPage() {
-  const { notListed, unsold, undelivered } = collectTodoItems();
-  const total = notListed.length + unsold.length + undelivered.length;
+  const { notListed, unsold, undelivered, pastEvent } = collectTodoItems();
+  const total = notListed.length + unsold.length + undelivered.length + pastEvent.length;
   const cfg = getAlertsConfig();
 
   // Summary cards — 4 mini cards on wider screens, wraps on narrow.
@@ -2312,6 +2470,11 @@ function renderTodoPage() {
         <span class="todo-summary-label">CELKEM</span>
         <span class="todo-summary-value">${total}</span>
       </div>
+      ${pastEvent.length > 0 ? `
+      <div class="todo-summary-card past-event">
+        <span class="todo-summary-label">PO TERMÍNU</span>
+        <span class="todo-summary-value">${pastEvent.length}</span>
+      </div>` : ''}
       <div class="todo-summary-card not-listed">
         <span class="todo-summary-label">K ZALISTOVÁNÍ</span>
         <span class="todo-summary-value">${notListed.length}</span>
@@ -2357,6 +2520,32 @@ function renderTodoPage() {
   }
 
   let html = '';
+
+  // Section 0: Po termínu (PAST EVENT) — highest priority. Always shown when
+  // any exist, regardless of cfg.todoShow* toggles, because it's a real loss
+  // signal: ticket was bought, event happened, money still tied up.
+  if (pastEvent.length > 0) {
+    html += `
+      <div class="todo-section past">
+        <div class="todo-section-header">
+          <div class="todo-section-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="todo-section-title">Po termínu eventu</div>
+            <div class="todo-section-hint">Event už proběhl, ale ticket není uzavřený</div>
+          </div>
+          <span class="todo-section-count">${pastEvent.length}</span>
+        </div>
+        <div class="todo-list">
+          ${pastEvent.map(i => renderTodoItem(i, 'pastEvent')).join('')}
+        </div>
+      </div>
+    `;
+  }
 
   // Section 1: K zalistování (Koupeno, not yet Listed)
   if (cfg.todoShowNotListed && notListed.length > 0) {
@@ -2464,8 +2653,8 @@ async function markAsListed(id) {
 function updateTodoBadge() {
   const badge = $('#navTodoBadge');
   if (!badge) return;
-  const { notListed, unsold, undelivered } = collectTodoItems();
-  const total = notListed.length + unsold.length + undelivered.length;
+  const { notListed, unsold, undelivered, pastEvent } = collectTodoItems();
+  const total = notListed.length + unsold.length + undelivered.length + pastEvent.length;
   if (total > 0) {
     badge.textContent = total;
     badge.style.display = '';
@@ -2482,6 +2671,15 @@ function switchView(name) {
   $$('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
   const navBtn = document.querySelector(`.nav-item[data-view="${name}"]`);
   if (navBtn) navBtn.classList.add('active');
+
+  // Marketplace views need the .main container to drop its padding/overflow
+  // so the embedded webview fills edge-to-edge. We toggle a body class as a
+  // belt-and-braces fallback to the CSS :has() selector — older renderers
+  // or future Electron upgrades that disable :has() will still work.
+  document.body.classList.toggle(
+    'marketplace-active',
+    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo'
+  );
   
   if (name === 'stats') renderStatsPage();
   if (name === 'memberships') renderMembershipsPage();
@@ -2491,6 +2689,7 @@ function switchView(name) {
   if (name === 'payouts') renderPayoutsPage();
   if (name === 'inbox') renderInboxPage();
   if (name === 'todo') renderTodoPage();
+  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo') ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
   if (name === 'settings') {
     renderUsersList();
@@ -2498,6 +2697,1290 @@ function switchView(name) {
     loadCurrencySettingsUI();
     loadMailForwardUI();
   }
+}
+
+// ============ MARKETPLACES (Stubhub + Viagogo embedded webviews) ============
+// Each marketplace lives in its own <webview> with a persist:* partition so
+// cookies/login survive across app restarts. We attach event listeners once
+// per webview (lazy, on first switchView), then drive the toolbar from the
+// webview's actual state via did-navigate / did-start-loading events.
+
+// Tracks which marketplaces have already had their listeners wired up.
+const _marketplaceWired = new Set();
+
+// Set the webview preload URL on all <webview> elements as early as possible,
+// before they attach and start loading. Preload provides the zoom bridge
+// (see webview-preload.js). We use file:// resolved against this document so
+// it works in both dev and packaged builds.
+function _initMarketplaceWebviewPreloads() {
+  try {
+    const preloadUrl = new URL('webview-preload.js', window.location.href).href;
+    document.querySelectorAll('webview.mkt-webview').forEach(wv => {
+      // Only set if not already set (don't clobber on hot-reload).
+      if (!wv.getAttribute('preload')) {
+        wv.setAttribute('preload', preloadUrl);
+      }
+    });
+  } catch (e) {
+    console.warn('Failed to set webview preload:', e);
+  }
+}
+// Run synchronously on script load — DOM is parsed by this point because
+// our <script> tag is at the bottom of body. Webviews don't start fetching
+// until next tick, so we beat the load.
+_initMarketplaceWebviewPreloads();
+
+// Default landing pages. "Home" button returns here; we also use this URL to
+// detect an unloaded webview (still pointing at src=).
+const MARKETPLACE_HOMES = {
+  stubhub: 'https://www.stubhub.ie/my/sales',
+  viagogo: 'https://my.viagogo.com/sales',
+  salespro: 'https://salespro.stubhub.ie/',
+  invviagogo: 'https://inv.viagogo.com/'
+};
+
+// Per-marketplace zoom factor — Electron <webview> doesn't persist zoom on
+// its own and Ctrl+wheel/+/- shortcuts don't bubble up from inside the
+// webview. We track a multiplier and apply it via setZoomFactor on each
+// webview, plus restore on did-finish-load (zoom resets after navigation).
+const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1 };
+const ZOOM_STEP = 0.1;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2.0;
+
+function ensureMarketplaceLoaded(name) {
+  if (_marketplaceWired.has(name)) return;
+  const wv = document.getElementById('webview-' + name);
+  if (!wv) return;
+  _marketplaceWired.add(name);
+
+  const urlEl = document.getElementById('mktUrl' + name.charAt(0).toUpperCase() + name.slice(1));
+  const loadingEl = document.getElementById('mktLoading' + name.charAt(0).toUpperCase() + name.slice(1));
+
+  // URL bar reflects the current page so the user knows where they are
+  // (especially useful after multi-step OAuth flows that bounce between domains).
+  const updateUrl = () => {
+    try {
+      const u = wv.getURL();
+      if (urlEl && u) urlEl.textContent = u;
+    } catch (_) { /* webview not ready yet, ignore */ }
+  };
+
+  wv.addEventListener('did-start-loading', () => {
+    if (loadingEl) loadingEl.classList.add('active');
+  });
+  wv.addEventListener('did-stop-loading', () => {
+    if (loadingEl) loadingEl.classList.remove('active');
+    updateUrl();
+    updateNavButtons(name);
+  });
+  // did-navigate fires for top-level navigations (full page loads).
+  // did-navigate-in-page fires for SPA-style hash/history changes — both portals
+  // use these once you're logged in, so we listen to both.
+  wv.addEventListener('did-navigate', updateUrl);
+  wv.addEventListener('did-navigate-in-page', updateUrl);
+
+  // If a load fails (network down, blocked resource), drop the spinner instead
+  // of leaving it spinning forever.
+  wv.addEventListener('did-fail-load', (e) => {
+    if (loadingEl) loadingEl.classList.remove('active');
+    // -3 = ABORTED (intentional, e.g. user clicked back) — not an error.
+    if (e.errorCode !== -3) {
+      console.warn('[' + name + '] did-fail-load:', e.errorCode, e.errorDescription);
+    }
+  });
+
+  // Zoom restore — Electron resets zoomFactor to 1 on every navigation, so
+  // we re-apply the saved zoom whenever a page finishes loading. Without this
+  // the user has to keep re-zooming after every page load.
+  wv.addEventListener('did-finish-load', () => {
+    try { wv.setZoomFactor(_marketplaceZoom[name] || 1); } catch (_) {}
+  });
+
+  // Zoom keyboard shortcuts + Ctrl+wheel inside the webview — the events
+  // don't bubble out of <webview>, so a tiny preload script (webview-preload.js)
+  // captures them and forwards via ipcRenderer.sendToHost('zoom', delta).
+  // We listen for that here on the host side and adjust zoom accordingly.
+  wv.addEventListener('ipc-message', (e) => {
+    if (e.channel === 'zoom') {
+      const delta = e.args && e.args[0];
+      adjustMarketplaceZoom(name, delta);
+    }
+  });
+}
+
+// Bump zoom up/down by ZOOM_STEP, or reset to 1.0. Updates the chip in the
+// toolbar so the user sees current zoom level.
+function adjustMarketplaceZoom(name, direction) {
+  const wv = document.getElementById('webview-' + name);
+  if (!wv) return;
+  let z = _marketplaceZoom[name] || 1;
+  if (direction === 'reset' || direction === 0) {
+    z = 1;
+  } else if (direction === 1 || direction > 0) {
+    z = Math.min(ZOOM_MAX, z + ZOOM_STEP);
+  } else if (direction === -1 || direction < 0) {
+    z = Math.max(ZOOM_MIN, z - ZOOM_STEP);
+  }
+  // Round to avoid float drift (e.g. 0.7000000000000001).
+  z = Math.round(z * 100) / 100;
+  _marketplaceZoom[name] = z;
+  try { wv.setZoomFactor(z); } catch (_) {}
+
+  // Update the "100%" chip label in the toolbar.
+  const label = document.querySelector(`.mkt-btn[data-mkt-action="zoom-reset"][data-mkt="${name}"]`);
+  if (label) label.textContent = Math.round(z * 100) + '%';
+}
+
+// Enable/disable the back/forward buttons based on whether the embedded web
+// session has history in that direction. Saves the user from clicking dead
+// buttons on a fresh page.
+function updateNavButtons(name) {
+  const wv = document.getElementById('webview-' + name);
+  if (!wv) return;
+  const back = document.querySelector(`.mkt-btn[data-mkt-action="back"][data-mkt="${name}"]`);
+  const fwd = document.querySelector(`.mkt-btn[data-mkt-action="forward"][data-mkt="${name}"]`);
+  try {
+    if (back) back.disabled = !wv.canGoBack();
+    if (fwd) fwd.disabled = !wv.canGoForward();
+  } catch (_) { /* webview not ready, ignore */ }
+}
+
+// One handler for all marketplace toolbar buttons — back, forward, reload,
+// home, external. Driven by data-attributes set in HTML.
+function handleMarketplaceAction(action, name, externalUrl) {
+  if (action === 'external') {
+    // ↗ button — open in user's default browser via shell.openExternal.
+    // The renderer doesn't have shell directly; we go through preload's window.api.
+    const url = externalUrl || MARKETPLACE_HOMES[name];
+    if (url && window.api?.openExternal) {
+      window.api.openExternal(url);
+    } else if (url) {
+      // Fallback for older preload — use a temp anchor which Electron intercepts.
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.click();
+    }
+    return;
+  }
+  if (action === 'quickadd') {
+    quickAddFromMarketplace(name);
+    return;
+  }
+  if (action === 'zoom-in') { adjustMarketplaceZoom(name, 1); return; }
+  if (action === 'zoom-out') { adjustMarketplaceZoom(name, -1); return; }
+  if (action === 'zoom-reset') { adjustMarketplaceZoom(name, 'reset'); return; }
+  const wv = document.getElementById('webview-' + name);
+  if (!wv) return;
+  try {
+    if (action === 'back' && wv.canGoBack()) wv.goBack();
+    else if (action === 'forward' && wv.canGoForward()) wv.goForward();
+    else if (action === 'reload') wv.reload();
+    else if (action === 'home') wv.loadURL(MARKETPLACE_HOMES[name]);
+  } catch (e) {
+    console.warn('Marketplace action failed:', action, name, e);
+  }
+}
+
+// ============ MARKETPLACE QUICK-ADD ============
+// Scrapes the currently-displayed marketplace page for ticket data and opens
+// the Add Ticket modal pre-filled. Runs JS inside the webview via
+// executeJavaScript — that means we read the DOM AS THE LOGGED-IN USER sees
+// it, bypassing bot detection (we ARE the user). The trade-off is fragility:
+// when Stubhub/Viagogo redesign their pages, the selectors break.
+//
+// We extract from three sources in order of reliability:
+//   1) JSON-LD <script type="application/ld+json"> — SEO microdata, stable
+//   2) Page title + URL — fallback for event name + IDs
+//   3) DOM selectors — last resort, most fragile
+
+// The scraper script runs in the webview's isolated world. It must be a
+// self-contained string (no closures over renderer-side variables). Returns
+// a plain object with either a single item OR an array of items found on
+// the page (for list-style pages like "My Sales" overview).
+const MARKETPLACE_SCRAPER_SCRIPT = `
+(function() {
+  const result = {
+    success: false,
+    url: location.href,
+    title: document.title,
+    pageType: 'other',  // 'sale' | 'listing' | 'event' | 'other'
+    multiple: false,    // true when items[] has >1 entries (list-style page)
+    items: []           // each: {eventName, eventDate, venue, country, section, row, quantity, salePrice, saleCurrency, listingId, saleId, label}
+  };
+
+  // ----- Detect overall page type from URL -----
+  const url = location.href;
+  const isViagogoSale = /viagogo\\.com\\/.*sale/i.test(url);
+  const isViagogoListing = /viagogo\\.com\\/.*listing/i.test(url);
+  const isStubhubSale = /stubhub\\.[a-z]+\\/.*\\/(sale|order)/i.test(url);
+  const isStubhubListing = /stubhub\\.[a-z]+\\/.*listing/i.test(url);
+
+  if (isViagogoSale || isStubhubSale) result.pageType = 'sale';
+  else if (isViagogoListing || isStubhubListing) result.pageType = 'listing';
+  else result.pageType = 'event';
+
+  try {
+    // ----- Strategy: find repeated "card" elements that contain a sale/listing.
+    // Viagogo "My Sales" renders each sale in a container that has
+    // "Sale No.", "Show details" link, and a price block. Same for "My Listings"
+    // ("Listing No." instead of "Sale No.").
+    //
+    // We find the SMALLEST element containing both "Sale No. NNNN" and a price,
+    // then walk up to find sibling cards with the same shape.
+
+    const bodyText = document.body.textContent || '';
+    const idMatches = [...bodyText.matchAll(/(Sale\\s*(?:No\\.?|number)|Listing\\s*(?:No\\.?|number)|Order\\s*[#:])\\s*[:#]?\\s*(\\d{6,})/gi)];
+
+    // If the page mentions multiple distinct sale/listing IDs, it's a list page.
+    const uniqueIds = [...new Set(idMatches.map(m => m[2]))];
+
+    // Detect SalesPro layout — different from Viagogo/Stubhub.ie. SalesPro
+    // sale cards don't have visible Sale No. — they have "Prodeje"/"Sales"
+    // and "Platba"/"Payment" labels inside each card. We find them by walking
+    // the DOM for elements that contain BOTH labels.
+    const isSalesPro = /salespro\\.stubhub/i.test(location.href);
+    if (isSalesPro && uniqueIds.length === 0) {
+      // Look for repeated card containers — each has "Prodeje" + "Platba" labels
+      // AND a venue+date row. We use the date strings as anchors (each card has
+      // a unique combination of date + price).
+      const allElements = document.querySelectorAll('[class*="row"], [class*="card"], [class*="item"], [class*="sale"], li, tr, [role="listitem"]');
+      const seenCards = new Set();
+      allElements.forEach(el => {
+        const txt = el.textContent || '';
+        // Must have Sales + Payment-like text AND a venue/date.
+        const hasSalesPaymentLabels = /Prodeje|Sales/i.test(txt) && /Platba|Payment/i.test(txt);
+        const hasDate = /\\b\\d{1,2}-\\d{1,2}-\\d{4}\\b/.test(txt) || /\\b\\d{1,2}\\.\\d{1,2}\\.\\d{4}\\b/.test(txt);
+        const hasPrice = /\\d{1,3}(?:[\\s.,]\\d{3})*[.,]\\d{2}/.test(txt);
+        const reasonableSize = txt.length > 30 && txt.length < 1500;
+        if (hasSalesPaymentLabels && hasDate && hasPrice && reasonableSize) {
+          // Avoid duplicates — if this element is INSIDE one we already accepted,
+          // skip it (we want the OUTERMOST card-sized element, not nested).
+          // Conversely, if a parent already accepted, skip too.
+          let parent = el.parentElement;
+          let parentSeen = false;
+          while (parent) {
+            if (seenCards.has(parent)) { parentSeen = true; break; }
+            parent = parent.parentElement;
+          }
+          if (parentSeen) return;
+          seenCards.add(el);
+        }
+      });
+      const salesproCards = [...seenCards];
+
+      if (salesproCards.length > 0) {
+        salesproCards.forEach((card, idx) => {
+          const cardTxt = card.textContent || '';
+
+          // First pull the date out — it's our anchor for splitting event/venue.
+          // SalesPro: "st, 17-06-2026 3:00 pm" or "17-06-2026" — dash format.
+          let eventDate = '';
+          const dashDate = cardTxt.match(/(\\d{1,2})-(\\d{1,2})-(\\d{4})/);
+          const dotDate = cardTxt.match(/(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})/);
+          if (dashDate) {
+            eventDate = dashDate[3] + '-' + dashDate[2].padStart(2,'0') + '-' + dashDate[1].padStart(2,'0');
+          } else if (dotDate) {
+            eventDate = dotDate[3] + '-' + dotDate[2].padStart(2,'0') + '-' + dotDate[1].padStart(2,'0');
+          }
+
+          // Strategy for event name + venue:
+          // SalesPro packs them into one text run like:
+          //   "England vs Croatia - Group L - Football World Cup 2026 - ...AT&T Stadium, Arlington, TX, US st, 17-06-2026 3:00 pm Prodeje 3 287,24 USD..."
+          // We want to split where venue starts. Venue almost always contains
+          // a building suffix (Stadium/Arena/Hall/Park/Stade/Estadio/Centre)
+          // OR is a comma-list (Venue, City, ...) right before the date.
+          //
+          // Approach: find the substring BEFORE the date, then within that
+          // substring find the LAST building-suffix word — everything before
+          // that word is event name, from there onwards is venue.
+
+          let textBeforeDate = cardTxt;
+          if (dashDate) {
+            // Find position of first date weekday hint or the date itself.
+            const dateIdx = cardTxt.indexOf(dashDate[0]);
+            if (dateIdx > 0) {
+              // Also strip Czech weekday prefixes like "st, " before the date.
+              // We want everything UP TO that, minus optional weekday.
+              textBeforeDate = cardTxt.slice(0, dateIdx)
+                .replace(/\\s*(po|út|st|čt|pá|so|ne|mon|tue|wed|thu|fri|sat|sun)[,.]?\\s*$/i, '')
+                .trim();
+            }
+          } else if (dotDate) {
+            const dateIdx = cardTxt.indexOf(dotDate[0]);
+            if (dateIdx > 0) {
+              textBeforeDate = cardTxt.slice(0, dateIdx)
+                .replace(/\\s*(po|út|st|čt|pá|so|ne|mon|tue|wed|thu|fri|sat|sun)[,.]?\\s*$/i, '')
+                .trim();
+            }
+          }
+
+          // Now split textBeforeDate into event + venue.
+          // Find the LAST occurrence of a building-suffix word in textBeforeDate
+          // (last because event name might contain words like "Park" too —
+          // e.g. "Linkin Park" — and we want the venue's suffix, not the band's).
+          let eventName = '';
+          let venue = '';
+          const suffixRegex = /\\b(Stadium|Arena|Hall|Centre|Center|Park|Stade|Estadio|Stadion|Forum|Amphitheatre|Amphitheater|Coliseum|Field|Bowl|Garden|Gardens|Theatre|Theater|Auditorium)\\b/gi;
+          let lastSuffixMatch = null;
+          let m;
+          while ((m = suffixRegex.exec(textBeforeDate)) !== null) {
+            lastSuffixMatch = m;
+          }
+          if (lastSuffixMatch) {
+            // Walk backward from the suffix to find where the venue name starts.
+            // Venue name typically begins after a sentence/event boundary —
+            // capital letter following a non-letter character (space, punctuation).
+            const suffixEnd = lastSuffixMatch.index + lastSuffixMatch[0].length;
+            // From the suffix word, walk backward up to N characters and find
+            // the start of a capitalized "venue chunk".
+            // Simpler: take the last 60 chars before suffix end, and start from
+            // the first capital letter after a space.
+            const before = textBeforeDate.slice(0, lastSuffixMatch.index);
+            // Try splitting at last punctuation/sentence boundary that signals
+            // a separator. We accept event name endings like "Match 22" or
+            // "London" — typically followed directly by venue without delimiter.
+            // Heuristic: the venue word is the last 1-5 capitalized words BEFORE
+            // the suffix. We greedily back up as long as words are Title Case.
+            const wordsBefore = before.match(/(?:[A-Z][\\w&'.\\-]*\\s*){1,6}$/);
+            if (wordsBefore) {
+              const venueStart = before.length - wordsBefore[0].length;
+              eventName = textBeforeDate.slice(0, venueStart).trim();
+              venue = textBeforeDate.slice(venueStart, suffixEnd).trim();
+              // The remainder after suffix is "city, country" — append.
+              const after = textBeforeDate.slice(suffixEnd).trim();
+              // Trim leading punctuation
+              const afterClean = after.replace(/^[,\\s]+/, '').trim();
+              if (afterClean) venue = venue + ', ' + afterClean;
+            } else {
+              // Couldn't isolate venue word — take everything as venue
+              venue = textBeforeDate.slice(0, suffixEnd).trim();
+              const after = textBeforeDate.slice(suffixEnd).trim().replace(/^[,\\s]+/, '');
+              if (after) venue = venue + ', ' + after;
+            }
+          } else {
+            // No building suffix — try comma-split: "Venue, City, State, Country"
+            // The first comma's left side is venue, right side is location info.
+            const firstComma = textBeforeDate.indexOf(',');
+            if (firstComma > 5 && firstComma < textBeforeDate.length - 5) {
+              // Heuristic: assume the part BEFORE the first comma is venue if it
+              // looks venue-like (Title Case + short). Otherwise whole text is event.
+              const beforeComma = textBeforeDate.slice(0, firstComma).trim();
+              if (beforeComma.length < 50 && /^[A-Z]/.test(beforeComma)) {
+                venue = textBeforeDate.trim();
+                eventName = '';
+              } else {
+                eventName = textBeforeDate.trim();
+              }
+            } else {
+              eventName = textBeforeDate.trim();
+            }
+          }
+
+          // Clean event name — strip trailing dashes/spaces
+          eventName = eventName.replace(/[\\s\\-]+$/, '').trim();
+          // Clean venue — collapse double commas/spaces
+          venue = venue.replace(/,\\s*,/g, ',').replace(/\\s{2,}/g, ' ').trim();
+
+          // If event name is empty but we have venue, leave event empty —
+          // user will see "Sale #?" and venue, can match by venue alone.
+
+          // Prices — SalesPro shows "Prodeje: X", "Platba: Y" with mezery as thousand sep
+          // ("3 287,24 USD"). Largest price = total sale.
+          let salePrice = null, saleCurrency = null;
+          // Pattern: number with optional spaces, comma decimal, then 3-letter currency code
+          const priceRegex = /(\\d{1,3}(?:[\\s.]\\d{3})*[.,]\\d{2})\\s*(USD|EUR|GBP|CZK|PLN|CHF|AUD|CAD)/g;
+          let priceMatch;
+          let bestPrice = null;
+          while ((priceMatch = priceRegex.exec(cardTxt)) !== null) {
+            const raw = priceMatch[1].replace(/[\\s.]/g, '').replace(',', '.');
+            const num = parseFloat(raw);
+            if (!isNaN(num) && num > 0 && num < 1e7) {
+              if (!bestPrice || num > bestPrice.amount) {
+                bestPrice = { amount: num, currency: priceMatch[2] };
+              }
+            }
+          }
+          if (bestPrice) {
+            salePrice = bestPrice.amount;
+            saleCurrency = bestPrice.currency;
+          }
+
+          // Section / row / qty — try common patterns
+          const sectionMatch = cardTxt.match(/Section\\s+([A-Z0-9]{1,8})|Sekce\\s+([A-Z0-9]{1,8})/i);
+          const rowMatch = cardTxt.match(/Row\\s+([A-Z0-9]{1,4})|řada\\s+([A-Z0-9]{1,4})/i);
+          const qtyMatch = cardTxt.match(/(\\d{1,3})\\s+(Tickets?|vstupenek)\\b/i);
+
+          const item = {
+            eventName: (eventName || '').replace(/\\s*tickets?\\s*$/i, '').trim(),
+            eventDate: eventDate,
+            venue: venue,
+            country: '',
+            section: sectionMatch ? (sectionMatch[1] || sectionMatch[2]) : null,
+            row: rowMatch ? (rowMatch[1] || rowMatch[2]) : null,
+            quantity: qtyMatch ? parseInt(qtyMatch[1], 10) : null,
+            salePrice: salePrice,
+            saleCurrency: saleCurrency,
+            listingId: null,
+            saleId: null, // SalesPro doesn't expose IDs in the list view — only on click
+            pageType: 'sale',
+            label: [eventName, sectionMatch ? 'Sec '+(sectionMatch[1]||sectionMatch[2]) : '', salePrice ? salePrice + ' ' + (saleCurrency||'') : '']
+              .filter(Boolean).join(' · ')
+          };
+          result.items.push(item);
+        });
+
+        result.multiple = result.items.length > 1;
+        result.success = result.items.length > 0;
+        result.pageType = 'sale';
+      }
+    }
+
+    if (uniqueIds.length > 1) {
+      // ----- Multi-item list page -----
+      // STRATEGY: For each ID, find its text node, then walk UP only as far
+      // as needed — STOP the moment the next ancestor would also contain
+      // a DIFFERENT ID. That gives us the smallest container that holds
+      // exactly one card's worth of data. The previous heuristic walked too
+      // far and ended up extracting from the whole page.
+
+      const seen = new Set();
+      uniqueIds.forEach(id => {
+        if (seen.has(id)) return;
+        seen.add(id);
+
+        // Find the first text node that contains this ID.
+        const xpathResult = document.evaluate(
+          \`//text()[contains(., '\${id}')]\`,
+          document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+        );
+        const textNode = xpathResult.singleNodeValue;
+        if (!textNode) return;
+
+        // Walk up — keep going while the parent contains ONLY our ID.
+        // The moment a parent ALSO contains another card's ID, we've gone
+        // too far → use the previous (still-clean) container.
+        let card = textNode.parentElement;
+        let lastClean = null;
+        let safety = 25;
+        const otherIds = uniqueIds.filter(x => x !== id);
+
+        while (card && safety-- > 0) {
+          const txt = card.textContent || '';
+          // If this container leaks into a sibling card, stop.
+          const containsOther = otherIds.some(other => txt.includes(other));
+          if (containsOther) break;
+          // If the container has actually grown to include the whole page
+          // (text length explodes), stop too — defensive bound.
+          if (txt.length > 6000) break;
+          lastClean = card;
+          card = card.parentElement;
+        }
+        if (!lastClean) return;
+        const bestCard = lastClean;
+        const cardTxt = bestCard.textContent || '';
+
+        // ----- Event name -----
+        // Strategy 1: <a> link inside card with event-style href
+        let eventName = '';
+        const eventLinkSelectors = [
+          'a[href*="/concerts/"]',
+          'a[href*="/sports/"]',
+          'a[href*="/theatre/"]',
+          'a[href*="/event/"]',
+          'a[href*="/Event/"]',
+          'a[href*="-tickets"]'
+        ];
+        for (const sel of eventLinkSelectors) {
+          const link = bestCard.querySelector(sel);
+          if (link && link.textContent && link.textContent.trim().length > 1) {
+            eventName = link.textContent.trim();
+            break;
+          }
+        }
+        // Strategy 2: text that appears immediately BEFORE "Sale No." in the
+        // card (Viagogo cards render: <h-something>Event Name</h><a>↗</a><br>Sale No. ...).
+        // Walk DOM order and grab last non-empty text element before the ID.
+        if (!eventName) {
+          const allTextEls = bestCard.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"],strong,b,span,div,p');
+          let lastBeforeId = '';
+          for (const el of allTextEls) {
+            const t = (el.textContent || '').trim();
+            // Stop once we hit the Sale No. text — last 'good' text before that wins.
+            if (/Sale\\s*No\\.|Listing\\s*No\\.|Order\\s*[#:]/i.test(t) && t.length < 60) break;
+            // Skip page-title leaks, status pills, generic UI labels.
+            if (/viagogo|stubhub|ticket marketplace|concert,?\\s*sport/i.test(t)) continue;
+            if (/^(Open|Closed|Show details|Sale|Listing|Transfer pending|Confirm|See actions|Upload|Total price|Section|Row|Tickets)$/i.test(t)) continue;
+            // Skip if too short (likely just a label) or too long (full card text).
+            if (t.length < 2 || t.length > 120) continue;
+            // Skip if mostly digits/punctuation.
+            if (!/[a-zA-Z]{3,}/.test(t)) continue;
+            lastBeforeId = t;
+          }
+          if (lastBeforeId) eventName = lastBeforeId;
+        }
+        // Strategy 3: very last fallback — first non-empty card text line
+        if (!eventName) {
+          const lines = (cardTxt || '').split(/\\n+/).map(s => s.trim()).filter(Boolean);
+          for (const line of lines) {
+            if (/viagogo|stubhub|ticket marketplace/i.test(line)) continue;
+            if (/^(Open|Closed|Sale|Listing)$/i.test(line)) continue;
+            if (line.length > 1 && line.length < 120 && /[a-zA-Z]{3,}/.test(line)) {
+              eventName = line;
+              break;
+            }
+          }
+        }
+        // Strip generic suffixes.
+        eventName = eventName
+          .replace(/\\s*[|–-]\\s*viagogo.*$/i, '')
+          .replace(/\\s*[|–-]\\s*stubhub.*$/i, '')
+          .replace(/\\s+tickets?\\s*$/i, '')
+          .replace(/\\s*↗\\s*$/, '') // strip trailing ↗ icon if it leaked
+          .trim();
+
+        // ----- Date — only from this card's text -----
+        // Tries multiple formats in order of specificity:
+        //   ISO: 2026-05-19
+        //   dd.mm.yyyy: 19.05.2026 (CZ/SK)
+        //   dd-mm-yyyy: 17-06-2026 (SalesPro)
+        //   "19 May" / "19 May 2026" / "Tue, 19 May 2026"
+        let eventDate = '';
+        const isoMatch = cardTxt.match(/(\\d{4})-(\\d{2})-(\\d{2})/);
+        const dotMatch = cardTxt.match(/\\b(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})\\b/);
+        const dashMatch = cardTxt.match(/\\b(\\d{1,2})-(\\d{1,2})-(\\d{4})\\b/);
+        // "19 May" (UK/EU) and "May 19" (US) — both common on Viagogo.
+        const dmonthMatch = cardTxt.match(/\\b(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\b/);
+        const monthdMatch = !dmonthMatch && cardTxt.match(/\\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+(\\d{1,2})\\b/);
+        const monthMap = { Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12' };
+        const findYear = (anchor) => {
+          // Try directly around the anchor first.
+          const near = cardTxt.match(new RegExp(anchor+'[^\\\\d]{0,30}(20[2-3]\\\\d)'));
+          if (near) return near[1];
+          // Fallback: any year in card.
+          const any = cardTxt.match(/\\b(20[2-3]\\d)\\b/);
+          return any ? any[1] : String(new Date().getFullYear());
+        };
+        if (isoMatch) {
+          eventDate = isoMatch[1] + '-' + isoMatch[2] + '-' + isoMatch[3];
+        } else if (dotMatch) {
+          eventDate = dotMatch[3] + '-' + dotMatch[2].padStart(2,'0') + '-' + dotMatch[1].padStart(2,'0');
+        } else if (dashMatch) {
+          eventDate = dashMatch[3] + '-' + dashMatch[2].padStart(2,'0') + '-' + dashMatch[1].padStart(2,'0');
+        } else if (dmonthMatch) {
+          eventDate = findYear(dmonthMatch[2]) + '-' + monthMap[dmonthMatch[2]] + '-' + dmonthMatch[1].padStart(2,'0');
+        } else if (monthdMatch) {
+          eventDate = findYear(monthdMatch[1]) + '-' + monthMap[monthdMatch[1]] + '-' + monthdMatch[2].padStart(2,'0');
+        }
+
+        // ----- Section / row / qty / venue — local to card -----
+        // textContent of adjacent DOM siblings has NO whitespace between them.
+        // So "Section 20G" + "2 Tickets" in DOM becomes "Section 20G2 Tickets"
+        // in textContent — making regex fragile (G2 looks like one word).
+        //
+        // Solution: walk individual ELEMENTS in the card and extract each
+        // attribute from its OWN element's text. Each "Section 20G", "Row 132",
+        // "2 Tickets" lives in a separate <span> or <div>.
+        let sectionVal = null, rowVal = null, qtyVal = null;
+        const childEls = bestCard.querySelectorAll('*');
+        for (const el of childEls) {
+          // Skip elements that have child elements with their own text — we want
+          // LEAF text nodes (smallest containers).
+          // Instead of recursing, just check direct textContent — even if it
+          // includes children, the regex matches PER-element, so as long as the
+          // element text itself contains "Section 20G" cleanly without trailing
+          // qty digits, we're good.
+          const t = (el.textContent || '').trim();
+          // Skip empty or huge containers (the whole card would match too).
+          if (!t || t.length > 80) continue;
+
+          if (!sectionVal) {
+            const m = t.match(/^(?:Section|Sekce)\\s+([A-Z0-9][\\w\\s/\\-]{0,30})$/i);
+            if (m) sectionVal = m[1].trim();
+          }
+          if (!rowVal) {
+            const m = t.match(/^(?:Row|\u0159ada)\\s+([A-Z0-9][\\w\\s/\\-]{0,12})$/i);
+            if (m) rowVal = m[1].trim();
+          }
+          if (!qtyVal) {
+            const m = t.match(/^(\\d{1,3})\\s*(?:Tickets?|vstupenek|vstupenky|ks)$/i);
+            if (m) qtyVal = parseInt(m[1], 10);
+          }
+        }
+        // Last resort: regex on whole textContent if per-element scan missed something.
+        if (!sectionVal) {
+          const m = cardTxt.match(/(?:Section|Sekce)\\s+([A-Z0-9](?:[\\w\\s/\\-]{0,12}?[A-Za-z]|[A-Z0-9]{0,3}))(?=\\d{1,3}\\s*(?:Tickets|vstupenek|vstupenky|ks)|Row\\b|\u0159ada\\b|Total|Transfer|See|Confirm|$)/i);
+          if (m) sectionVal = m[1].trim();
+        }
+        if (!rowVal) {
+          // For row, the textContent fallback is hard — row numbers like 132
+          // can blend into qty. Try a tight pattern that requires Row + space + alnum.
+          const m = cardTxt.match(/(?:Row|\u0159ada)\\s+([A-Z]{1,2}|[A-Z]?\\d{1,4})(?=[A-Z]|\\d{1,2}\\s*Tickets|$)/i);
+          if (m) rowVal = m[1].trim();
+        }
+        if (!qtyVal) {
+          // qty: the LAST 1-2 digit run before "Tickets"/etc — preceded by non-digit
+          // (so we don't pick up trailing digits from row/section).
+          const matches = [...cardTxt.matchAll(/(?:[A-Za-z]|^|\\s)(\\d{1,2})\\s*(?:Tickets?|vstupenek|vstupenky|ks)\\b/gi)];
+          if (matches.length > 0) qtyVal = parseInt(matches[matches.length - 1][1], 10);
+        }
+        let venue = '';
+        const venueMatch = cardTxt.match(/([A-Z][\\w'\\-]*(?:\\s+[\\w'\\-]+){0,5}\\s+(Stadium|Arena|Hall|Centre|Center|Park|Stade|Estadio))[,\\s]/i);
+        if (venueMatch) venue = venueMatch[1].trim();
+
+        // ----- Price — only from this card's text -----
+        // Currency can appear BEFORE the number (€236.40, Kč13011.29) OR
+        // AFTER (236.40 €, 1500.00 EUR). Different markets format differently.
+        // Number can use either '.' or ',' as decimal sep, and either ' ' or
+        // ',' as thousand sep (locale dependent). We collect all candidates
+        // and take the largest = "Total price" (not per-ticket).
+        let salePrice = null, saleCurrency = null;
+        const curMap = { '€':'EUR','$':'USD','£':'GBP','Kč':'CZK','K\u010d':'CZK' };
+        const allPrices = [];
+        // Pattern A: SYMBOL/CODE then number — €236.40, Kč13011.29, €1054.80
+        // Use \\d+ (not \\d{1,3}) so we capture 4+ digit numbers without
+        // thousand separators (Viagogo with EUR sometimes shows "€1054.80").
+        const pricePatternBefore = /(K\u010d|EUR|USD|GBP|CZK|PLN|CHF|[€$£])\\s*(\\d+(?:[\\s,.]\\d{3})*(?:[.,]\\d{2})?)/g;
+        // Pattern B: number then SYMBOL/CODE — 236.40 €, 1500.00 EUR
+        const pricePatternAfter = /(\\d+(?:[\\s,.]\\d{3})*(?:[.,]\\d{2})?)\\s*(K\u010d|EUR|USD|GBP|CZK|PLN|CHF|[€$£])/g;
+
+        // Robust numeric parser. Looks at the LAST separator: if followed by
+        // 1-2 digits → it's the decimal separator; otherwise (3 digits) it's
+        // a thousand separator and the number has no decimal.
+        const parseLocaleNum = (s) => {
+          s = s.replace(/\\s/g, '');
+          const lastSep = Math.max(s.lastIndexOf('.'), s.lastIndexOf(','));
+          if (lastSep === -1) return parseFloat(s);
+          const tail = s.slice(lastSep + 1);
+          if (tail.length >= 1 && tail.length <= 2) {
+            // Last sep is decimal. Strip all other separators from int part.
+            return parseFloat(s.slice(0, lastSep).replace(/[.,]/g, '') + '.' + tail);
+          }
+          // 3 digits after last sep → it was a thousand separator.
+          return parseFloat(s.replace(/[.,]/g, ''));
+        };
+
+        const collectPrices = (regex, curIndex, numIndex) => {
+          let m;
+          while ((m = regex.exec(cardTxt)) !== null) {
+            const cur = m[curIndex];
+            const num = parseLocaleNum(m[numIndex]);
+            if (!isNaN(num) && num > 0 && num < 1e7) {
+              allPrices.push({ amount: num, currency: curMap[cur] || cur.toUpperCase() });
+            }
+          }
+        };
+        collectPrices(pricePatternBefore, 1, 2);
+        collectPrices(pricePatternAfter, 2, 1);
+
+        if (allPrices.length > 0) {
+          // Largest = total. Tie-break by currency (prefer non-empty).
+          allPrices.sort((a, b) => b.amount - a.amount);
+          salePrice = allPrices[0].amount;
+          saleCurrency = allPrices[0].currency;
+        }
+
+        // Detect this card's type (sale vs listing) from its own text.
+        let cardType = result.pageType;
+        if (/Sale\\s*No\\.|Order\\s*[#:]/i.test(cardTxt)) cardType = 'sale';
+        else if (/Listing\\s*No\\./i.test(cardTxt)) cardType = 'listing';
+
+        const item = {
+          eventName: eventName.replace(/\\s*tickets?\\s*$/i, '').trim(),
+          eventDate: eventDate,
+          venue: venue,
+          country: '',
+          section: sectionVal,
+          row: rowVal,
+          quantity: qtyVal,
+          salePrice: salePrice,
+          saleCurrency: saleCurrency,
+          listingId: cardType === 'listing' ? id : null,
+          saleId: cardType === 'sale' ? id : null,
+          pageType: cardType,
+          label: [eventName || ('Sale #'+id), sectionVal ? 'Sec '+sectionVal : '', salePrice ? salePrice + ' ' + (saleCurrency||'') : '']
+            .filter(Boolean).join(' · ')
+        };
+        result.items.push(item);
+      });
+
+      result.multiple = result.items.length > 1;
+      result.success = result.items.length > 0;
+    }
+
+    // ----- Single-item / detail page fallback -----
+    // If we didn't find multiple cards, fall back to the original whole-page scrape.
+    if (result.items.length === 0) {
+      const single = {
+        eventName: null, eventDate: null, venue: null, country: null,
+        section: null, row: null, seat: null, quantity: null,
+        salePrice: null, saleCurrency: null,
+        listingId: null, saleId: null, saleDate: null,
+        pageType: result.pageType, label: null
+      };
+
+      // JSON-LD first
+      const ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+      let ldEvent = null;
+      ldScripts.forEach(s => {
+        try {
+          const parsed = JSON.parse(s.textContent);
+          const items = Array.isArray(parsed) ? parsed : [parsed];
+          for (const it of items) {
+            if (!it || !it['@type']) continue;
+            if (String(it['@type']).toLowerCase().includes('event') && !ldEvent) ldEvent = it;
+          }
+        } catch (_) {}
+      });
+      if (ldEvent) {
+        if (ldEvent.name) single.eventName = String(ldEvent.name).replace(/\\s*tickets?\\s*$/i, '').trim();
+        if (ldEvent.startDate) {
+          try {
+            const d = new Date(ldEvent.startDate);
+            if (!isNaN(d)) single.eventDate = d.toISOString().slice(0,10);
+          } catch (_) {}
+        }
+        const loc = Array.isArray(ldEvent.location) ? ldEvent.location[0] : ldEvent.location;
+        if (loc) {
+          const venueName = loc.name || '';
+          const city = loc.address && (loc.address.addressLocality || loc.address['@addressLocality']) || '';
+          single.venue = [venueName, city].filter(Boolean).join(', ');
+          const country = loc.address && (loc.address.addressCountry || loc.address['@addressCountry']) || '';
+          if (country) single.country = typeof country === 'string' ? country : (country.name || '');
+        }
+      }
+
+      // DOM patterns
+      if (idMatches.length === 1) {
+        const id = idMatches[0][2];
+        if (/Listing/i.test(idMatches[0][1])) single.listingId = id;
+        else single.saleId = id;
+      }
+      const sectionMatch = bodyText.match(/Section\\s+([A-Z0-9]{1,8})\\b/i);
+      if (sectionMatch) single.section = sectionMatch[1];
+      const rowMatch = bodyText.match(/Row\\s+([A-Z0-9]{1,4})\\b/i);
+      if (rowMatch) single.row = rowMatch[1];
+      const qtyMatch = bodyText.match(/(\\d{1,3})\\s+Tickets?\\b/i);
+      if (qtyMatch) single.quantity = parseInt(qtyMatch[1], 10);
+
+      // URL-based listing ID
+      const listingUrlMatch = url.match(/[?&](listing|listingid|id)=(\\d+)/i);
+      if (listingUrlMatch && !single.listingId) single.listingId = listingUrlMatch[2];
+
+      // Price — Total price label
+      const priceMatch = bodyText.match(/(?:Total\\s*price|Total)[^\\d]*([A-Z]{2,3}|[€$£]|K\u010d)\\s*([\\d.,]+)/i);
+      if (priceMatch) {
+        const cur = priceMatch[1];
+        const num = parseFloat(priceMatch[2].replace(/,/g, ''));
+        if (!isNaN(num)) {
+          single.salePrice = num;
+          const curMap = { '€':'EUR','$':'USD','£':'GBP','Kč':'CZK' };
+          single.saleCurrency = curMap[cur] || cur.toUpperCase();
+        }
+      }
+
+      // Title fallback
+      if (!single.eventName && document.title) {
+        const cleanTitle = document.title.replace(/\\s*[-|]\\s*(viagogo|stubhub).*/i, '').replace(/\\s*tickets?\\s*$/i, '').trim();
+        if (cleanTitle.length > 2 && cleanTitle.length < 200) single.eventName = cleanTitle;
+      }
+
+      single.label = single.eventName || 'Detail stránky';
+      if (single.eventName || single.saleId || single.listingId) {
+        result.items.push(single);
+        result.success = true;
+      }
+    }
+
+    // Add origin breadcrumb to all items.
+    result.items.forEach(it => {
+      it.notes = 'Importováno z ' + location.host + ' dne ' + new Date().toISOString().slice(0,10);
+    });
+
+  } catch (e) {
+    result.error = String(e && e.message || e);
+  }
+
+  return result;
+})();
+`;
+
+async function quickAddFromMarketplace(name) {
+  const wv = document.getElementById('webview-' + name);
+  if (!wv) return;
+  const btn = document.querySelector(`.mkt-btn[data-mkt-action="quickadd"][data-mkt="${name}"]`);
+  const origLabel = btn?.textContent;
+
+  // Disable button during scrape so user can't double-click.
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Čtu stránku…';
+  }
+
+  try {
+    const data = await wv.executeJavaScript(MARKETPLACE_SCRAPER_SCRIPT, true);
+
+    if (!data) {
+      toast('Stránka neodpověděla — zkus reload', 'error');
+      return;
+    }
+    if (data.error) {
+      console.error('Scraper error:', data.error);
+      toast('Chyba při čtení stránky: ' + data.error, 'error', 5000);
+      return;
+    }
+    if (!data.success || !data.items || data.items.length === 0) {
+      toast('Žádná data nenalezena. Otevři konkrétní sale/event/listing stránku a zkus znovu.', 'error', 5000);
+      return;
+    }
+
+    // Map marketplace name → platform name stored on tickets. SalesPro is
+    // Stubhub's broker portal, so its sales are Stubhub sales (matters for
+    // payout rules and external IDs).
+    const platform = (name === 'stubhub' || name === 'salespro') ? 'Stubhub' : 'Viagogo';
+
+    // Multi-item page (e.g. My Sales overview with 4 sales) — let user pick
+    // WHICH item to import first, then proceed to match-or-create flow with it.
+    if (data.multiple || data.items.length > 1) {
+      openMktItemPicker(data, platform, name);
+      return;
+    }
+
+    // Single item — same flow as 1.12.1 (match picker or fallback to create).
+    proceedWithSingleItem(data.items[0], platform, name);
+
+  } catch (e) {
+    console.error('quickAdd failed:', e);
+    toast('Selhalo čtení stránky: ' + (e.message || e), 'error', 5000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = origLabel;
+    }
+  }
+}
+
+// Take a single scraped item and decide: match-existing or create-new.
+// Used by both quickAdd (single-item page) and openMktItemPicker (after user
+// picks one of multiple items).
+function proceedWithSingleItem(item, platform, marketplaceName) {
+  // event/other pages → just open Add modal (no matching needed)
+  if (item.pageType === 'event' || item.pageType === 'other') {
+    openAddModalFromScraped(item, platform);
+    return;
+  }
+  // For sale/listing pages we ALWAYS show the match picker — even if our
+  // fuzzy matcher finds nothing. The user explicitly told us they want to
+  // *connect* this marketplace sale to an existing ticket in the dashboard,
+  // not create a new one. If our auto-match fails (e.g. event name didn't
+  // get scraped well), we still show the dashboard tickets so the user can
+  // pick manually. Only the "+ Vytvořit novou" fallback creates a new ticket.
+  const matches = findMatchingTicketsForScraped(item, platform);
+  openMktMatchPicker(item, platform, matches, marketplaceName);
+}
+
+// When the page has multiple sales/listings (overview list), show a picker
+// asking the user which one to import. Then proceed with the chosen item.
+function openMktItemPicker(data, platform, marketplaceName) {
+  state._mktItemPickerCtx = { items: data.items, platform, marketplaceName };
+
+  $('#mktMatchTitle').textContent = `Vyber kterou položku importovat (${data.items.length} nalezeno)`;
+  $('#mktMatchSummary').innerHTML = `
+    <div class="mkt-match-summary-title">⚡ Načteno z ${platform}</div>
+    <div class="mkt-match-summary-meta">
+      Stránka obsahuje <strong>${data.items.length}</strong> ${data.items.length === 1 ? 'položku' : data.items.length < 5 ? 'položky' : 'položek'}.
+      Klikni tu, kterou chceš přidat do TicketVault.
+    </div>
+  `;
+  $('#mktMatchCount').textContent = '';
+  // Hide the "create new" button — only relevant in the match picker, not item picker.
+  const newBtn = $('#btnMktMatchNew');
+  if (newBtn) newBtn.style.display = 'none';
+
+  $('#mktMatchList').innerHTML = data.items.map((item, idx) => {
+    const typeLabel = item.pageType === 'sale' ? 'Sale' :
+                       item.pageType === 'listing' ? 'Listing' : 'Položka';
+    const idLabel = item.saleId ? `Sale #${item.saleId}` :
+                    item.listingId ? `Listing #${item.listingId}` : '';
+    const priceLabel = item.salePrice
+      ? `${item.salePrice.toFixed(2)} ${item.saleCurrency || ''}`
+      : '—';
+    return `
+      <div class="mkt-match-row" data-item-index="${idx}">
+        <div class="mkt-match-row-info">
+          <div class="mkt-match-row-title">${escapeHtml(item.eventName || ('Sale #' + (item.saleId || item.listingId || '?')))}</div>
+          <div class="mkt-match-row-meta">
+            <span>📅 ${item.eventDate ? formatDate(item.eventDate) : '—'}</span>
+            ${item.venue ? `<span>📍 ${escapeHtml(item.venue)}</span>` : ''}
+            <span>🎫 Sekce ${escapeHtml(item.section || '—')}${item.row ? ' / řada '+escapeHtml(item.row) : ''}</span>
+            <span>${item.quantity || '?'} ks</span>
+            <span style="color:var(--purple)"><strong>${priceLabel}</strong></span>
+            ${idLabel ? `<span style="color:var(--text-tertiary)">${idLabel}</span>` : ''}
+          </div>
+        </div>
+        <div class="mkt-match-row-status">
+          <span class="status-pill" style="background:rgba(167,139,250,0.15);color:#c4b5fd;border:1px solid rgba(167,139,250,0.35)">${typeLabel}</span>
+        </div>
+        <div class="mkt-match-row-action">→</div>
+      </div>
+    `;
+  }).join('');
+
+  $('#mktMatchList').querySelectorAll('.mkt-match-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const idx = parseInt(row.dataset.itemIndex, 10);
+      const ctx = state._mktItemPickerCtx;
+      if (!ctx || !ctx.items[idx]) return;
+      closeModal('modalMktMatch');
+      const item = ctx.items[idx];
+      const plat = ctx.platform;
+      const mkt = ctx.marketplaceName;
+      state._mktItemPickerCtx = null;
+      // Restore the new-ticket button for the match picker that comes next.
+      const newBtn = $('#btnMktMatchNew');
+      if (newBtn) newBtn.style.display = '';
+      // Continue with chosen item.
+      proceedWithSingleItem(item, plat, mkt);
+    });
+  });
+
+  $('#modalMktMatch').classList.add('active');
+}
+
+// Build a partial ticket object from scraped data, used for both "create new"
+// and as a fallback in match flow. Splits price by qty so we always store per-ks.
+function scrapedToPartialTicket(data, platform) {
+  const partial = {
+    eventName: data.eventName || '',
+    eventDate: data.eventDate || '',
+    venue: data.venue || '',
+    country: data.country || '',
+    section: data.section || '',
+    row: data.row || '',
+    quantity: data.quantity || 1,
+    salePrice: (data.salePrice && data.quantity) ? data.salePrice / data.quantity : (data.salePrice || ''),
+    saleCurrency: data.saleCurrency || getDefaultTicketCurrency(),
+    currency: data.saleCurrency || getDefaultTicketCurrency(),
+    status: data.pageType === 'sale' ? 'sold' :
+            data.pageType === 'listing' ? 'listed' : 'available',
+    saleDate: data.pageType === 'sale' ? new Date().toISOString().slice(0,10) : '',
+    platform: data.pageType === 'sale' || data.pageType === 'listing' ? platform : '',
+    notes: data.notes || '',
+    externalIds: {}
+  };
+  if (data.saleId) {
+    partial.externalIds[platform === 'Stubhub' ? 'stubhubOrderId' : 'viagogoOrderId'] = data.saleId;
+  }
+  if (data.listingId) {
+    partial.externalIds[platform === 'Stubhub' ? 'stubhubListingId' : 'viagogoListingId'] = data.listingId;
+  }
+  return partial;
+}
+
+function openAddModalFromScraped(data, platform) {
+  const partial = scrapedToPartialTicket(data, platform);
+  switchView('dashboard');
+  openTicketModal(partial);
+  const filledFields = ['eventName','eventDate','venue','section','salePrice','quantity']
+    .filter(k => partial[k] && partial[k] !== '').length;
+  toast(`✓ Předvyplněno ${filledFields}/6 polí — zkontroluj a ulož`, 'success', 4000);
+}
+
+// Find tickets in DB that could plausibly be this scraped sale/listing.
+// Per user preference ("volněji"), we match on event name (fuzzy) without
+// requiring exact section/date — the user will pick the right one from a list.
+function findMatchingTicketsForScraped(data, platform) {
+  if (!data.eventName) return [];
+
+  const tickets = state.db.tickets || [];
+  const eventNorm = normalizeEventName(data.eventName);
+
+  return tickets
+    .map(t => {
+      const tEventNorm = normalizeEventName(t.eventName || '');
+      // Score each ticket — higher = better match. Used to surface likely
+      // candidates first and to flag "perfect" matches (listing ID hit).
+      let score = 0;
+      let reasons = [];
+
+      // Event name match (required — at least partial)
+      if (eventNorm && tEventNorm && (eventNorm.includes(tEventNorm) || tEventNorm.includes(eventNorm))) {
+        score += 30;
+        reasons.push('event');
+      } else {
+        return null; // no event match → not a candidate
+      }
+
+      // Date match (+20 if same day)
+      if (data.eventDate && t.eventDate === data.eventDate) {
+        score += 20;
+        reasons.push('datum');
+      }
+
+      // Section match (+15)
+      if (data.section && t.section &&
+          String(data.section).toLowerCase() === String(t.section).toLowerCase()) {
+        score += 15;
+        reasons.push('sekce');
+      }
+
+      // Listing ID exact match — perfect match, big bonus
+      const idKey = platform === 'Stubhub' ? 'stubhubListingId' : 'viagogoListingId';
+      if (data.listingId && t.externalIds && t.externalIds[idKey] === data.listingId) {
+        score += 100;
+        reasons.push('listing ID');
+      }
+
+      // Order ID match (for sales)
+      const orderKey = platform === 'Stubhub' ? 'stubhubOrderId' : 'viagogoOrderId';
+      if (data.saleId && t.externalIds && t.externalIds[orderKey] === data.saleId) {
+        score += 100;
+        reasons.push('order ID');
+      }
+
+      // Filter by status appropriate to page type — don't suggest "delivered"
+      // tickets for a fresh listing (they're already done).
+      if (data.pageType === 'listing') {
+        // Listing page: only show available/listed (you wouldn't list something sold)
+        if (!['available', 'listed'].includes(t.status)) return null;
+      } else if (data.pageType === 'sale') {
+        // Sale page: show available, listed, even sold (in case of relist + resale)
+        if (!['available', 'listed', 'sold'].includes(t.status)) return null;
+      }
+
+      return { ticket: t, score, reasons, isPerfect: score >= 100 };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20); // cap at 20 — anything beyond is noise
+}
+
+// Normalize event names for fuzzy matching: lowercase, strip diacritics,
+// remove common boilerplate ("tickets", venue suffixes), collapse whitespace.
+function normalizeEventName(s) {
+  if (!s) return '';
+  return String(s)
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip diacritics
+    .replace(/\s*(tickets?|vstupenky|live|tour|world tour)\s*/gi, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function openMktMatchPicker(data, platform, matches, marketplaceName) {
+  const partial = scrapedToPartialTicket(data, platform);
+  state._mktPickerCtx = { data, platform, partial, marketplaceName };
+
+  const action = data.pageType === 'sale' ? 'prodaný ticket' :
+                 data.pageType === 'listing' ? 'zalistovaný ticket' :
+                 'ticket';
+  $('#mktMatchTitle').textContent = `Přiřadit ${action} k existující vstupence`;
+
+  const fmt = (v) => v || '<span style="color:var(--text-tertiary)">—</span>';
+  const priceDisplay = data.salePrice
+    ? `${data.salePrice.toFixed(2)} ${data.saleCurrency || ''} (celkem)`
+    : '—';
+  $('#mktMatchSummary').innerHTML = `
+    <div class="mkt-match-summary-title">
+      ⚡ Načteno z ${platform}
+    </div>
+    <div class="mkt-match-summary-meta">
+      <strong>${escapeHtml(fmt(data.eventName))}</strong> · ${fmt(data.eventDate)} · ${escapeHtml(fmt(data.venue))}<br>
+      Sekce <strong>${escapeHtml(fmt(data.section))}</strong>${data.row ? ' · řada <strong>'+escapeHtml(data.row)+'</strong>' : ''} · <strong>${data.quantity || '?'}</strong> ks · <strong>${priceDisplay}</strong>
+      ${data.saleId ? '<br>Sale No.: <strong>'+escapeHtml(data.saleId)+'</strong>' : ''}
+      ${data.listingId ? '<br>Listing ID: <strong>'+escapeHtml(data.listingId)+'</strong>' : ''}
+    </div>
+  `;
+
+  // If we have auto-matches, show them. If not, fall back to ALL tickets
+  // (filtered to plausible statuses) so the user can pick manually — this is
+  // the explicit user request: never create a new ticket on a sale event,
+  // always link to existing.
+  const useFallback = matches.length === 0;
+  let candidates;
+  if (useFallback) {
+    // Build candidate list from all tickets in plausible states for THIS page type.
+    // Sale pages → tickets that aren't already delivered/cancelled.
+    // Listing pages → tickets that are still available or already listed.
+    const all = state.db.tickets || [];
+    candidates = all
+      .filter(t => {
+        if (data.pageType === 'sale') return ['available','listed','sold'].includes(t.status);
+        if (data.pageType === 'listing') return ['available','listed'].includes(t.status);
+        return true;
+      })
+      // Sort: closest event date first (most likely to be the active sale)
+      .sort((a, b) => {
+        const ad = a.eventDate || '9999';
+        const bd = b.eventDate || '9999';
+        return ad.localeCompare(bd);
+      })
+      .map(t => ({ ticket: t, score: 0, reasons: [], isPerfect: false }));
+    $('#mktMatchCount').innerHTML = `<span style="color:var(--text-tertiary)">Auto-match nic nenašel</span> · zobrazuji všechny vstupenky (<strong>${candidates.length}</strong>) — vyber ručně:`;
+  } else {
+    candidates = matches;
+    $('#mktMatchCount').textContent = `Nalezeno ${matches.length} ${matches.length === 1 ? 'vstupenka' : matches.length < 5 ? 'vstupenky' : 'vstupenek'} se shodným eventem`;
+  }
+
+  // Build the search filter input — useful when fallback list is long.
+  const filterHtml = `
+    <input type="text" id="mktMatchFilter" class="mkt-match-filter"
+           placeholder="🔍 Filtr: event, místo, sekce, účet…"
+           autocomplete="off">
+  `;
+
+  if (candidates.length === 0) {
+    $('#mktMatchList').innerHTML = '<div class="mkt-match-empty">V DB nejsou žádné vstupenky odpovídající tomuto typu stránky. Použij tlačítko nahoře pro vytvoření nové.</div>';
+  } else {
+    $('#mktMatchList').innerHTML = filterHtml +
+      `<div id="mktMatchRows">${renderMktMatchRows(candidates)}</div>`;
+
+    // Wire up row clicks (delegated, so they survive filter re-render).
+    $('#mktMatchList').addEventListener('click', _onMktMatchListClick);
+
+    // Filter input — re-render rows on each keystroke.
+    const filterInput = $('#mktMatchFilter');
+    if (filterInput) {
+      filterInput.addEventListener('input', () => {
+        const q = filterInput.value.toLowerCase().trim();
+        const filtered = !q ? candidates : candidates.filter(c => {
+          const t = c.ticket;
+          return [t.eventName, t.venue, t.section, t.row, t.account, t.platform]
+            .some(v => v && String(v).toLowerCase().includes(q));
+        });
+        const rowsEl = $('#mktMatchRows');
+        if (rowsEl) rowsEl.innerHTML = renderMktMatchRows(filtered);
+      });
+      // Auto-focus filter when fallback list is shown — saves a click.
+      if (useFallback) setTimeout(() => filterInput.focus(), 50);
+    }
+  }
+
+  $('#modalMktMatch').classList.add('active');
+}
+
+// Build the row HTML for a list of match candidates. Extracted so the filter
+// input can re-render rows without rebuilding the whole modal.
+function renderMktMatchRows(candidates) {
+  if (candidates.length === 0) {
+    return '<div class="mkt-match-empty">Nic neodpovídá filtru.</div>';
+  }
+  return candidates.map(m => {
+    const t = m.ticket;
+    const statusLabel = {
+      available: 'Koupeno', listed: 'Zalistováno', sold: 'Prodáno',
+      delivered: '✓ Doručeno', cancelled: 'Zrušeno'
+    }[t.status] || t.status;
+    const statusPill = `<span class="status-pill status-${t.status}">${statusLabel}</span>`;
+    const purchaseInfo = t.purchasePrice
+      ? `${formatMoney(t.purchasePrice * (t.quantity || 1), t.currency)} nákup`
+      : 'bez nákupní ceny';
+    return `
+      <div class="mkt-match-row ${m.isPerfect ? 'perfect-match' : ''}" data-ticket-id="${t.id}">
+        <div class="mkt-match-row-info">
+          <div class="mkt-match-row-title">${escapeHtml(t.eventName || '—')}</div>
+          <div class="mkt-match-row-meta">
+            <span>📅 ${t.eventDate ? formatDate(t.eventDate) : '—'}</span>
+            <span>🎫 Sekce ${escapeHtml(t.section || '—')}${t.row ? ' / řada '+escapeHtml(t.row) : ''}</span>
+            <span>👤 ${escapeHtml(t.account || '—')}</span>
+            <span>💰 ${purchaseInfo}</span>
+            ${m.reasons && m.reasons.length ? `<span style="color:var(--purple)">✓ shoda: ${m.reasons.join(', ')}</span>` : ''}
+          </div>
+        </div>
+        <div class="mkt-match-row-status">${statusPill}</div>
+        <div class="mkt-match-row-action">→</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Single delegated click handler — survives filter re-renders.
+function _onMktMatchListClick(e) {
+  const row = e.target.closest('.mkt-match-row');
+  if (!row) return;
+  // Skip clicks inside the filter input.
+  if (e.target.id === 'mktMatchFilter') return;
+  applyMktMatchToTicket(row.dataset.ticketId);
+}
+
+// User picked which ticket the scraped sale/listing belongs to. Patch that
+// ticket with the scraped data — preserving everything that's already set
+// (notably purchasePrice, account) and overwriting/adding what's relevant.
+async function applyMktMatchToTicket(ticketId) {
+  const ctx = state._mktPickerCtx;
+  if (!ctx) return;
+  const existing = state.db.tickets.find(t => t.id === ticketId);
+  if (!existing) {
+    toast('Vstupenka už neexistuje, refresh', 'error');
+    return;
+  }
+
+  const { data, platform, partial } = ctx;
+
+  // Build patch — only set fields we have data for, never null/empty an
+  // existing field. The point is to ENRICH the existing ticket, not overwrite.
+  const patch = { ...existing };
+
+  // Status: bump to 'listed' or 'sold' depending on what we scraped.
+  // Don't downgrade — if ticket was already 'delivered', leave it alone.
+  if (data.pageType === 'sale' && existing.status !== 'delivered' && existing.status !== 'cancelled') {
+    patch.status = 'sold';
+    if (!patch.saleDate) patch.saleDate = new Date().toISOString().slice(0,10);
+  } else if (data.pageType === 'listing' && existing.status === 'available') {
+    patch.status = 'listed';
+  }
+
+  // Sale price: only set if missing OR scraped page has a price.
+  // We always store per-ks, so divide by qty when source was a total.
+  if (data.salePrice) {
+    const perKs = data.quantity ? data.salePrice / data.quantity : data.salePrice;
+    patch.salePrice = perKs;
+    if (data.saleCurrency) patch.saleCurrency = data.saleCurrency;
+  }
+
+  // Sale platform: track WHERE it sold (matters for payout rules).
+  if (data.pageType === 'sale' || data.pageType === 'listing') {
+    patch.platform = platform;
+  }
+
+  // External IDs: merge into existing object (don't overwrite other ID types).
+  patch.externalIds = { ...(existing.externalIds || {}) };
+  if (data.saleId) {
+    patch.externalIds[platform === 'Stubhub' ? 'stubhubOrderId' : 'viagogoOrderId'] = data.saleId;
+  }
+  if (data.listingId) {
+    patch.externalIds[platform === 'Stubhub' ? 'stubhubListingId' : 'viagogoListingId'] = data.listingId;
+  }
+
+  // Append a note breadcrumb (don't replace existing notes).
+  const stamp = `[${new Date().toISOString().slice(0,16).replace('T',' ')}] Přiřazeno k ${platform} ${data.pageType === 'sale' ? 'sale' : 'listing'}${data.saleId ? ' #'+data.saleId : ''}${data.listingId ? ' (listing '+data.listingId+')' : ''}`;
+  patch.notes = existing.notes ? existing.notes + '\n' + stamp : stamp;
+
+  try {
+    await window.api.upsertTicket(patch);
+    await refreshDb();
+    closeModal('modalMktMatch');
+    state._mktPickerCtx = null;
+    const summary = `${existing.eventName} → ${patch.status === 'sold' ? 'Prodáno' : 'Zalistováno'}`;
+    toast('✓ Vstupenka aktualizována: ' + summary, 'success', 4000);
+    // Switch to dashboard so user sees the updated ticket.
+    switchView('dashboard');
+  } catch (e) {
+    console.error('Match apply failed:', e);
+    toast('Chyba při ukládání: ' + (e.message || e), 'error', 5000);
+  }
+}
+
+// "Vytvořit novou vstupenku místo přiřazení" — fallback inside picker modal.
+function createNewFromMktPicker() {
+  const ctx = state._mktPickerCtx;
+  if (!ctx) return;
+  closeModal('modalMktMatch');
+  state._mktPickerCtx = null;
+  openAddModalFromScraped(ctx.data, ctx.platform);
 }
 
 // ============ MEMBERSHIPS ============
@@ -2947,6 +4430,17 @@ function renderMailboxesPage() {
 
   tbody.innerHTML = list.map(mb => {
     const checked = state.selectedMailboxIds.has(mb.id) ? 'checked' : '';
+    // Password cell — masked dots that the user reveals on click. Same UX
+    // pattern as the SIM-card password field elsewhere in the app.
+    const hasPw = !!(mb.password && mb.password.length > 0);
+    const pwCell = hasPw
+      ? `<td class="pw-cell-wrap">
+           <span class="pw-cell" data-pw="${escapeHtml(mb.password)}" data-id="${mb.id}" title="Klikni pro zobrazení">••••••••</span>
+           <button class="copy-btn" data-copy="${escapeHtml(mb.password)}" title="Kopírovat heslo">
+             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+           </button>
+         </td>`
+      : `<td class="pw-cell-wrap"><span style="color:var(--text-tertiary);font-size:11px;">—</span></td>`;
     return `
       <tr data-id="${mb.id}">
         <td class="col-check"><input type="checkbox" class="mb-row-check" data-id="${mb.id}" ${checked}></td>
@@ -2958,6 +4452,7 @@ function renderMailboxesPage() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           </button>` : ''}
         </td>
+        ${pwCell}
         <td class="col-actions">
           <div class="actions-cell">
             <button class="btn btn-dark btn-sm" data-mb-action="edit" data-id="${mb.id}">Edit</button>
@@ -3010,6 +4505,26 @@ function renderMailboxesPage() {
     });
   });
 
+  // Password cells — click to reveal, click again to hide. Plain dots ⇄ real
+  // password as monospace text. Stored in `data-pw` so we don't keep it in
+  // closures (rerenders blow them away anyway).
+  tbody.querySelectorAll('.pw-cell').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const real = cell.dataset.pw || '';
+      const isRevealed = cell.classList.contains('revealed');
+      if (isRevealed) {
+        cell.textContent = '••••••••';
+        cell.classList.remove('revealed');
+        cell.title = 'Klikni pro zobrazení';
+      } else {
+        cell.textContent = real;
+        cell.classList.add('revealed');
+        cell.title = 'Klikni pro skrytí';
+      }
+    });
+  });
+
   renderMbBulkActions();
 }
 
@@ -3032,6 +4547,12 @@ function openMailboxModal(mb = null) {
   $('#mbfFirstName').value = mb?.firstName || '';
   $('#mbfLastName').value = mb?.lastName || '';
   $('#mbfEmail').value = mb?.email || '';
+  // Password is stored plaintext alongside the rest of the mailbox record.
+  // It's a local-only field (never synced to email provider) — purely for the
+  // user's own reference so they can copy/paste credentials when needed.
+  $('#mbfPassword').value = mb?.password || '';
+  // Always reset visibility to hidden when reopening.
+  $('#mbfPassword').type = 'password';
   $('#mbfNotes').value = mb?.notes || '';
   $('#modalMailbox').classList.add('active');
   $('#mbfFirstName').focus();
@@ -3050,6 +4571,9 @@ async function saveMailbox() {
     firstName,
     lastName,
     email,
+    // Save password as-is (no encryption — same trust model as the rest of the
+    // local DB. Cloud sync sends it encrypted in transit and at rest server-side.)
+    password: $('#mbfPassword').value,
     notes: $('#mbfNotes').value.trim()
   };
 
@@ -3480,18 +5004,33 @@ function findPayoutRule(platform) {
 function calculatePayoutDate(ticket) {
   const rule = findPayoutRule(ticket.platform);
   if (!rule) return null;
-  
+
   let baseDateStr;
-  if (rule.baseDate === 'eventDate') baseDateStr = ticket.eventDate;
-  else if (rule.baseDate === 'saleDate') baseDateStr = ticket.saleDate;
-  else if (rule.baseDate === 'deliveryDate') {
-    // If ticket is delivered, use delivery date (= when status became "delivered" → updated)
-    // For simplicity, use saleDate + estimated delivery buffer (1 day)
-    // If ticket has deliveryDate field, use it
-    baseDateStr = ticket.deliveryDate || ticket.saleDate;
+  if (rule.baseDate === 'eventDate') {
+    baseDateStr = ticket.eventDate;
+  } else if (rule.baseDate === 'saleDate') {
+    baseDateStr = ticket.saleDate;
+  } else if (rule.baseDate === 'deliveryDate') {
+    // "Po doručení" pravidlo se NESMÍ aktivovat dokud ticket NENÍ doručený.
+    // Dřív kód padal na ticket.saleDate jako fallback, takže prodaný-ale-nedoručený
+    // ticket se choval jako by už byl doručený a počítal výplatu od saleDate.
+    // Teď: bez status=delivered nevracíme nic → sloupec ZBÝVÁ ukáže "—" a
+    // STAV VÝPLATY se chová neutrálně (žádné falešné "po termínu").
+    if (ticket.status !== 'delivered') return null;
+    // Použij timestamp kdy bylo "Doručeno" potvrzeno (deliveredAt nastavuje
+    // markDelivered v ISO formátu); pokud chybí (starší ticket před zavedením
+    // pole), fallbackuj na saleDate aby starý záznam stále něco ukazoval.
+    if (ticket.deliveryDate) {
+      baseDateStr = ticket.deliveryDate;
+    } else if (ticket.deliveredAt) {
+      baseDateStr = String(ticket.deliveredAt).slice(0, 10);
+    } else {
+      baseDateStr = ticket.saleDate;
+    }
+  } else {
+    baseDateStr = ticket.eventDate || ticket.saleDate;
   }
-  else baseDateStr = ticket.eventDate || ticket.saleDate;
-  
+
   if (!baseDateStr) return null;
   const d = new Date(baseDateStr);
   if (isNaN(d)) return null;
@@ -3642,6 +5181,12 @@ function renderPayoutsPage() {
     } else if (p.expectedDate) {
       payoutStatusCell = '<span class="status-pill" style="background:rgba(167, 139, 250, 0.15);color:#c4b5fd;border:1px solid rgba(167, 139, 250, 0.35)">⏳ Čeká</span>';
       actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
+    } else if (p.rule && p.rule.baseDate === 'deliveryDate' && t.status !== 'delivered') {
+      // Pravidlo "po doručení" existuje, ale ticket ještě není doručený zákazníkovi.
+      // Jasný hint co s tím má uživatel udělat — nezobrazujeme ani "Po termínu" ani
+      // "Neznámé pravidlo" (oboje by bylo zavádějící).
+      payoutStatusCell = '<span class="status-pill" style="background:rgba(251, 191, 36, 0.12);color:#fbbf24;border:1px solid rgba(251, 191, 36, 0.35)" title="Pravidlo se aktivuje až po označení \'Doručeno\'">📦 Čeká na doručení</span>';
+      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
     } else {
       payoutStatusCell = '<span class="status-pill status-cancelled">? Neznámé pravidlo</span>';
       actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
@@ -3661,7 +5206,7 @@ function renderPayoutsPage() {
         <td>${escapeHtml(t.platform || '—')}${ruleInfo}</td>
         <td>${status}</td>
         <td>${p.expectedDate ? formatDate(p.expectedDate) : '—'}</td>
-        <td>${p.isPaid ? '—' : `<span class="days-badge ${urgency.class}">${urgency.label}</span>`}</td>
+        <td>${(p.isPaid || !p.expectedDate) ? '—' : `<span class="days-badge ${urgency.class}">${urgency.label}</span>`}</td>
         <td>${payoutStatusCell}</td>
         <td class="col-actions"><div class="actions-cell">${actionCell}</div></td>
       </tr>
@@ -7115,7 +8660,28 @@ async function changeDbPath() {
 function setupEventListeners() {
   // Navigation
   $$('.nav-item[data-view]').forEach(btn => {
-    btn.addEventListener('click', () => switchView(btn.dataset.view));
+    btn.addEventListener('click', (e) => {
+      // The "↗" badge on Stubhub/Viagogo nav items is a click-target inside
+      // the button. If the user clicked it, open in system browser INSTEAD
+      // of switching to the webview (intentional escape hatch).
+      const ext = e.target.closest('[data-mkt-external]');
+      if (ext) {
+        e.stopPropagation();
+        const url = ext.dataset.mktExternal;
+        if (window.api?.openExternal) window.api.openExternal(url);
+        else window.open(url, '_blank');
+        return;
+      }
+      switchView(btn.dataset.view);
+    });
+  });
+
+  // Marketplace toolbar buttons (back / forward / reload / home / external).
+  // Delegated listener so it works even if buttons are added later.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mkt-btn[data-mkt-action]');
+    if (!btn) return;
+    handleMarketplaceAction(btn.dataset.mktAction, btn.dataset.mkt, btn.dataset.mktExternal);
   });
   
   $('#navSync').addEventListener('click', syncNow);
@@ -7347,6 +8913,26 @@ function setupEventListeners() {
   $('#bulkEditField')?.addEventListener('change', onBulkEditFieldChange);
   $('#btnBulkEditApply')?.addEventListener('click', applyBulkEdit);
 
+  // Marketplace match picker — "Vytvořit novou" fallback button.
+  $('#btnMktMatchNew')?.addEventListener('click', createNewFromMktPicker);
+
+  // Cleanup picker state when modal closes (X, backdrop, Cancel button).
+  // Both the match picker and the item picker share #modalMktMatch — we need
+  // to clear both contexts and restore "+ Vytvořit novou" button visibility
+  // (it's hidden during item picker mode). MutationObserver is the cleanest
+  // way to react to the .active class being removed.
+  const mktModal = document.getElementById('modalMktMatch');
+  if (mktModal) {
+    new MutationObserver(() => {
+      if (!mktModal.classList.contains('active')) {
+        state._mktPickerCtx = null;
+        state._mktItemPickerCtx = null;
+        const newBtn = $('#btnMktMatchNew');
+        if (newBtn) newBtn.style.display = '';
+      }
+    }).observe(mktModal, { attributes: true, attributeFilter: ['class'] });
+  }
+
   // PAYOUTS bulk actions: header checkbox + 3 action buttons.
   $('#pSelectAll')?.addEventListener('change', (e) => {
     const visible = getFilteredPayouts();
@@ -7424,6 +9010,14 @@ function setupEventListeners() {
   // MAILBOXES
   $('#btnAddMailbox')?.addEventListener('click', () => openMailboxModal());
   $('#btnSaveMailbox')?.addEventListener('click', saveMailbox);
+
+  // Eye-toggle inside the mailbox modal — flips input type between
+  // 'password' and 'text' so the user can verify what they typed.
+  $('#mbfPasswordToggle')?.addEventListener('click', () => {
+    const input = $('#mbfPassword');
+    if (!input) return;
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
   $('#mbFilterSearch')?.addEventListener('input', (e) => {
     state.mailboxFilters.search = e.target.value;
     saveUiPrefs();
@@ -8030,4 +9624,21 @@ function setupAutoUpdater() {
 document.addEventListener('DOMContentLoaded', () => {
   init();
   setupAutoUpdater();
+  // Watch all 6 bulk action bars — when ANY of them becomes visible
+  // (display != 'none'), set body.bulk-bar-visible so .main gets bottom
+  // padding and the fixed bar doesn't cover the last row.
+  const bulkBarIds = ['bulkActions','eBulkActions','pBulkActions','mBulkActions','mbBulkActions','scBulkActions'];
+  const refreshBulkBodyClass = () => {
+    const anyVisible = bulkBarIds.some(id => {
+      const el = document.getElementById(id);
+      return el && el.style.display && el.style.display !== 'none';
+    });
+    document.body.classList.toggle('bulk-bar-visible', anyVisible);
+  };
+  bulkBarIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new MutationObserver(refreshBulkBodyClass).observe(el, { attributes: true, attributeFilter: ['style'] });
+  });
+  refreshBulkBodyClass();
 });
