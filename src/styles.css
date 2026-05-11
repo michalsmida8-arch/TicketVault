@@ -2221,6 +2221,55 @@ body.bulk-bar-visible .main {
   animation: none;
 }
 
+/* PAST EVENT — event already happened but ticket isn't resolved (still
+   listed/available, or sold-but-not-delivered). This is the loudest visual
+   alert: stronger red tint than row-urgent-deliver, plus a solid left border
+   accent so the row stands out even on a packed table. Single intensity in
+   both themes — past-event is rare enough that we want it screaming. */
+.tickets-table tbody tr.row-past-event {
+  background: rgba(var(--red-rgb), 0.10);
+  box-shadow: inset 4px 0 0 var(--red);
+  position: relative;
+}
+.tickets-table tbody tr.row-past-event:hover {
+  background: rgba(var(--red-rgb), 0.18);
+}
+.tickets-table tbody tr.row-past-event.animated {
+  animation: row-pulse-past 1.6s ease-in-out infinite;
+}
+.tickets-table tbody tr.row-past-event.animated:hover {
+  animation: none;
+}
+[data-theme="light"] .tickets-table tbody tr.row-past-event {
+  background: rgba(var(--red-rgb), 0.07);
+}
+[data-theme="light"] .tickets-table tbody tr.row-past-event:hover {
+  background: rgba(var(--red-rgb), 0.13);
+}
+@keyframes row-pulse-past {
+  0%, 100% { background-color: rgba(var(--red-rgb), 0.10); }
+  50%      { background-color: rgba(var(--red-rgb), 0.32); }
+}
+
+/* Past-event urgent chip — solid red background instead of the lighter
+   yellow/red tint used for upcoming events. Eye-catching but not overwhelming
+   since it sits inside an already-tinted row. */
+.urgent-chip.urgent-chip-past {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  font-weight: 600;
+}
+.urgent-chip.urgent-chip-past .urgent-chip-text {
+  color: #fff;
+}
+.urgent-chip.urgent-chip-past .urgent-mute-btn {
+  color: rgba(255, 255, 255, 0.8);
+}
+.urgent-chip.urgent-chip-past .urgent-mute-btn:hover {
+  color: #fff;
+}
+
 @keyframes row-pulse-yellow {
   0%, 100% { background-color: rgba(var(--yellow-rgb), 0.04); }
   50% { background-color: rgba(var(--yellow-rgb), 0.22); }
@@ -2448,6 +2497,14 @@ body.bulk-bar-visible .main {
 .todo-summary-card.not-listed .todo-summary-value { color: var(--blue); }
 .todo-summary-card.urgent-sell .todo-summary-value { color: var(--yellow); }
 .todo-summary-card.urgent-deliver .todo-summary-value { color: var(--red); }
+/* Past-event summary card — bold red, slight background tint to grab the eye
+   even before the user reads the section. */
+.todo-summary-card.past-event {
+  background: rgba(var(--red-rgb), 0.08);
+  border-color: rgba(var(--red-rgb), 0.35);
+}
+.todo-summary-card.past-event .todo-summary-value { color: var(--red); }
+.todo-summary-card.past-event .todo-summary-label { color: var(--red); font-weight: 600; }
 
 .todo-sections {
   display: flex;
@@ -2493,6 +2550,20 @@ body.bulk-bar-visible .main {
 .todo-section.list .todo-section-icon {
   background: rgba(59, 130, 246, 0.15);
   color: var(--blue);
+}
+
+/* Past-event section — solid red icon background and a subtle red border tint
+   on the whole card so the section reads as the most urgent on the page. */
+.todo-section.past {
+  border-color: rgba(var(--red-rgb), 0.4);
+  box-shadow: 0 0 0 1px rgba(var(--red-rgb), 0.15);
+}
+.todo-section.past .todo-section-icon {
+  background: var(--red);
+  color: #fff;
+}
+.todo-section.past .todo-section-title {
+  color: var(--red);
 }
 
 .todo-section-title {

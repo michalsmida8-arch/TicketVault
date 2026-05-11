@@ -1712,16 +1712,31 @@ function updateMutedRowUI() {
 function getTicketUrgency(t) {
   if (!t || !t.eventDate) return null;
   const days = daysUntil(t.eventDate);
-  if (days === null || days < 0) return null;  // past events ignored
-  
+  if (days === null) return null;
+
   const cfg = getAlertsConfig();
   const isMuted = cfg.mutedTicketIds.includes(t.id);
-  
-  // Sold (ale ne doručeno) a event do N dní → "potřebuje doručit"
+
+  // ── Past events ────────────────────────────────────────────────────────
+  // Event already happened but ticket isn't in a final state (sold+delivered).
+  // This is the loudest alert — money is potentially lost (unsold ticket =
+  // wasted inventory; sold-but-not-delivered = customer didn't get the ticket
+  // and is likely opening a chargeback/dispute right now).
+  if (days < 0) {
+    // Tickets in a "done" state (delivered or refunded) are fine — event is
+    // just history at that point, no action needed.
+    if (t.status === 'delivered' || t.status === 'refunded') return null;
+    // Anything else (available/listed/sold) past the event date = real problem.
+    const type = t.status === 'sold' ? 'past-undelivered' : 'past-unsold';
+    return { type, days, level: 'critical', muted: isMuted };
+  }
+
+  // ── Upcoming events ────────────────────────────────────────────────────
+  // Sold but not yet delivered, event soon → "needs delivery"
   if (t.status === 'sold' && days <= cfg.undeliveredDays) {
     return { type: 'undelivered', days, level: 'critical', muted: isMuted };
   }
-  // Dostupné nebo listed a event do N dní → "potřebuje prodat"
+  // Still available/listed, event soon → "needs sale"
   if ((t.status === 'available' || t.status === 'listed') && days <= cfg.unsoldDays) {
     return { type: 'unsold', days, level: 'warning', muted: isMuted };
   }
@@ -1748,14 +1763,17 @@ window.debugUrgency = debugUrgencyStatus;
 
 function countUrgentTickets() {
   const all = state.db.tickets || [];
-  let unsold = 0, undelivered = 0;
+  let unsold = 0, undelivered = 0, past = 0;
   for (const t of all) {
     const u = getTicketUrgency(t);
     if (!u) continue;
-    if (u.type === 'unsold') unsold++;
+    // Past-event types count as their own bucket — counted separately so we
+    // can highlight them more prominently in the K-dořešení tab if needed.
+    if (u.type === 'past-unsold' || u.type === 'past-undelivered') past++;
+    else if (u.type === 'unsold') unsold++;
     else if (u.type === 'undelivered') undelivered++;
   }
-  return { unsold, undelivered, total: unsold + undelivered };
+  return { unsold, undelivered, past, total: unsold + undelivered + past };
 }
 
 function updateSidebarBadge() {
@@ -1813,8 +1831,18 @@ function render() {
   if (urgentCounts.total > 0) {
     console.log('[URGENT] Detected:', urgentCounts);
   }
-  if ($('#view-stats').classList.contains('active')) renderStatsPage();
-  if ($('#view-todo').classList.contains('active')) renderTodoPage();
+  // Re-render the currently-active detail view. Otherwise mutations made
+  // from within the Payouts/Stats/Todo/Expenses/etc. screens (e.g. "Označit
+  // přijaté") only refresh the global state, not the actively visible table —
+  // so the user has to navigate away and back to see the change.
+  if ($('#view-stats')?.classList.contains('active')) renderStatsPage();
+  if ($('#view-todo')?.classList.contains('active')) renderTodoPage();
+  if ($('#view-payouts')?.classList.contains('active')) renderPayoutsPage();
+  if ($('#view-expenses')?.classList.contains('active')) renderExpensesPage?.();
+  if ($('#view-inbox')?.classList.contains('active')) renderInboxPage?.();
+  if ($('#view-memberships')?.classList.contains('active')) renderMembershipsPage?.();
+  if ($('#view-mailboxes')?.classList.contains('active')) renderMailboxesPage?.();
+  if ($('#view-simcards')?.classList.contains('active')) renderSimcardsPage?.();
 }
 
 function getFilteredTickets() {
@@ -1962,26 +1990,47 @@ function renderTickets() {
     
     // Pulsing dot + human-readable text + mute button
     let urgencyBadge = '';
+    let rowExtraClass = '';
     if (urgency) {
-      const daysText = urgency.days === 0
-        ? 'dnes je event'
-        : urgency.days === 1
-          ? 'zítra je event'
-          : `${urgency.days} dny do eventu`;
-      const action = urgency.type === 'undelivered' ? 'Doručit' : 'Prodat';
-      const dotClass = urgency.type === 'undelivered' ? 'urgent-dot-red' : 'urgent-dot-yellow';
+      // Past-event types use a clearer label since "−3 dny do eventu" reads weird.
+      let daysText;
+      if (urgency.type === 'past-unsold' || urgency.type === 'past-undelivered') {
+        const ago = Math.abs(urgency.days);
+        const action = urgency.type === 'past-undelivered' ? 'NEDORUČENO' : 'NEPRODÁNO';
+        daysText = ago === 0
+          ? `${action} · dnes byl event`
+          : ago === 1
+            ? `${action} · včera byl event`
+            : `${action} · event byl před ${ago} dny`;
+      } else {
+        daysText = urgency.days === 0
+          ? 'dnes je event'
+          : urgency.days === 1
+            ? 'zítra je event'
+            : `${urgency.days} dny do eventu`;
+      }
+      const action = (urgency.type === 'undelivered' || urgency.type === 'past-undelivered') ? 'Doručit' : 'Prodat';
+      // Past events get the red dot + a darker red chip variant. Add row class
+      // so the entire <tr> can show a subtle red background for visibility.
+      const isPast = urgency.type === 'past-unsold' || urgency.type === 'past-undelivered';
+      const dotClass = (urgency.type === 'undelivered' || isPast) ? 'urgent-dot-red' : 'urgent-dot-yellow';
+      const chipColorClass = isPast
+        ? 'urgent-chip-past'
+        : (urgency.type === 'undelivered' ? 'urgent-chip-red' : 'urgent-chip-yellow');
       const chipAnimClass = cfg.animations && !urgency.muted ? ' animated' : '';
       const chipMutedClass = urgency.muted ? ' muted' : '';
       const muteBtn = urgency.muted
         ? `<button class="urgent-mute-btn" data-unmute-id="${t.id}" title="Obnovit upozornění">🔔</button>`
         : `<button class="urgent-mute-btn" data-mute-id="${t.id}" title="Ztlumit upozornění pro tuto vstupenku">🔕</button>`;
       urgencyBadge = `
-        <span class="urgent-chip ${urgency.type === 'undelivered' ? 'urgent-chip-red' : 'urgent-chip-yellow'}${chipAnimClass}${chipMutedClass}" 
+        <span class="urgent-chip ${chipColorClass}${chipAnimClass}${chipMutedClass}"
               title="${action} — ${daysText}${urgency.muted ? ' (ztlumené)' : ''}">
           <span class="urgent-dot ${dotClass}${cfg.animations && !urgency.muted ? ' animated' : ''}"></span>
           <span class="urgent-chip-text">${daysText}</span>
           ${muteBtn}
         </span>`;
+      // Mark the row visually if event is past and ticket isn't resolved.
+      if (isPast && !urgency.muted) rowExtraClass = ' row-past-event';
     }
     
     // External IDs link (small icon next to event name)
@@ -1994,7 +2043,7 @@ function renderTickets() {
     }
     
     return `
-      <tr data-id="${t.id}" class="${rowClass}">
+      <tr data-id="${t.id}" class="${rowClass}${rowExtraClass}">
         <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" ${checked}></td>
         <td>
           <div class="event-cell">
@@ -2274,11 +2323,22 @@ function collectTodoItems() {
   const notListed = [];
   const unsold = [];
   const undelivered = [];
+  const pastEvent = [];
 
   for (const t of all) {
     if (cfg.mutedTicketIds.includes(t.id)) continue;
 
     const days = t.eventDate ? daysUntil(t.eventDate) : null;
+
+    // PAST EVENT — date already gone but ticket isn't in a final state
+    // (delivered/refunded). Highest priority bucket. Sort by how recently the
+    // event passed, most recent first.
+    if (days !== null && days < 0) {
+      if (t.status !== 'delivered' && t.status !== 'refunded') {
+        pastEvent.push({ ticket: t, days });
+      }
+      continue;
+    }
 
     // "K zalistování": status=available, no day threshold. Skip past events.
     if (cfg.todoShowNotListed &&
@@ -2306,8 +2366,10 @@ function collectTodoItems() {
   notListed.sort((a, b) => a.days - b.days);
   unsold.sort((a, b) => a.days - b.days);
   undelivered.sort((a, b) => a.days - b.days);
+  // Past events: sort by how recently the event was (smallest |days| first).
+  pastEvent.sort((a, b) => Math.abs(a.days) - Math.abs(b.days));
 
-  return { notListed, unsold, undelivered };
+  return { notListed, unsold, undelivered, pastEvent };
 }
 
 function getTodoUrgencyLevel(days) {
@@ -2330,6 +2392,12 @@ function renderTodoItem(item, kind) {
     level = 'low';
     daysNum = '●';
     daysLabel = 'KOUPENO';
+  } else if (kind === 'pastEvent') {
+    // Past event = always critical urgency. Show how many days AGO.
+    level = 'critical';
+    const ago = Math.abs(item.days);
+    daysNum = ago === 0 ? '!' : ago;
+    daysLabel = ago === 0 ? 'DNES' : ago === 1 ? 'VČERA' : 'DNÍ ZPĚT';
   } else {
     // Threshold depends on which action is pending: selling vs delivering.
     const threshold = kind === 'unsold' ? cfg.todoUnsoldDays : cfg.todoUndeliveredDays;
@@ -2365,6 +2433,15 @@ function renderTodoItem(item, kind) {
     primaryAction = `<button class="btn btn-success btn-sm" data-todo-action="sell" data-id="${t.id}">Prodat</button>`;
   } else if (kind === 'undelivered') {
     primaryAction = `<button class="btn btn-deliver btn-sm" data-todo-action="deliver" data-id="${t.id}">✓ Doručit</button>`;
+  } else if (kind === 'pastEvent') {
+    // For past events, the right action depends on current status: if sold but
+    // not delivered, prompt to deliver. Otherwise just open Edit so user can
+    // mark it refunded / delivered / whatever applies.
+    if (t.status === 'sold') {
+      primaryAction = `<button class="btn btn-deliver btn-sm" data-todo-action="deliver" data-id="${t.id}">✓ Doručit</button>`;
+    } else {
+      primaryAction = `<button class="btn btn-dark btn-sm" data-todo-action="edit" data-id="${t.id}">Vyřešit</button>`;
+    }
   } else { // notListed
     // Quick action: mark as Zalistováno (status=listed) directly.
     // Opens sell/listing flow — actually just flips status in one click.
@@ -2391,8 +2468,8 @@ function renderTodoItem(item, kind) {
 }
 
 function renderTodoPage() {
-  const { notListed, unsold, undelivered } = collectTodoItems();
-  const total = notListed.length + unsold.length + undelivered.length;
+  const { notListed, unsold, undelivered, pastEvent } = collectTodoItems();
+  const total = notListed.length + unsold.length + undelivered.length + pastEvent.length;
   const cfg = getAlertsConfig();
 
   // Summary cards — 4 mini cards on wider screens, wraps on narrow.
@@ -2403,6 +2480,11 @@ function renderTodoPage() {
         <span class="todo-summary-label">CELKEM</span>
         <span class="todo-summary-value">${total}</span>
       </div>
+      ${pastEvent.length > 0 ? `
+      <div class="todo-summary-card past-event">
+        <span class="todo-summary-label">PO TERMÍNU</span>
+        <span class="todo-summary-value">${pastEvent.length}</span>
+      </div>` : ''}
       <div class="todo-summary-card not-listed">
         <span class="todo-summary-label">K ZALISTOVÁNÍ</span>
         <span class="todo-summary-value">${notListed.length}</span>
@@ -2448,6 +2530,32 @@ function renderTodoPage() {
   }
 
   let html = '';
+
+  // Section 0: Po termínu (PAST EVENT) — highest priority. Always shown when
+  // any exist, regardless of cfg.todoShow* toggles, because it's a real loss
+  // signal: ticket was bought, event happened, money still tied up.
+  if (pastEvent.length > 0) {
+    html += `
+      <div class="todo-section past">
+        <div class="todo-section-header">
+          <div class="todo-section-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="todo-section-title">Po termínu eventu</div>
+            <div class="todo-section-hint">Event už proběhl, ale ticket není uzavřený</div>
+          </div>
+          <span class="todo-section-count">${pastEvent.length}</span>
+        </div>
+        <div class="todo-list">
+          ${pastEvent.map(i => renderTodoItem(i, 'pastEvent')).join('')}
+        </div>
+      </div>
+    `;
+  }
 
   // Section 1: K zalistování (Koupeno, not yet Listed)
   if (cfg.todoShowNotListed && notListed.length > 0) {
@@ -2555,8 +2663,8 @@ async function markAsListed(id) {
 function updateTodoBadge() {
   const badge = $('#navTodoBadge');
   if (!badge) return;
-  const { notListed, unsold, undelivered } = collectTodoItems();
-  const total = notListed.length + unsold.length + undelivered.length;
+  const { notListed, unsold, undelivered, pastEvent } = collectTodoItems();
+  const total = notListed.length + unsold.length + undelivered.length + pastEvent.length;
   if (total > 0) {
     badge.textContent = total;
     badge.style.display = '';
