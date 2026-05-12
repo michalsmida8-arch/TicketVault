@@ -1124,7 +1124,7 @@ body.marketplace-active .main {
   transition: background 0.1s;
 }
 
-.tickets-table tbody tr:hover {
+.tickets-table tbody tr:hover td {
   background: var(--bg-hover);
 }
 
@@ -1223,18 +1223,30 @@ body.marketplace-active .main {
   border: 1px solid rgba(var(--red-rgb), 0.3);
 }
 
-/* Delivered row highlight - subtle cyan tint */
+/* Delivered row highlight — subtle green tint signaling "resolved / done".
+   Applied consistently on every row where status === 'delivered'.
+   IMPORTANT: background goes on <td>, not <tr>, because <tr> backgrounds
+   can be unreliable depending on border-collapse and browser rendering.
+   The proužek (left bar) stays on tr via box-shadow which renders fine. */
 .tickets-table tbody tr.row-delivered {
-  background: rgba(6, 182, 212, 0.06);
-  border-left: 3px solid #06b6d4;
+  box-shadow: inset 4px 0 0 var(--green);
 }
-
-.tickets-table tbody tr.row-delivered:hover {
-  background: rgba(6, 182, 212, 0.12);
+.tickets-table tbody tr.row-delivered td {
+  background: rgba(var(--green-rgb), 0.08);
 }
-
+.tickets-table tbody tr.row-delivered:hover td {
+  background: rgba(var(--green-rgb), 0.15);
+}
 .tickets-table tbody tr.row-delivered td:first-child {
   border-left: none;
+}
+
+/* Light theme: even softer green tint so it blends with the cream palette */
+[data-theme="light"] .tickets-table tbody tr.row-delivered td {
+  background: rgba(var(--green-rgb), 0.07);
+}
+[data-theme="light"] .tickets-table tbody tr.row-delivered:hover td {
+  background: rgba(var(--green-rgb), 0.14);
 }
 
 .roi-pill {
@@ -2299,46 +2311,48 @@ body.bulk-bar-visible .main {
   font-weight: 500;
 }
 
-/* Neprodané a event do 7 dní - jemné žluté pozadí */
-.tickets-table tbody tr.row-urgent-sell {
+/* Neprodané a event do 7 dní - jemné žluté pozadí.
+   Backgrounds go on <td> so they render reliably across the full row width;
+   <tr> backgrounds get clipped or skipped depending on border-collapse. */
+.tickets-table tbody tr.row-urgent-sell td {
   background: rgba(var(--yellow-rgb), 0.04);
 }
-.tickets-table tbody tr.row-urgent-sell:hover {
+.tickets-table tbody tr.row-urgent-sell:hover td {
   background: rgba(var(--yellow-rgb), 0.10);
 }
-.tickets-table tbody tr.row-urgent-sell.animated {
+.tickets-table tbody tr.row-urgent-sell.animated td {
   animation: row-pulse-yellow 2.8s ease-in-out infinite;
 }
 
 /* Prodané ale neodeslané a event do 5 dní - jemnější červené pozadí */
-.tickets-table tbody tr.row-urgent-deliver {
+.tickets-table tbody tr.row-urgent-deliver td {
   background: rgba(var(--red-rgb), 0.05);
 }
-.tickets-table tbody tr.row-urgent-deliver:hover {
+.tickets-table tbody tr.row-urgent-deliver:hover td {
   background: rgba(var(--red-rgb), 0.11);
 }
-.tickets-table tbody tr.row-urgent-deliver.animated {
+.tickets-table tbody tr.row-urgent-deliver.animated td {
   animation: row-pulse-red 2.0s ease-in-out infinite;
   animation-delay: -0.6s;
 }
 
 /* Light theme — saturated colors would make 0.04 too beige/salmon.
    Reduce opacity so tinting is subtle on white. */
-[data-theme="light"] .tickets-table tbody tr.row-urgent-sell {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-sell td {
   background: rgba(var(--yellow-rgb), 0.02);
 }
-[data-theme="light"] .tickets-table tbody tr.row-urgent-sell:hover {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-sell:hover td {
   background: rgba(var(--yellow-rgb), 0.05);
 }
-[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver td {
   background: rgba(var(--red-rgb), 0.025);
 }
-[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver:hover {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver:hover td {
   background: rgba(var(--red-rgb), 0.06);
 }
 
-.tickets-table tbody tr.row-urgent-sell.animated:hover,
-.tickets-table tbody tr.row-urgent-deliver.animated:hover {
+.tickets-table tbody tr.row-urgent-sell.animated:hover td,
+.tickets-table tbody tr.row-urgent-deliver.animated:hover td {
   animation: none;
 }
 
@@ -2348,23 +2362,25 @@ body.bulk-bar-visible .main {
    accent so the row stands out even on a packed table. Single intensity in
    both themes — past-event is rare enough that we want it screaming. */
 .tickets-table tbody tr.row-past-event {
-  background: rgba(var(--red-rgb), 0.10);
   box-shadow: inset 4px 0 0 var(--red);
   position: relative;
 }
-.tickets-table tbody tr.row-past-event:hover {
+.tickets-table tbody tr.row-past-event td {
+  background: rgba(var(--red-rgb), 0.10);
+}
+.tickets-table tbody tr.row-past-event:hover td {
   background: rgba(var(--red-rgb), 0.18);
 }
-.tickets-table tbody tr.row-past-event.animated {
+.tickets-table tbody tr.row-past-event.animated td {
   animation: row-pulse-past 1.6s ease-in-out infinite;
 }
-.tickets-table tbody tr.row-past-event.animated:hover {
+.tickets-table tbody tr.row-past-event.animated:hover td {
   animation: none;
 }
-[data-theme="light"] .tickets-table tbody tr.row-past-event {
+[data-theme="light"] .tickets-table tbody tr.row-past-event td {
   background: rgba(var(--red-rgb), 0.07);
 }
-[data-theme="light"] .tickets-table tbody tr.row-past-event:hover {
+[data-theme="light"] .tickets-table tbody tr.row-past-event:hover td {
   background: rgba(var(--red-rgb), 0.13);
 }
 @keyframes row-pulse-past {
@@ -5580,17 +5596,20 @@ body:not([data-theme="light"]) .stats-row .stat-card {
 }
 
 /* ── TABLES: zebra striping + warm hover ───────────────────── */
-body:not([data-theme="light"]) .tickets-table tbody tr:nth-child(even) {
+body:not([data-theme="light"]) .tickets-table tbody tr:nth-child(even) td {
   background: rgba(255, 255, 255, 0.012);
 }
-body:not([data-theme="light"]) .tickets-table tbody tr:hover {
+body:not([data-theme="light"]) .tickets-table tbody tr:hover td {
   background: rgba(var(--purple-rgb), 0.06);
+}
+body:not([data-theme="light"]) .tickets-table tbody tr:hover {
   box-shadow: inset 3px 0 0 rgba(var(--purple-rgb), 0.3);
 }
-/* Don't let zebra fight with urgent-row tinting */
-body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-sell:nth-child(even),
-body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-deliver:nth-child(even),
-body:not([data-theme="light"]) .tickets-table tbody tr.row-past-event:nth-child(even) {
+/* Don't let zebra fight with urgent-row tinting or delivered/resolved rows */
+body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-sell:nth-child(even) td,
+body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-deliver:nth-child(even) td,
+body:not([data-theme="light"]) .tickets-table tbody tr.row-past-event:nth-child(even) td,
+body:not([data-theme="light"]) .tickets-table tbody tr.row-delivered:nth-child(even) td {
   background: inherit;
 }
 

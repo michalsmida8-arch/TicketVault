@@ -1964,8 +1964,13 @@ function renderTickets() {
     const logo = t.logo 
       ? `<img src="${escapeHtml(t.logo)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${getEventInitials(t.eventName)}'">`
       : getEventInitials(t.eventName);
-    const isSold = t.status === 'sold';
-    const isDelivered = t.status === 'delivered';
+    // Normalize status — sometimes legacy or imported tickets have status
+    // values with trailing whitespace or different casing (e.g. "Delivered",
+    // "delivered ", "DELIVERED"). This caused only SOME delivered rows to
+    // get the green highlight while others stayed white.
+    const statusNorm = (t.status || '').toString().trim().toLowerCase();
+    const isSold = statusNorm === 'sold';
+    const isDelivered = statusNorm === 'delivered';
     const isSoldOrDelivered = isSold || isDelivered;
     
     // Status label (pretty Czech labels)
