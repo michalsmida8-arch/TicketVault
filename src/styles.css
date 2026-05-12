@@ -1923,6 +1923,127 @@ body.bulk-bar-visible .main {
   font-weight: 600;
 }
 
+/* Inline inputs inside inbox cards — minimal chrome, blends with surrounding
+   text but gives clear "editable" affordance on focus. Replaces the read-only
+   inbox-detail-value span when the user can override missing parser fields. */
+.inbox-detail-input {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+  /* margin-left to align with span fields */
+  margin-left: -6px;
+}
+.inbox-detail-input:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-hover);
+}
+.inbox-detail-input:focus {
+  border-color: var(--purple);
+  background: var(--bg-tertiary);
+  outline: none;
+}
+.inbox-detail-input::placeholder {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* When approve is clicked but a required field is blank, the input pulses
+   red briefly + keeps a red border until the user starts typing. */
+.field-required-missing {
+  border-color: var(--red) !important;
+  background: rgba(var(--red-rgb, 220, 38, 38), 0.06) !important;
+  animation: required-pulse 0.6s ease;
+}
+.editable-title.field-required-missing {
+  border-color: var(--red) !important;
+  background: rgba(var(--red-rgb, 220, 38, 38), 0.06) !important;
+}
+@keyframes required-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--red-rgb, 220, 38, 38), 0); }
+  50% { box-shadow: 0 0 0 4px rgba(var(--red-rgb, 220, 38, 38), 0.25); }
+}
+.inbox-detail-input.mono-input {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.inbox-detail-input.price-input {
+  color: var(--green-bright);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+.inbox-detail-input.currency-input {
+  flex: 0 0 70px;
+  font-weight: 500;
+  text-align: center;
+}
+.inbox-price-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Editable title (event name) inside inbox card — contenteditable span styled
+   to look like a normal heading until hovered/focused. Shows placeholder when
+   empty so the user knows to click it. */
+.editable-title {
+  outline: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 1.2em;
+}
+.editable-title:hover {
+  border-color: var(--border-subtle);
+}
+.editable-title:focus {
+  border-color: var(--purple);
+  background: var(--bg-tertiary);
+}
+.editable-title:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* "Pokročilá úprava" button — visually distinct from primary actions, pushed
+   to the right so it doesn't fight for attention with Approve / Dismiss. */
+.inbox-advanced-btn {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.inbox-advanced-btn:hover {
+  opacity: 1;
+}
+
+/* Section labels inside the advanced edit modal — small caps headings that
+   divide event / tickets / price / buyer sections. */
+.modal-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin: 16px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.modal-section-label:first-child {
+  margin-top: 0;
+}
+
 .inbox-match-box {
   background: rgba(var(--green-rgb), 0.08);
   border: 1px solid rgba(var(--green-rgb), 0.3);
@@ -5376,4 +5497,279 @@ html[data-privacy="1"] body.privacy-mode { visibility: visible; }
   background: rgba(107, 114, 128, 0.15);
   color: #9ca3af;
   border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+/* ============================================================
+   DARK THEME POLISH (v1.15.6)
+   ------------------------------------------------------------
+   Subtle depth, warmth, and luminescence applied only in dark
+   mode. All rules below are scoped with body:not([data-theme="light"])
+   so they don't affect the cream light theme.
+
+   Goals:
+   - Move away from "flat black" toward warm, depth-rich charcoal
+   - Cards lift off the page with subtle shadow + inset highlights
+   - Gold accents have a soft glow (luminous, not metallic flat)
+   - Hover states feel responsive (depth shift, not just color)
+   - Table rows have zebra striping for scannability
+   - Heroes / hero stat cards get a soft gold-tinted gradient
+   ============================================================ */
+
+/* ── PAGE BG: warm radial gradient instead of flat #0a0908 ───── */
+body:not([data-theme="light"]) .app {
+  background:
+    radial-gradient(ellipse 1200px 800px at top right, rgba(var(--purple-rgb), 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 800px 600px at bottom left,  rgba(var(--purple-rgb), 0.02) 0%, transparent 50%),
+    var(--bg-primary);
+}
+
+/* ── SIDEBAR: subtle vertical gradient + soft gold glow at top ── */
+body:not([data-theme="light"]) .sidebar {
+  background:
+    linear-gradient(to bottom,
+      rgba(var(--purple-rgb), 0.025) 0%,
+      transparent 35%,
+      transparent 100%
+    ),
+    var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.02);
+}
+
+/* ── STAT CARDS: lift off the page with depth ──────────────────── */
+body:not([data-theme="light"]) .stat-card {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.015) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.15) 100%
+    ),
+    var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset, /* top highlight */
+    0 4px 16px rgba(0, 0, 0, 0.25);          /* drop shadow */
+}
+body:not([data-theme="light"]) .stat-card:hover {
+  border-color: rgba(var(--purple-rgb), 0.3);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 6px 20px rgba(0, 0, 0, 0.35),
+    0 0 24px rgba(var(--purple-rgb), 0.08);   /* gold glow on hover */
+  transform: translateY(-1px);
+}
+body:not([data-theme="light"]) .stat-card::before {
+  /* The gold left bar gets a subtle glow */
+  box-shadow: 0 0 12px rgba(var(--purple-rgb), 0.35);
+  opacity: 0.85;
+}
+
+/* ── HERO STAT CARDS (Celkový profit etc.): warm gold tint ──── */
+body:not([data-theme="light"]) .stats-row .stat-card {
+  background:
+    linear-gradient(135deg,
+      rgba(var(--purple-rgb), 0.025) 0%,
+      transparent 70%
+    ),
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.015) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.15) 100%
+    ),
+    var(--bg-card);
+}
+
+/* ── TABLES: zebra striping + warm hover ───────────────────── */
+body:not([data-theme="light"]) .tickets-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.012);
+}
+body:not([data-theme="light"]) .tickets-table tbody tr:hover {
+  background: rgba(var(--purple-rgb), 0.06);
+  box-shadow: inset 3px 0 0 rgba(var(--purple-rgb), 0.3);
+}
+/* Don't let zebra fight with urgent-row tinting */
+body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-sell:nth-child(even),
+body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-deliver:nth-child(even),
+body:not([data-theme="light"]) .tickets-table tbody tr.row-past-event:nth-child(even) {
+  background: inherit;
+}
+
+body:not([data-theme="light"]) .tickets-table th {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-secondary);
+  border-bottom: 1px solid rgba(var(--purple-rgb), 0.15);
+}
+
+/* ── PRIMARY BUTTON: gold with luminescence ──────────────── */
+body:not([data-theme="light"]) .btn-primary {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.15) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.1) 100%
+    ),
+    var(--purple);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    0 2px 8px rgba(var(--purple-rgb), 0.25),
+    0 0 16px rgba(var(--purple-rgb), 0.15);
+}
+body:not([data-theme="light"]) .btn-primary:hover {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 4px 14px rgba(var(--purple-rgb), 0.4),
+    0 0 24px rgba(var(--purple-rgb), 0.25);
+}
+
+/* ── DARK BUTTON: subtle depth, no flat block ──────────────── */
+body:not([data-theme="light"]) .btn-dark {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-tertiary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+}
+body:not([data-theme="light"]) .btn-dark:hover {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      transparent 100%
+    ),
+    var(--bg-hover);
+  border-color: rgba(var(--purple-rgb), 0.25);
+}
+
+/* ── NAV ITEMS in sidebar: warmer active state ──────────────── */
+body:not([data-theme="light"]) .nav-item.active {
+  background:
+    linear-gradient(90deg,
+      rgba(var(--purple-rgb), 0.18) 0%,
+      rgba(var(--purple-rgb), 0.08) 100%
+    );
+  box-shadow:
+    inset 3px 0 0 var(--purple),
+    0 0 16px rgba(var(--purple-rgb), 0.12);
+}
+body:not([data-theme="light"]) .nav-item:hover:not(.active) {
+  background: rgba(var(--purple-rgb), 0.05);
+}
+
+/* ── INPUTS: subtle depth, gold focus ring ────────────────── */
+body:not([data-theme="light"]) input,
+body:not([data-theme="light"]) select,
+body:not([data-theme="light"]) textarea {
+  background:
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.15) 0%,
+      transparent 50%
+    ),
+    var(--bg-tertiary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+}
+body:not([data-theme="light"]) input:focus,
+body:not([data-theme="light"]) select:focus,
+body:not([data-theme="light"]) textarea:focus {
+  border-color: var(--purple);
+  box-shadow:
+    0 0 0 3px rgba(var(--purple-rgb), 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.02) inset;
+}
+
+/* ── CATEGORY FILTER PILLS at top of Dashboard ─────────────── */
+body:not([data-theme="light"]) .cat-chip {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-tertiary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  transition: all 0.2s;
+}
+body:not([data-theme="light"]) .cat-chip.active {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      transparent 100%
+    ),
+    var(--purple);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    0 0 16px rgba(var(--purple-rgb), 0.25);
+}
+
+/* ── MODALS: backdrop blur + card lift ──────────────────────── */
+body:not([data-theme="light"]) .modal {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.65);
+}
+body:not([data-theme="light"]) .modal-content {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-card);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 24px 48px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(var(--purple-rgb), 0.08);
+}
+
+/* ── SCROLLBAR: gold-tinted for dark mode ───────────────────── */
+body:not([data-theme="light"]) ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+body:not([data-theme="light"]) ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+body:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
+  background: rgba(var(--purple-rgb), 0.2);
+  border-radius: 5px;
+  border: 2px solid var(--bg-secondary);
+}
+body:not([data-theme="light"]) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--purple-rgb), 0.4);
+}
+
+/* ── CHARTS in Statistics: warmer grid lines, glow on data points ── */
+body:not([data-theme="light"]) .chart-card {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.012) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.12) 100%
+    ),
+    var(--bg-card);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.025) inset,
+    0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* ── STATUS PILLS (Doručeno / Zalistováno / Prodáno): subtle gloss ── */
+body:not([data-theme="light"]) .status-pill {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 50%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+/* ── CLOUD / ONLINE BADGES in sidebar header: subtle glow ──── */
+body:not([data-theme="light"]) .cloud-badge {
+  box-shadow: 0 0 12px rgba(var(--purple-rgb), 0.15);
+}
+body:not([data-theme="light"]) #statusBadge {
+  box-shadow: 0 0 12px rgba(var(--green-rgb), 0.2);
+}
+
+/* ── HERO SUB (z 33 prodaných lístků...): subtle italic flair ──── */
+body:not([data-theme="light"]) .hero-sub strong {
+  color: var(--purple-hover);
+  text-shadow: 0 0 8px rgba(var(--purple-rgb), 0.2);
 }

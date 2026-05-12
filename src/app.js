@@ -5535,14 +5535,115 @@ function renderInboxPage() {
       else if (action === 'apply-sale') await applyInboxSale(id, btn.dataset.ticketId);
       else if (action === 'create-and-mark-sold') await createTicketFromInboxAsSold(id);
       else if (action === 'pick-match') openMatchPickerModal(id);
+      else if (action === 'advanced-edit') openInboxAdvancedEditModal(id);
     });
+  });
+
+  // Inline-edit handlers — save overrides on blur so the user can fix
+  // missing fields right in the inbox card before approving.
+  // Both <input> and contenteditable spans are covered.
+  list.querySelectorAll('.inbox-detail-input').forEach(el => {
+    el.addEventListener('change', async () => {
+      await saveInboxFieldOverride(el.dataset.id, el.dataset.field, el.value);
+    });
+    // Stop click from bubbling into the card so we don't accidentally trigger
+    // some future "click card to expand" interaction.
+    el.addEventListener('click', e => e.stopPropagation());
+  });
+  list.querySelectorAll('.editable-title').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const val = (el.textContent || '').trim();
+      await saveInboxFieldOverride(el.dataset.id, el.dataset.field, val);
+    });
+    // Enter key commits + blurs (instead of inserting newline).
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+    el.addEventListener('click', e => e.stopPropagation());
   });
 }
 
+// ============================================================
+// FALLBACK SUBJECT PARSER
+// ------------------------------------------------------------
+// When the server-side parser returns a successful 'kind' but leaves event
+// name / order ID / platform blank, we mine the email subject for whatever
+// we can rescue. Handles common patterns from Ticketmaster (ES/UK/US),
+// Stubhub, Viagogo, AXS, Eventim, See Tickets, Live Nation, etc.
+//
+// This NEVER overwrites fields that already have values from the server
+// parser — it only fills in the blanks.
+// ============================================================
+function enrichParsedFromSubject(parsed, subject) {
+  if (!subject) return parsed;
+  const out = { ...parsed };
+  const s = subject;
+
+  // ── Platform detection ───────────────────────────────────────────────
+  // Server typically sets this, but rescue if blank.
+  if (!out.platform || out.platform === '—' || out.platform === 'Neznámá platforma') {
+    if (/ticketmaster/i.test(s) || /referencia\s+\d+/i.test(s)) out.platform = 'Ticketmaster';
+    else if (/stubhub/i.test(s)) out.platform = 'Stubhub';
+    else if (/viagogo/i.test(s)) out.platform = 'Viagogo';
+    else if (/eventim/i.test(s)) out.platform = 'Eventim';
+    else if (/livenation|live\s+nation/i.test(s)) out.platform = 'Live Nation';
+    else if (/axs\s/i.test(s)) out.platform = 'AXS';
+    else if (/seetickets|see\s+tickets/i.test(s)) out.platform = 'See Tickets';
+  }
+
+  // ── Order / reference ID ────────────────────────────────────────────
+  // Ticketmaster ES: "número de referencia 011377758"
+  // Ticketmaster UK/US: "Order #12-12345/SF" / "Order Confirmation: 12345"
+  // Stubhub: "Order 12345" / "#STH-12345"
+  // Viagogo: "Order ID 123-456-789"
+  if (!out.orderId) {
+    const ref = s.match(/(?:n[uú]mero de referencia|reference|order(?:\s*id|\s*#|\s*number)?|orden(?:\s*n[uú]m)?|booking(?:\s*ref)?)\s*[:#]?\s*([A-Z0-9][\w\-/.]{4,})/i);
+    if (ref) out.orderId = ref[1];
+  }
+
+  // ── Event name ──────────────────────────────────────────────────────
+  // Strip common email prefixes ("Fwd:", "Re:", "RE:", "FW:") first.
+  let work = s.replace(/^(?:Fwd|Fw|Re|RE)\s*:\s*/gi, '').trim();
+  // Strip leading platform/marketing prefixes ("Confirmacion de compra para", etc.)
+  const eventPatterns = [
+    // Spanish: "Confirmacion de compra para <EVENT>, número de referencia ..."
+    /confirmaci[oó]n?\s+de\s+compra\s+para\s+([^,]+?)(?:,\s*n[uú]mero|,\s*orden|,\s*referencia|$)/i,
+    // English: "Your tickets for <EVENT>" / "Confirmation for <EVENT>"
+    /your\s+(?:order|tickets?|booking)\s+(?:for|to)\s+(.+?)(?:\s*[-–—]\s*order|\s*\#|\s*\(|$)/i,
+    /(?:confirmation|confirmed)\s+(?:for|of)?\s*[:\-]?\s*(.+?)(?:\s*[-–—]\s*order|\s*\#|\s*\(|$)/i,
+    // German: "Ihre Bestellung für <EVENT>"
+    /ihre\s+bestellung\s+(?:für|fuer)\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+    // Czech: "Vaše objednávka pro <EVENT>"
+    /vaše?\s+objedn[áa]vk[ay]\s+(?:pro|na)\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+    // French: "Votre commande pour <EVENT>"
+    /votre\s+commande\s+pour\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+    // Italian: "Conferma ordine per <EVENT>"
+    /conferma\s+ordine\s+per\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+  ];
+  if (!out.event) {
+    for (const pat of eventPatterns) {
+      const m = work.match(pat);
+      if (m && m[1].trim().length > 3) {
+        out.event = m[1].trim()
+          // Strip trailing reference noise that crept past the comma
+          .replace(/\s*[-–—]?\s*(?:n[uú]mero|orden|referencia|order|booking).*$/i, '')
+          .trim();
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 function renderInboxCard(item) {
-  const p = item.parsed || {};
+  // Apply subject-based enrichment to fill in blanks the server parser left.
+  // This is non-destructive (only fills missing fields) and applied for both
+  // 'purchase' and 'sale' kinds, plus failed/unknown.
+  const p = enrichParsedFromSubject(item.parsed || {}, item.subject);
+  // Also stash user-edited overrides if present (from inline field edits).
+  if (item.parsedOverrides) Object.assign(p, item.parsedOverrides);
   const received = new Date(item.receivedAt).toLocaleString('cs-CZ');
-  
+
   // Failed parser
   if (!p.success) {
     return `
@@ -5627,35 +5728,60 @@ function renderInboxCard(item) {
           ${p.saleType === 'sold_transfer_needed' ? ' · TRANSFER' : ''}
           ${p.saleType === 'sold_upload_needed' ? ' · UPLOAD' : ''}
         </span>
-        <span class="inbox-platform-badge">${escapeHtml(p.platform)}</span>
+        <span class="inbox-platform-badge">${escapeHtml(p.platform || '—')}</span>
         <span class="inbox-date">${received}</span>
       </div>
-      <div class="inbox-title">${escapeHtml(p.event || '(bez názvu)')}</div>
+      <div class="inbox-title editable-title" data-field="event" data-id="${item.id}"
+           contenteditable="true" spellcheck="false"
+           data-placeholder="(klikni pro zadání eventu)">${escapeHtml(p.event || '')}</div>
       <div class="inbox-subject">${escapeHtml(item.subject || '')}</div>
       <div class="inbox-details-grid">
         <div class="inbox-detail">
           <span class="inbox-detail-label">Datum</span>
-          <span class="inbox-detail-value">${p.eventDate ? formatDate(p.eventDate) : '—'}${p.eventTime ? ' ' + p.eventTime : ''}</span>
+          <input class="inbox-detail-input" type="text" data-field="eventDate" data-id="${item.id}"
+                 value="${escapeHtml(p.eventDate ? p.eventDate : '')}"
+                 placeholder="YYYY-MM-DD"
+                 inputmode="numeric">
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Místo</span>
-          <span class="inbox-detail-value">${escapeHtml(p.venue || '—')}</span>
+          <input class="inbox-detail-input" type="text" data-field="venue" data-id="${item.id}"
+                 value="${escapeHtml(p.venue || '')}"
+                 placeholder="např. Etihad Stadium">
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Sekce</span>
-          <span class="inbox-detail-value">${escapeHtml(p.section || '—')}${p.row ? ', Row ' + escapeHtml(p.row) : ''}</span>
+          <input class="inbox-detail-input" type="text" data-field="section" data-id="${item.id}"
+                 value="${escapeHtml(p.section || '')}"
+                 placeholder="např. Gold Circle">
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Ks</span>
-          <span class="inbox-detail-value">${p.quantity || 1}</span>
+          <input class="inbox-detail-input" type="number" min="1" data-field="quantity" data-id="${item.id}"
+                 value="${p.quantity || 1}">
         </div>
         <div class="inbox-detail">
-          <span class="inbox-detail-label">${isPurchase ? 'Cena' : 'Proceeds'}</span>
-          <span class="inbox-detail-value price">${price.toFixed(2)} ${currency}</span>
+          <span class="inbox-detail-label">${isPurchase ? 'Cena celkem' : 'Proceeds'}</span>
+          <div class="inbox-price-row">
+            <input class="inbox-detail-input price-input" type="number" step="0.01" data-field="totalAmount" data-id="${item.id}"
+                   value="${price ? price.toFixed(2) : ''}"
+                   placeholder="0.00">
+            <select class="inbox-detail-input currency-input" data-field="currency" data-id="${item.id}">
+              ${['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'].map(c => `<option value="${c}" ${c === currency ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+          </div>
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Order ID</span>
-          <span class="inbox-detail-value" style="font-family: var(--font-mono); font-size: 11px;">${escapeHtml(p.orderId || '—')}</span>
+          <input class="inbox-detail-input mono-input" type="text" data-field="orderId" data-id="${item.id}"
+                 value="${escapeHtml(p.orderId || '')}"
+                 placeholder="číslo objednávky">
+        </div>
+        <div class="inbox-detail">
+          <span class="inbox-detail-label">Datum nákupu</span>
+          <input class="inbox-detail-input" type="date" data-field="purchaseDate" data-id="${item.id}"
+                 value="${escapeHtml(p.purchaseDate || (item.receivedAt ? new Date(item.receivedAt).toISOString().split('T')[0] : ''))}"
+                 title="Předvyplněno datem přijetí emailu — uprav pokud potřebuješ">
         </div>
         ${p.buyerName ? `
         <div class="inbox-detail">
@@ -5669,7 +5795,12 @@ function renderInboxCard(item) {
         </div>` : ''}
       </div>
       ${matchInfo}
-      <div class="inbox-actions">${actions}</div>
+      <div class="inbox-actions">
+        ${actions}
+        <button class="btn btn-dark btn-sm inbox-advanced-btn" data-inbox-action="advanced-edit" data-inbox-id="${item.id}" title="Upravit všechny detaily">
+          🔧 Pokročilá úprava
+        </button>
+      </div>
     </div>
   `;
 }
@@ -5678,8 +5809,80 @@ function renderInboxCard(item) {
 async function approveInboxItem(id) {
   const item = (state.db.inbox || []).find(i => i.id === id);
   if (!item || !item.parsed?.success) return;
-  const p = item.parsed;
-  
+  // Build the effective parsed object: server parsed → subject enrichment → user overrides.
+  // This way the user's inline-edited fields (and advanced-modal saves) win.
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed, item.subject),
+    item.parsedOverrides || {}
+  );
+
+  // ─── Required fields validation ──────────────────────────────────────
+  // Refuse to create a ticket if critical fields are missing. The user must
+  // either edit them inline on the inbox card or use the Advanced Edit modal.
+  // Critical = event + eventDate + venue + section + (quantity > 0) + price.
+  // We tolerate missing row/seat/orderId because they're optional.
+  const missing = [];
+  if (!p.event || p.event === '(bez názvu)') missing.push('Název eventu');
+  if (!p.eventDate) missing.push('Datum eventu');
+  if (!p.venue) missing.push('Místo');
+  if (!p.section) missing.push('Sekce');
+  if (!p.quantity || p.quantity < 1) missing.push('Počet ks');
+  // For purchases, we need at least one of totalAmount or pricePerTicket
+  if (p.kind === 'purchase' && !p.totalAmount && !p.pricePerTicket) {
+    missing.push('Cena');
+  }
+
+  if (missing.length > 0) {
+    toast(`Chybí povinné údaje: ${missing.join(', ')}. Doplň je v kartě nebo přes 🔧 Pokročilá úprava.`, 'error', 6000);
+    // Visually highlight the missing inputs so the user sees what's empty
+    const card = document.querySelector(`.inbox-card[data-id="${id}"]`);
+    if (card) {
+      // Map field names to data-field attributes
+      const fieldMap = {
+        'Název eventu': 'event',
+        'Datum eventu': 'eventDate',
+        'Místo': 'venue',
+        'Sekce': 'section',
+        'Počet ks': 'quantity',
+        'Cena': 'totalAmount'
+      };
+      missing.forEach(label => {
+        const fieldName = fieldMap[label];
+        if (!fieldName) return;
+        const el = card.querySelector(`[data-field="${fieldName}"]`);
+        if (el) {
+          el.classList.add('field-required-missing');
+          // Remove highlight when user starts editing
+          const removeOnce = () => {
+            el.classList.remove('field-required-missing');
+            el.removeEventListener('input', removeOnce);
+            el.removeEventListener('focus', removeOnce);
+          };
+          el.addEventListener('input', removeOnce);
+          el.addEventListener('focus', removeOnce);
+        }
+      });
+    }
+    return;
+  }
+
+  // ─── Purchase date auto-fill ────────────────────────────────────────
+  // If the email parser didn't set purchaseDate, derive it from when the
+  // email arrived in our inbox (receivedAt) — that's when the user *bought*
+  // the tickets, give or take a few minutes. The user can override this
+  // later by editing the ticket directly in the Inventory.
+  let purchaseDate = p.purchaseDate || '';
+  if (!purchaseDate && item.receivedAt) {
+    // Convert ISO timestamp to YYYY-MM-DD (local time, not UTC, so 23:59
+    // forwards don't roll over to the next day in the user's timezone).
+    const d = new Date(item.receivedAt);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    purchaseDate = `${yyyy}-${mm}-${dd}`;
+  }
+
   // Create ticket from parsed data
   // Seat: either a single seat (from p.seat) or join all seat numbers
   // from multi-seat purchases (p.seats = [{section, row, seat, ...}, ...]).
@@ -5701,6 +5904,7 @@ async function approveInboxItem(id) {
     account: p.accountEmail || '',
     platform: p.platform || 'Other',
     status: 'available',
+    purchaseDate,
     purchasePrice: p.kind === 'purchase' ? (p.pricePerTicket || (p.totalAmount ? p.totalAmount / (p.quantity || 1) : 0)) : 0,
     salePrice: 0,
     // Preserve the currency the email was in (parser extracts £ → GBP, $ → USD, etc).
@@ -5741,11 +5945,251 @@ async function dismissInboxItem(id) {
   toast('Zahozeno', 'info', 2000);
 }
 
+// ============================================================
+// INBOX FIELD OVERRIDES
+// ------------------------------------------------------------
+// Lets the user inline-edit fields on inbox cards (event name, date, venue,
+// section, qty, price, currency, orderId, etc.) when the server parser
+// missed something. Overrides are stored as `item.parsedOverrides` and
+// preserved across reloads — applied on top of the server parsed payload
+// at approve-time, so the resulting ticket has the user's corrections.
+// ============================================================
+async function saveInboxFieldOverride(id, field, rawValue) {
+  if (!id || !field) return;
+  const items = state.db.inbox || [];
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+
+  // Coerce value type per field. Numeric fields → Number, blank → delete override.
+  let value = rawValue;
+  if (typeof value === 'string') value = value.trim();
+  if (field === 'quantity') {
+    value = value === '' ? null : Math.max(1, parseInt(value, 10) || 1);
+  } else if (field === 'totalAmount' || field === 'pricePerTicket') {
+    value = value === '' ? null : parseFloat(value);
+    if (Number.isNaN(value)) value = null;
+  }
+
+  item.parsedOverrides = item.parsedOverrides || {};
+  if (value === null || value === '' || value === undefined) {
+    delete item.parsedOverrides[field];
+  } else {
+    item.parsedOverrides[field] = value;
+  }
+
+  // Persist via the same DB upsert path the rest of the inbox uses.
+  // We piggyback on the inbox state setter — it already accepts arbitrary
+  // patches in the item record.
+  try {
+    if (window.api.updateInboxItem) {
+      await window.api.updateInboxItem(id, { parsedOverrides: item.parsedOverrides });
+    } else if (window.api.saveInbox) {
+      // Fallback: rewrite the whole inbox array.
+      await window.api.saveInbox(items);
+    }
+  } catch (e) {
+    console.warn('saveInboxFieldOverride failed:', e);
+  }
+}
+
+// ─── Advanced Edit Modal ─────────────────────────────────────────────
+// One-click "Pokročilá úprava" opens a structured modal with all parseable
+// fields (event, date, time, venue, section, row, seat, qty, price, currency,
+// platform, order ID, buyer name/email). Saves overrides into the same
+// `parsedOverrides` bag, then re-renders the inbox.
+function openInboxAdvancedEditModal(id) {
+  const item = (state.db.inbox || []).find(i => i.id === id);
+  if (!item) return;
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed || {}, item.subject),
+    item.parsedOverrides || {}
+  );
+
+  // Build modal HTML — inline so we don't need to mutate index.html.
+  // Two-column form, scrollable on small screens.
+  const existing = document.getElementById('modalInboxEdit');
+  if (existing) existing.remove();
+
+  const currencies = ['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'];
+  const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','Other'];
+
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'modalInboxEdit';
+  modal.innerHTML = `
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3>🔧 Pokročilá úprava emailu</h3>
+        <button class="modal-close" id="iaeClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-section-label">Event</div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Název eventu</label>
+            <input type="text" id="iaeEvent" value="${escapeHtml(p.event || '')}" placeholder="Bad Bunny - World Tour">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Datum eventu (YYYY-MM-DD)</label>
+            <input type="text" id="iaeDate" value="${escapeHtml(p.eventDate || '')}" placeholder="2026-06-07">
+          </div>
+          <div class="form-group">
+            <label>Čas eventu</label>
+            <input type="text" id="iaeTime" value="${escapeHtml(p.eventTime || '')}" placeholder="20:00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Místo / Venue</label>
+            <input type="text" id="iaeVenue" value="${escapeHtml(p.venue || '')}" placeholder="Estadio Riyadh Air Metropolitano">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Datum nákupu <span style="color: var(--text-tertiary); font-weight: 400;">(automaticky podle data přijetí emailu)</span></label>
+            <input type="date" id="iaePurchaseDate" value="${escapeHtml(p.purchaseDate || (item.receivedAt ? new Date(item.receivedAt).toISOString().split('T')[0] : ''))}">
+          </div>
+        </div>
+
+        <div class="modal-section-label">Vstupenky</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Sekce / Zóna</label>
+            <input type="text" id="iaeSection" value="${escapeHtml(p.section || '')}" placeholder="Gold Circle">
+          </div>
+          <div class="form-group">
+            <label>Řada</label>
+            <input type="text" id="iaeRow" value="${escapeHtml(p.row || '')}">
+          </div>
+          <div class="form-group">
+            <label>Sedadlo(a)</label>
+            <input type="text" id="iaeSeat" value="${escapeHtml(p.seat || '')}">
+          </div>
+          <div class="form-group">
+            <label>Počet ks</label>
+            <input type="number" id="iaeQty" value="${p.quantity || 1}" min="1">
+          </div>
+        </div>
+
+        <div class="modal-section-label">Cena / Platforma</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cena celkem</label>
+            <input type="number" step="0.01" id="iaeTotal" value="${p.totalAmount || ''}" placeholder="326.60">
+          </div>
+          <div class="form-group">
+            <label>Cena/ks</label>
+            <input type="number" step="0.01" id="iaePerKs" value="${p.pricePerTicket || ''}" placeholder="163.30">
+          </div>
+          <div class="form-group">
+            <label>Měna</label>
+            <select id="iaeCurrency">
+              ${currencies.map(c => `<option value="${c}" ${c === (p.currency || 'EUR') ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Platforma</label>
+            <select id="iaePlatform">
+              ${platforms.map(pl => `<option value="${pl}" ${pl === (p.platform || 'Other') ? 'selected' : ''}>${pl}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Order ID / Reference</label>
+            <input type="text" id="iaeOrderId" value="${escapeHtml(p.orderId || '')}" placeholder="011377758" style="font-family: var(--font-mono);">
+          </div>
+        </div>
+
+        ${(p.kind === 'sale' || p.buyerName || p.buyerEmail) ? `
+        <div class="modal-section-label">Kupující (jen pro prodej)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Jméno kupujícího</label>
+            <input type="text" id="iaeBuyerName" value="${escapeHtml(p.buyerName || '')}">
+          </div>
+          <div class="form-group">
+            <label>Email kupujícího</label>
+            <input type="email" id="iaeBuyerEmail" value="${escapeHtml(p.buyerEmail || '')}">
+          </div>
+        </div>` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" id="iaeCancel">Zrušit</button>
+        <button class="btn btn-primary" id="iaeSave">Uložit změny</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector('#iaeClose').addEventListener('click', close);
+  modal.querySelector('#iaeCancel').addEventListener('click', close);
+  modal.querySelector('.modal-backdrop').addEventListener('click', close);
+
+  modal.querySelector('#iaeSave').addEventListener('click', async () => {
+    const get = (id) => modal.querySelector('#' + id)?.value.trim();
+    const getNum = (id) => {
+      const v = modal.querySelector('#' + id)?.value;
+      if (v === '' || v == null) return null;
+      const n = parseFloat(v);
+      return Number.isNaN(n) ? null : n;
+    };
+
+    const updates = {
+      event: get('iaeEvent'),
+      eventDate: get('iaeDate'),
+      eventTime: get('iaeTime'),
+      purchaseDate: get('iaePurchaseDate'),
+      venue: get('iaeVenue'),
+      section: get('iaeSection'),
+      row: get('iaeRow'),
+      seat: get('iaeSeat'),
+      quantity: getNum('iaeQty') || 1,
+      totalAmount: getNum('iaeTotal'),
+      pricePerTicket: getNum('iaePerKs'),
+      currency: get('iaeCurrency'),
+      platform: get('iaePlatform'),
+      orderId: get('iaeOrderId'),
+    };
+    const bn = get('iaeBuyerName'); if (bn) updates.buyerName = bn;
+    const be = get('iaeBuyerEmail'); if (be) updates.buyerEmail = be;
+
+    // Strip empty strings/null to keep parsedOverrides clean.
+    const cleaned = {};
+    for (const [k, v] of Object.entries(updates)) {
+      if (v !== null && v !== undefined && v !== '') cleaned[k] = v;
+    }
+
+    item.parsedOverrides = { ...(item.parsedOverrides || {}), ...cleaned };
+    try {
+      if (window.api.updateInboxItem) {
+        await window.api.updateInboxItem(id, { parsedOverrides: item.parsedOverrides });
+      } else if (window.api.saveInbox) {
+        await window.api.saveInbox(state.db.inbox || []);
+      }
+    } catch (e) {
+      console.warn('saveInboxFieldOverride failed:', e);
+    }
+    close();
+    renderInboxPage();
+    toast('Změny uloženy', 'success', 1800);
+  });
+}
+
 async function applyInboxSale(inboxId, ticketId) {
   const item = (state.db.inbox || []).find(i => i.id === inboxId);
   const ticket = (state.db.tickets || []).find(t => t.id === ticketId);
   if (!item || !ticket) return;
-  const p = item.parsed;
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed || {}, item.subject),
+    item.parsedOverrides || {}
+  );
 
   const platformLower = (p.platform || '').toLowerCase();
   const salePricePerKs = p.pricePerTicket || (p.totalAmount && p.quantity ? p.totalAmount / p.quantity : 0);
@@ -5870,7 +6314,11 @@ async function applyInboxSale(inboxId, ticketId) {
 async function createTicketFromInboxAsSold(inboxId) {
   const item = (state.db.inbox || []).find(i => i.id === inboxId);
   if (!item || !item.parsed?.success) return;
-  const p = item.parsed;
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed, item.subject),
+    item.parsedOverrides || {}
+  );
   
   const platformLower = (p.platform || '').toLowerCase();
   const salePricePerKs = p.pricePerTicket || (p.totalAmount && p.quantity ? p.totalAmount / p.quantity : 0);
