@@ -2110,6 +2110,9 @@ function renderTickets() {
           const saleD = new Date(t.saleDate);
           if (isNaN(purchaseD) || isNaN(saleD)) return '<span class="hold-na">—</span>';
           const days = Math.max(0, Math.round((saleD - purchaseD) / 86400000));
+          // 0 d = sold the same day. Show "stejný den" instead of bare "0 d"
+          // which looks like a parsing error at a glance.
+          if (days === 0) return '<span class="hold-final hold-sameday" title="Prodáno stejný den jako koupeno">stejný den</span>';
           return `<span class="hold-final" title="Prodáno za ${days} dní od nákupu">${days} d</span>`;
         })()}</td>
         <td class="col-profit ${profitClass}">${isSoldOrDelivered ? formatMoney(profit, primary) : '—'}</td>
@@ -2120,9 +2123,11 @@ function renderTickets() {
             ${t.status === 'listed' ? `<button class="btn btn-success btn-sm" data-action="sell" data-id="${t.id}">Prodat</button>` : ''}
             ${isSold ? `<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">✓ Doručit</button>` : ''}
             ${isDelivered ? `<button class="btn btn-undeliver btn-sm" data-action="undeliver" data-id="${t.id}" title="Vrátit zpět na prodáno">↶</button>` : ''}
-            <button class="btn btn-clone btn-sm" data-action="clone" data-id="${t.id}" title="Klonovat - vytvořit novou vstupenku s předvyplněnými daty">🗐</button>
-            <button class="btn btn-dark btn-sm" data-action="edit" data-id="${t.id}">Edit</button>
-            <button class="btn btn-danger btn-sm" data-action="delete" data-id="${t.id}">Del</button>
+            <div class="actions-secondary">
+              <button class="btn btn-clone btn-sm" data-action="clone" data-id="${t.id}" title="Klonovat - vytvořit novou vstupenku s předvyplněnými daty">🗐</button>
+              <button class="btn btn-dark btn-sm" data-action="edit" data-id="${t.id}">Edit</button>
+              <button class="btn btn-danger btn-sm" data-action="delete" data-id="${t.id}">Del</button>
+            </div>
           </div>
         </td>
       </tr>

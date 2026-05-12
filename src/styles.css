@@ -1002,6 +1002,22 @@ body.marketplace-active .main {
   font-feature-settings: 'tnum', 'cv11';
 }
 
+/* Hero card — the FIRST stat-card in any dashboard row is the headline number
+   (e.g. "CELKOVÝ PROFIT" on the main dashboard). Make it visually dominant:
+   bigger value, slightly prominent label. The rest of the cards stay at
+   standard size to create a clear focal point. */
+.stats-row .stat-card:first-child .stat-value,
+.stats-grid .stat-card:first-child .stat-value {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+}
+.stats-row .stat-card:first-child .stat-label,
+.stats-grid .stat-card:first-child .stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+}
+
 /* Semantic colour modifiers — kept for charts / states that need color coding.
    Tuned to warm palette so they don't clash with gold accents. */
 .stat-value.profit { color: var(--green); }
@@ -1193,22 +1209,22 @@ body.marketplace-active .main {
 }
 
 .status-sold {
-  background: rgba(var(--green-rgb), 0.15);
-  color: var(--green-bright);
-  border: 1px solid rgba(var(--green-rgb), 0.3);
+  background: rgba(var(--purple-rgb), 0.15);
+  color: var(--purple);
+  border: 1px solid rgba(var(--purple-rgb), 0.35);
 }
 
 .status-delivered {
-  background: rgba(6, 182, 212, 0.18);
-  color: #67e8f9;
-  border: 1px solid rgba(6, 182, 212, 0.5);
+  background: rgba(var(--green-rgb), 0.22);
+  color: var(--green);
+  border: 1px solid rgba(var(--green-rgb), 0.45);
   font-weight: 600;
 }
 
 .status-available {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--blue);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.12);
+  color: var(--text-secondary);
+  border: 1px solid rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.25);
 }
 
 .status-listed {
@@ -1276,7 +1292,26 @@ body.marketplace-active .main {
 
 .actions-cell {
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Secondary actions (Clone, Edit, Del) — revealed on row hover so they don't
+   crowd the primary action button. Primary action (Zalistovat/Prodat/Doručit)
+   is always visible since it's the suggested next step for this row. */
+.actions-secondary {
+  display: flex;
   gap: 4px;
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.tickets-table tbody tr:hover .actions-secondary,
+.actions-secondary:focus-within {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 .col-actions {
@@ -2454,11 +2489,15 @@ body.bulk-bar-visible .main {
 }
 
 [data-theme="light"] .status-sold {
-  color: #15803d;
+  background: rgba(var(--purple-rgb), 0.12);
+  color: var(--purple);
+  border: 1px solid rgba(var(--purple-rgb), 0.3);
 }
 
 [data-theme="light"] .status-available {
-  color: #1d4ed8;
+  background: rgba(90, 82, 72, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid rgba(90, 82, 72, 0.18);
 }
 
 [data-theme="light"] .status-listed {
@@ -2470,9 +2509,9 @@ body.bulk-bar-visible .main {
 }
 
 [data-theme="light"] .status-delivered {
-  background: rgba(6, 182, 212, 0.1);
-  color: #0e7490;
-  border: 1px solid rgba(6, 182, 212, 0.3);
+  background: rgba(var(--green-rgb), 0.16);
+  color: var(--green);
+  border: 1px solid rgba(var(--green-rgb), 0.4);
 }
 
 .urgent-chip.muted {
@@ -2772,7 +2811,10 @@ body.bulk-bar-visible .main {
 .todo-item.level-critical .todo-item-days-num { color: var(--red); }
 .todo-item.level-high .todo-item-days-num { color: #f97316; }
 .todo-item.level-medium .todo-item-days-num { color: var(--yellow); }
-.todo-item.level-low .todo-item-days-num { color: var(--text-secondary); }
+/* Low urgency (notListed / KOUPENO state) — use a calm purple that matches
+   the gold/cream palette without screaming. The bullet `●` here is a status
+   indicator (purchased but not yet listed), not a date countdown. */
+.todo-item.level-low .todo-item-days-num { color: var(--purple); opacity: 0.75; }
 
 .todo-item-body {
   min-width: 0;
@@ -4965,6 +5007,14 @@ tr:hover .copy-btn {
 .hold-final {
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+/* Same-day flip — show as a small green badge, since fast resale is usually
+   a good thing (low inventory time = less risk, faster cashflow). */
+.hold-sameday {
+  color: var(--green);
+  font-size: 11px;
+  font-style: italic;
 }
 
 .hold-na {
