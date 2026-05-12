@@ -2048,7 +2048,7 @@ function renderTickets() {
     }
     
     return `
-      <tr data-id="${t.id}" class="${rowClass}${rowExtraClass}">
+      <tr data-id="${t.id}" data-status="${escapeHtml(String(t.status || ''))}" class="${rowClass}${rowExtraClass}">
         <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" ${checked}></td>
         <td>
           <div class="event-cell">

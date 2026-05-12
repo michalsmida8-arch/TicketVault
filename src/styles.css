@@ -1232,21 +1232,22 @@ body.marketplace-active .main {
   box-shadow: inset 4px 0 0 var(--green);
 }
 .tickets-table tbody tr.row-delivered td {
-  background: rgba(var(--green-rgb), 0.08);
+  background: rgba(var(--green-rgb), 0.12) !important;
 }
 .tickets-table tbody tr.row-delivered:hover td {
-  background: rgba(var(--green-rgb), 0.15);
+  background: rgba(var(--green-rgb), 0.22) !important;
 }
 .tickets-table tbody tr.row-delivered td:first-child {
   border-left: none;
 }
 
-/* Light theme: even softer green tint so it blends with the cream palette */
+/* Light theme — more visible against the cream background.
+   Use !important so we win against any conflicting rules (zebra, hover, etc.) */
 [data-theme="light"] .tickets-table tbody tr.row-delivered td {
-  background: rgba(var(--green-rgb), 0.07);
+  background: rgba(var(--green-rgb), 0.12) !important;
 }
 [data-theme="light"] .tickets-table tbody tr.row-delivered:hover td {
-  background: rgba(var(--green-rgb), 0.14);
+  background: rgba(var(--green-rgb), 0.22) !important;
 }
 
 .roi-pill {
@@ -5519,7 +5520,7 @@ html[data-privacy="1"] body.privacy-mode { visibility: visible; }
    DARK THEME POLISH (v1.15.6)
    ------------------------------------------------------------
    Subtle depth, warmth, and luminescence applied only in dark
-   mode. All rules below are scoped with body:not([data-theme="light"])
+   mode. All rules below are scoped with html:not([data-theme="light"])
    so they don't affect the cream light theme.
 
    Goals:
@@ -5532,7 +5533,7 @@ html[data-privacy="1"] body.privacy-mode { visibility: visible; }
    ============================================================ */
 
 /* ── PAGE BG: warm radial gradient instead of flat #0a0908 ───── */
-body:not([data-theme="light"]) .app {
+html:not([data-theme="light"]) .app {
   background:
     radial-gradient(ellipse 1200px 800px at top right, rgba(var(--purple-rgb), 0.04) 0%, transparent 60%),
     radial-gradient(ellipse 800px 600px at bottom left,  rgba(var(--purple-rgb), 0.02) 0%, transparent 50%),
@@ -5540,7 +5541,7 @@ body:not([data-theme="light"]) .app {
 }
 
 /* ── SIDEBAR: subtle vertical gradient + soft gold glow at top ── */
-body:not([data-theme="light"]) .sidebar {
+html:not([data-theme="light"]) .sidebar {
   background:
     linear-gradient(to bottom,
       rgba(var(--purple-rgb), 0.025) 0%,
@@ -5553,7 +5554,7 @@ body:not([data-theme="light"]) .sidebar {
 }
 
 /* ── STAT CARDS: lift off the page with depth ──────────────────── */
-body:not([data-theme="light"]) .stat-card {
+html:not([data-theme="light"]) .stat-card {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.015) 0%,
@@ -5566,7 +5567,7 @@ body:not([data-theme="light"]) .stat-card {
     0 1px 0 rgba(255, 255, 255, 0.03) inset, /* top highlight */
     0 4px 16px rgba(0, 0, 0, 0.25);          /* drop shadow */
 }
-body:not([data-theme="light"]) .stat-card:hover {
+html:not([data-theme="light"]) .stat-card:hover {
   border-color: rgba(var(--purple-rgb), 0.3);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
@@ -5574,14 +5575,14 @@ body:not([data-theme="light"]) .stat-card:hover {
     0 0 24px rgba(var(--purple-rgb), 0.08);   /* gold glow on hover */
   transform: translateY(-1px);
 }
-body:not([data-theme="light"]) .stat-card::before {
+html:not([data-theme="light"]) .stat-card::before {
   /* The gold left bar gets a subtle glow */
   box-shadow: 0 0 12px rgba(var(--purple-rgb), 0.35);
   opacity: 0.85;
 }
 
 /* ── HERO STAT CARDS (Celkový profit etc.): warm gold tint ──── */
-body:not([data-theme="light"]) .stats-row .stat-card {
+html:not([data-theme="light"]) .stats-row .stat-card {
   background:
     linear-gradient(135deg,
       rgba(var(--purple-rgb), 0.025) 0%,
@@ -5596,24 +5597,24 @@ body:not([data-theme="light"]) .stats-row .stat-card {
 }
 
 /* ── TABLES: zebra striping + warm hover ───────────────────── */
-body:not([data-theme="light"]) .tickets-table tbody tr:nth-child(even) td {
+html:not([data-theme="light"]) .tickets-table tbody tr:nth-child(even) td {
   background: rgba(255, 255, 255, 0.012);
 }
-body:not([data-theme="light"]) .tickets-table tbody tr:hover td {
+html:not([data-theme="light"]) .tickets-table tbody tr:hover td {
   background: rgba(var(--purple-rgb), 0.06);
 }
-body:not([data-theme="light"]) .tickets-table tbody tr:hover {
+html:not([data-theme="light"]) .tickets-table tbody tr:hover {
   box-shadow: inset 3px 0 0 rgba(var(--purple-rgb), 0.3);
 }
 /* Don't let zebra fight with urgent-row tinting or delivered/resolved rows */
-body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-sell:nth-child(even) td,
-body:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-deliver:nth-child(even) td,
-body:not([data-theme="light"]) .tickets-table tbody tr.row-past-event:nth-child(even) td,
-body:not([data-theme="light"]) .tickets-table tbody tr.row-delivered:nth-child(even) td {
+html:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-sell:nth-child(even) td,
+html:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-deliver:nth-child(even) td,
+html:not([data-theme="light"]) .tickets-table tbody tr.row-past-event:nth-child(even) td,
+html:not([data-theme="light"]) .tickets-table tbody tr.row-delivered:nth-child(even) td {
   background: inherit;
 }
 
-body:not([data-theme="light"]) .tickets-table th {
+html:not([data-theme="light"]) .tickets-table th {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.02) 0%,
@@ -5624,7 +5625,7 @@ body:not([data-theme="light"]) .tickets-table th {
 }
 
 /* ── PRIMARY BUTTON: gold with luminescence ──────────────── */
-body:not([data-theme="light"]) .btn-primary {
+html:not([data-theme="light"]) .btn-primary {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.15) 0%,
@@ -5637,7 +5638,7 @@ body:not([data-theme="light"]) .btn-primary {
     0 2px 8px rgba(var(--purple-rgb), 0.25),
     0 0 16px rgba(var(--purple-rgb), 0.15);
 }
-body:not([data-theme="light"]) .btn-primary:hover {
+html:not([data-theme="light"]) .btn-primary:hover {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.25) inset,
     0 4px 14px rgba(var(--purple-rgb), 0.4),
@@ -5645,7 +5646,7 @@ body:not([data-theme="light"]) .btn-primary:hover {
 }
 
 /* ── DARK BUTTON: subtle depth, no flat block ──────────────── */
-body:not([data-theme="light"]) .btn-dark {
+html:not([data-theme="light"]) .btn-dark {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.02) 0%,
@@ -5654,7 +5655,7 @@ body:not([data-theme="light"]) .btn-dark {
     var(--bg-tertiary);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
 }
-body:not([data-theme="light"]) .btn-dark:hover {
+html:not([data-theme="light"]) .btn-dark:hover {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.04) 0%,
@@ -5665,7 +5666,7 @@ body:not([data-theme="light"]) .btn-dark:hover {
 }
 
 /* ── NAV ITEMS in sidebar: warmer active state ──────────────── */
-body:not([data-theme="light"]) .nav-item.active {
+html:not([data-theme="light"]) .nav-item.active {
   background:
     linear-gradient(90deg,
       rgba(var(--purple-rgb), 0.18) 0%,
@@ -5675,14 +5676,14 @@ body:not([data-theme="light"]) .nav-item.active {
     inset 3px 0 0 var(--purple),
     0 0 16px rgba(var(--purple-rgb), 0.12);
 }
-body:not([data-theme="light"]) .nav-item:hover:not(.active) {
+html:not([data-theme="light"]) .nav-item:hover:not(.active) {
   background: rgba(var(--purple-rgb), 0.05);
 }
 
 /* ── INPUTS: subtle depth, gold focus ring ────────────────── */
-body:not([data-theme="light"]) input,
-body:not([data-theme="light"]) select,
-body:not([data-theme="light"]) textarea {
+html:not([data-theme="light"]) input,
+html:not([data-theme="light"]) select,
+html:not([data-theme="light"]) textarea {
   background:
     linear-gradient(180deg,
       rgba(0, 0, 0, 0.15) 0%,
@@ -5691,9 +5692,9 @@ body:not([data-theme="light"]) textarea {
     var(--bg-tertiary);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
 }
-body:not([data-theme="light"]) input:focus,
-body:not([data-theme="light"]) select:focus,
-body:not([data-theme="light"]) textarea:focus {
+html:not([data-theme="light"]) input:focus,
+html:not([data-theme="light"]) select:focus,
+html:not([data-theme="light"]) textarea:focus {
   border-color: var(--purple);
   box-shadow:
     0 0 0 3px rgba(var(--purple-rgb), 0.12),
@@ -5701,7 +5702,7 @@ body:not([data-theme="light"]) textarea:focus {
 }
 
 /* ── CATEGORY FILTER PILLS at top of Dashboard ─────────────── */
-body:not([data-theme="light"]) .cat-chip {
+html:not([data-theme="light"]) .cat-chip {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.02) 0%,
@@ -5711,7 +5712,7 @@ body:not([data-theme="light"]) .cat-chip {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
   transition: all 0.2s;
 }
-body:not([data-theme="light"]) .cat-chip.active {
+html:not([data-theme="light"]) .cat-chip.active {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.12) 0%,
@@ -5724,12 +5725,12 @@ body:not([data-theme="light"]) .cat-chip.active {
 }
 
 /* ── MODALS: backdrop blur + card lift ──────────────────────── */
-body:not([data-theme="light"]) .modal {
+html:not([data-theme="light"]) .modal {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   background: rgba(0, 0, 0, 0.65);
 }
-body:not([data-theme="light"]) .modal-content {
+html:not([data-theme="light"]) .modal-content {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.02) 0%,
@@ -5743,24 +5744,24 @@ body:not([data-theme="light"]) .modal-content {
 }
 
 /* ── SCROLLBAR: gold-tinted for dark mode ───────────────────── */
-body:not([data-theme="light"]) ::-webkit-scrollbar {
+html:not([data-theme="light"]) ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
-body:not([data-theme="light"]) ::-webkit-scrollbar-track {
+html:not([data-theme="light"]) ::-webkit-scrollbar-track {
   background: var(--bg-secondary);
 }
-body:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
+html:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
   background: rgba(var(--purple-rgb), 0.2);
   border-radius: 5px;
   border: 2px solid var(--bg-secondary);
 }
-body:not([data-theme="light"]) ::-webkit-scrollbar-thumb:hover {
+html:not([data-theme="light"]) ::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--purple-rgb), 0.4);
 }
 
 /* ── CHARTS in Statistics: warmer grid lines, glow on data points ── */
-body:not([data-theme="light"]) .chart-card {
+html:not([data-theme="light"]) .chart-card {
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.012) 0%,
@@ -5774,21 +5775,21 @@ body:not([data-theme="light"]) .chart-card {
 }
 
 /* ── STATUS PILLS (Doručeno / Zalistováno / Prodáno): subtle gloss ── */
-body:not([data-theme="light"]) .status-pill {
+html:not([data-theme="light"]) .status-pill {
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 50%);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
 }
 
 /* ── CLOUD / ONLINE BADGES in sidebar header: subtle glow ──── */
-body:not([data-theme="light"]) .cloud-badge {
+html:not([data-theme="light"]) .cloud-badge {
   box-shadow: 0 0 12px rgba(var(--purple-rgb), 0.15);
 }
-body:not([data-theme="light"]) #statusBadge {
+html:not([data-theme="light"]) #statusBadge {
   box-shadow: 0 0 12px rgba(var(--green-rgb), 0.2);
 }
 
 /* ── HERO SUB (z 33 prodaných lístků...): subtle italic flair ──── */
-body:not([data-theme="light"]) .hero-sub strong {
+html:not([data-theme="light"]) .hero-sub strong {
   color: var(--purple-hover);
   text-shadow: 0 0 8px rgba(var(--purple-rgb), 0.2);
 }
