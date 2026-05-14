@@ -2369,10 +2369,12 @@ function collectTodoItems() {
     const days = t.eventDate ? daysUntil(t.eventDate) : null;
 
     // PAST EVENT — date already gone but ticket isn't in a final state
-    // (delivered/refunded). Highest priority bucket. Sort by how recently the
-    // event passed, most recent first.
+    // (delivered/refunded/cancelled). Highest priority bucket. Sort by how
+    // recently the event passed, most recent first.
+    // `cancelled` = written off as a realised loss — already a resolved state,
+    // so it shouldn't keep nagging the user in "K dořešení".
     if (days !== null && days < 0) {
-      if (t.status !== 'delivered' && t.status !== 'refunded') {
+      if (t.status !== 'delivered' && t.status !== 'refunded' && t.status !== 'cancelled') {
         pastEvent.push({ ticket: t, days });
       }
       continue;
