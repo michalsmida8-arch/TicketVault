@@ -1266,6 +1266,46 @@ body.marketplace-active .main {
   background: rgba(var(--green-rgb), 0.22) !important;
 }
 
+/* Written-off row — event passed without sale, recorded as realised loss.
+   Greyed out + diagonal stripe pattern to signal "this is closed but it
+   wasn't a happy ending". Less aggressive than past-event red because the
+   loss is already booked; no further action needed. */
+.tickets-table tbody tr.row-writeoff {
+  box-shadow: inset 4px 0 0 var(--text-tertiary);
+}
+.tickets-table tbody tr.row-writeoff td {
+  background: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.08) !important;
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.4);
+  text-decoration-thickness: 1px;
+}
+.tickets-table tbody tr.row-writeoff:hover td {
+  background: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.14) !important;
+}
+.tickets-table tbody tr.row-writeoff td:first-child {
+  border-left: none;
+}
+/* Don't strike through action buttons or status pill */
+.tickets-table tbody tr.row-writeoff .col-actions,
+.tickets-table tbody tr.row-writeoff .col-actions *,
+.tickets-table tbody tr.row-writeoff .status-pill {
+  text-decoration: none;
+}
+
+/* "Odepsat ztrátu" button — neutral-grey style (not red/danger because
+   it's a deliberate accounting action, not a destructive one). */
+.btn-writeoff {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-writeoff:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
 .roi-pill {
   display: inline-block;
   padding: 3px 10px;
@@ -3413,6 +3453,23 @@ tr:hover .copy-btn {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* Past-event banner inside Sell modal — warns the user that the event already
+   happened, so if they're here to "sell at 0" they probably want the
+   Odepsat ztrátu button on the row instead. */
+.sell-past-banner {
+  background: rgba(var(--yellow-rgb), 0.10);
+  border: 1px solid rgba(var(--yellow-rgb), 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: -4px 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.sell-past-banner strong {
+  color: var(--purple);
 }
 
 .sell-info-label {

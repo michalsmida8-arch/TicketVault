@@ -357,7 +357,10 @@ function saleCurrency(t) {
 }
 
 function calcProfit(t) {
-  if (t.status !== 'sold' && t.status !== 'delivered') return 0;
+  // 'cancelled' = written-off unsold ticket. salePrice will be 0 → profit
+  // comes out as -purchase × qty (negative), which is exactly what we want
+  // for the realised loss.
+  if (t.status !== 'sold' && t.status !== 'delivered' && t.status !== 'cancelled') return 0;
   const qty = Number(t.quantity) || 1;
   const sale = Number(t.salePrice) || 0;
   const purchase = Number(t.purchasePrice) || 0;
@@ -373,7 +376,7 @@ function calcProfit(t) {
 }
 
 function calcRoi(t) {
-  if ((t.status !== 'sold' && t.status !== 'delivered') || !t.purchasePrice) return 0;
+  if ((t.status !== 'sold' && t.status !== 'delivered' && t.status !== 'cancelled') || !t.purchasePrice) return 0;
   const qty = Number(t.quantity) || 1;
   const totalCost = (Number(t.purchasePrice) || 0) * qty;
   if (totalCost <= 0) return 0;
@@ -383,6 +386,7 @@ function calcRoi(t) {
 
 // Total revenue for one ticket row (sale price × quantity), in SALE currency.
 function calcRevenue(t) {
+  // cancelled tickets had no sale → revenue 0 (purchase becomes a loss, not negative revenue)
   if (t.status !== 'sold' && t.status !== 'delivered') return 0;
   return (Number(t.salePrice) || 0) * (Number(t.quantity) || 1);
 }
@@ -1723,9 +1727,9 @@ function getTicketUrgency(t) {
   // wasted inventory; sold-but-not-delivered = customer didn't get the ticket
   // and is likely opening a chargeback/dispute right now).
   if (days < 0) {
-    // Tickets in a "done" state (delivered or refunded) are fine — event is
-    // just history at that point, no action needed.
-    if (t.status === 'delivered' || t.status === 'refunded') return null;
+    // Tickets in a "done" state (delivered, refunded, or written off as a loss)
+    // are fine — event is just history at that point, no action needed.
+    if (t.status === 'delivered' || t.status === 'refunded' || t.status === 'cancelled') return null;
     // Anything else (available/listed/sold) past the event date = real problem.
     const type = t.status === 'sold' ? 'past-undelivered' : 'past-unsold';
     return { type, days, level: 'critical', muted: isMuted };
@@ -1913,7 +1917,10 @@ function renderStats() {
   } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
     all = all.filter(t => (t.category || 'concert') === state.dashboardCategory);
   }
-  const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered');
+  // Resolved tickets contribute to profit: sold/delivered (revenue minus cost)
+  // OR cancelled (= written off, revenue 0, profit = -cost). All three should
+  // flow through to dashboard totals as realised P&L.
+  const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered' || t.status === 'cancelled');
 
   // Aggregate in primary currency since tickets may have mixed currencies.
   const totalProfit = sold.reduce((s, t) => s + calcProfitInPrimary(t), 0);
@@ -1971,21 +1978,27 @@ function renderTickets() {
     const statusNorm = (t.status || '').toString().trim().toLowerCase();
     const isSold = statusNorm === 'sold';
     const isDelivered = statusNorm === 'delivered';
-    const isSoldOrDelivered = isSold || isDelivered;
-    
+    // 'cancelled' = written off (event passed, never sold) — a realised loss.
+    // Treated as "resolved" so the row stops showing past-event red, doesn't
+    // appear in K dořešení, and contributes its negative profit to dashboard
+    // totals. salePrice should be 0 → revenue 0 → profit = -purchasePrice.
+    const isWrittenOff = statusNorm === 'cancelled';
+    const isSoldOrDelivered = isSold || isDelivered || isWrittenOff;
+
     // Status label (pretty Czech labels)
     const statusLabels = {
       available: 'Koupeno',
       listed: 'Zalistováno',
       sold: 'Prodáno',
       delivered: '✓ Doručeno',
-      cancelled: 'Zrušeno'
+      cancelled: '❌ Odepsáno (ztráta)'
     };
-    const statusLabel = statusLabels[t.status] || (t.status || 'available');
+    const statusLabel = statusLabels[statusNorm] || (t.status || 'available');
     
     const urgency = getTicketUrgency(t);
     const cfg = getAlertsConfig();
     let rowClass = isDelivered ? 'row-delivered' : '';
+    if (isWrittenOff) rowClass = 'row-writeoff';   // overrides delivered (cancelled is a different state)
     if (urgency && !urgency.muted) {
       rowClass += (rowClass ? ' ' : '') + (urgency.type === 'undelivered' ? 'row-urgent-deliver' : 'row-urgent-sell');
       if (cfg.animations) {
@@ -2123,6 +2136,19 @@ function renderTickets() {
             ${t.status === 'listed' ? `<button class="btn btn-success btn-sm" data-action="sell" data-id="${t.id}">Prodat</button>` : ''}
             ${isSold ? `<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">✓ Doručit</button>` : ''}
             ${isDelivered ? `<button class="btn btn-undeliver btn-sm" data-action="undeliver" data-id="${t.id}" title="Vrátit zpět na prodáno">↶</button>` : ''}
+            ${(() => {
+              // "Odepsat ztrátu" — only show when the event already passed AND the ticket
+              // never sold. This is the realised-loss path: ticket bought, not flipped,
+              // event happened, write off the purchase price as a loss instead of forcing
+              // the user to enter "0" in the sell modal (which the validator rejects).
+              const eventPassed = t.eventDate && new Date(t.eventDate) < new Date(new Date().toDateString());
+              const notResolved = t.status === 'available' || t.status === 'listed';
+              if (eventPassed && notResolved) {
+                return `<button class="btn btn-writeoff btn-sm" data-action="writeoff" data-id="${t.id}" title="Event prošel a vstupenka se neprodala — odepsat jako ztrátu">Odepsat ztrátu</button>`;
+              }
+              return '';
+            })()}
+            ${t.status === 'cancelled' ? `<button class="btn btn-undeliver btn-sm" data-action="unwriteoff" data-id="${t.id}" title="Vrátit zpět z odepsaného stavu">↶</button>` : ''}
             <div class="actions-secondary">
               <button class="btn btn-clone btn-sm" data-action="clone" data-id="${t.id}" title="Klonovat - vytvořit novou vstupenku s předvyplněnými daty">🗐</button>
               <button class="btn btn-dark btn-sm" data-action="edit" data-id="${t.id}">Edit</button>
@@ -2147,6 +2173,8 @@ function renderTickets() {
       if (action === 'deliver') markDelivered(id);
       if (action === 'undeliver') markUndelivered(id);
       if (action === 'list') openListModal(state.db.tickets.find(t => t.id === id));
+      if (action === 'writeoff') writeOffTicket(id);
+      if (action === 'unwriteoff') unwriteOffTicket(id);
     });
   });
   
@@ -8371,9 +8399,21 @@ function openSellModal(ticket) {
   qtyInput.value = totalQty;
   qtyInput.max = totalQty;
   qtyInput.min = 1;
+
+  // If the event already passed and the user is in this modal, they probably
+  // want to record an actual sale. But sometimes they want to register a LOSS
+  // (no buyer found, event over). Surface that path with an inline tip so they
+  // don't get stuck typing "0" and hitting the validator.
+  const eventPassed = ticket.eventDate && new Date(ticket.eventDate) < new Date(new Date().toDateString());
+  const pastEventBanner = eventPassed
+    ? `<div class="sell-past-banner">
+         ⚠ Event už proběhl. Pokud se vstupenka <strong>neprodala</strong>, použij místo tohoto modalu tlačítko <strong>Odepsat ztrátu</strong> v řádku — nákupní cena se zaeviduje jako realizovaná ztráta.
+       </div>`
+    : '';
   
   // Info banner
   $('#sellInfoBanner').innerHTML = `
+    ${pastEventBanner}
     <div class="sell-info-row">
       <span class="sell-info-label">Event:</span>
       <span class="sell-info-value">${escapeHtml(ticket.eventName || '—')}</span>
@@ -8390,13 +8430,20 @@ function openSellModal(ticket) {
   
   // Pre-fill price: if ticket had a salePrice before (after editing), use it, else empty.
   // salePrice is stored as per-ticket price; if mode is "total", we multiply below.
+  // IMPORTANT: explicitly clear and set the value to avoid showing stale "0" from
+  // previous modal opens or zero-valued Numbers.
+  const sellPriceInput = $('#sellPrice');
+  sellPriceInput.value = '';   // hard clear first
   const savedPerKs = Number(ticket.salePrice) || 0;
   const initialQty = totalQty;
-  if (state.sellPriceMode === 'total' && savedPerKs > 0) {
-    $('#sellPrice').value = (savedPerKs * initialQty).toFixed(2);
-  } else {
-    $('#sellPrice').value = savedPerKs || '';
+  if (savedPerKs > 0) {
+    if (state.sellPriceMode === 'total') {
+      sellPriceInput.value = (savedPerKs * initialQty).toFixed(2);
+    } else {
+      sellPriceInput.value = savedPerKs.toFixed(2);
+    }
   }
+  // Don't pre-fill 0 — leave empty so the placeholder "0.00" shows instead.
   $('#sellDate').value = new Date().toISOString().slice(0, 10);
 
   // Currency dropdown — default to ticket's currency (or saleCurrency if previously set)
@@ -8415,15 +8462,30 @@ function openSellModal(ticket) {
   updateSellHints();
   
   $('#modalSell').classList.add('active');
-  $('#sellQuantity').focus();
-  $('#sellQuantity').select();
+  // Focus the price input — it's the field the user MUST fill in. Quantity
+  // defaults to "all available" so it usually doesn't need editing, and the
+  // big bottleneck in this modal has historically been "Zadej platnou cenu"
+  // toasts because users didn't notice the price input was empty.
+  setTimeout(() => {
+    const pi = $('#sellPrice');
+    if (pi) {
+      pi.focus();
+      pi.select();
+    }
+  }, 80);
 }
 
 // Read price from the input AND the current mode, always return per-ticket price.
 // Single source of truth for derived values (total revenue, profit, etc.).
 function getSellPricePerKs() {
-  const raw = parseFloat($('#sellPrice').value);
-  if (!raw || raw <= 0) return 0;
+  // Accept both "1234.56" and "1234,56" (Czech keyboard layout often produces commas).
+  // The native <input type="number"> usually rejects commas, but if a paste or
+  // localized formatting slips through, .value can still contain a comma. We
+  // normalize defensively here.
+  let raw = $('#sellPrice').value;
+  if (typeof raw === 'string') raw = raw.replace(',', '.').trim();
+  raw = parseFloat(raw);
+  if (!raw || isNaN(raw) || raw <= 0) return 0;
   if (state.sellPriceMode === 'total') {
     const qty = parseInt($('#sellQuantity').value) || 1;
     return qty > 0 ? raw / qty : 0;
@@ -8630,7 +8692,9 @@ async function confirmSell() {
   const saleCurrency = sellCurrency !== ticketCcy ? sellCurrency : undefined;
 
   if (!pricePerKs || pricePerKs <= 0) {
-    toast('Zadej platnou cenu', 'error');
+    toast('Zadej platnou prodejní cenu (musí být větší než 0)', 'error');
+    $('#sellPrice').focus();
+    $('#sellPrice').select();
     return;
   }
   
@@ -8757,6 +8821,59 @@ async function markUndelivered(id) {
   await window.api.upsertTicket(updated);
   await refreshDb();
   toast('Vráceno zpět na "Prodáno"', 'info');
+}
+
+// ─── Write-off (unsold past-event ticket = realised loss) ────────────────
+// When an event passes and the ticket never sold, this records the purchase
+// price as a realised loss. Status becomes 'cancelled', salePrice = 0, and
+// downstream calculations (profit, ROI, dashboard totals) will treat the
+// negative purchase price as a confirmed loss.
+async function writeOffTicket(id) {
+  const ticket = state.db.tickets.find(t => t.id === id);
+  if (!ticket) return;
+  const purchaseCost = (Number(ticket.purchasePrice) || 0) * (Number(ticket.quantity) || 1);
+  const currency = ticket.currency || getDefaultTicketCurrency();
+  const confirmed = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Odepsat jako ztrátu'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Odepsat vstupenku jako ztrátu',
+    message: `Odepsat "${ticket.eventName || 'vstupenku'}" jako ztrátu?`,
+    detail: `Event prošel a vstupenka se neprodala. Zaeviduje se realizovaná ztráta ${formatMoney(purchaseCost, currency)} (nákupní cena × ${ticket.quantity || 1} ks).\n\nVstupenka bude označena jako "Zrušeno". Vrátit lze tlačítkem ↶.`
+  });
+  if (!confirmed) return;
+  const updated = {
+    ...ticket,
+    status: 'cancelled',
+    salePrice: 0,
+    saleDate: new Date().toISOString().slice(0, 10),
+    writeOffReason: 'unsold-past-event',
+    writeOffAt: new Date().toISOString()
+  };
+  await window.api.upsertTicket(updated);
+  await refreshDb();
+  toast(`Odepsáno jako ztráta ${formatMoney(purchaseCost, currency)}`, 'info', 3500);
+}
+
+async function unwriteOffTicket(id) {
+  const ticket = state.db.tickets.find(t => t.id === id);
+  if (!ticket) return;
+  // Revert to whatever state makes sense — if it was listed before writeoff
+  // we don't know, so default to 'listed' (it's the closest pre-writeoff state
+  // for a past-event unsold ticket). User can change to 'available' via Edit
+  // if they prefer.
+  const updated = {
+    ...ticket,
+    status: 'listed',
+    salePrice: 0,
+    saleDate: null,
+    writeOffReason: null,
+    writeOffAt: null
+  };
+  await window.api.upsertTicket(updated);
+  await refreshDb();
+  toast('Vráceno zpět ze stavu Zrušeno', 'info');
 }
 
 async function bulkDelete() {
@@ -9206,6 +9323,16 @@ function setupEventListeners() {
   // Save ticket
   $('#btnSaveTicket').addEventListener('click', saveTicket);
   $('#btnConfirmSell').addEventListener('click', confirmSell);
+  // Enter inside the price field submits the modal — saves a click for the
+  // common case "type price → Enter → done".
+  ['#sellPrice', '#sellQuantity'].forEach(sel => {
+    $(sel)?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmSell();
+      }
+    });
+  });
   // Live updates in sell modal
   $('#sellQuantity')?.addEventListener('input', updateSellHints);
   $('#sellPrice')?.addEventListener('input', updateSellHints);
