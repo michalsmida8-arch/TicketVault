@@ -1002,6 +1002,22 @@ body.marketplace-active .main {
   font-feature-settings: 'tnum', 'cv11';
 }
 
+/* Hero card — the FIRST stat-card in any dashboard row is the headline number
+   (e.g. "CELKOVÝ PROFIT" on the main dashboard). Make it visually dominant:
+   bigger value, slightly prominent label. The rest of the cards stay at
+   standard size to create a clear focal point. */
+.stats-row .stat-card:first-child .stat-value,
+.stats-grid .stat-card:first-child .stat-value {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+}
+.stats-row .stat-card:first-child .stat-label,
+.stats-grid .stat-card:first-child .stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+}
+
 /* Semantic colour modifiers — kept for charts / states that need color coding.
    Tuned to warm palette so they don't clash with gold accents. */
 .stat-value.profit { color: var(--green); }
@@ -1124,7 +1140,7 @@ body.marketplace-active .main {
   transition: background 0.1s;
 }
 
-.tickets-table tbody tr:hover {
+.tickets-table tbody tr:hover td {
   background: var(--bg-hover);
 }
 
@@ -1193,22 +1209,22 @@ body.marketplace-active .main {
 }
 
 .status-sold {
-  background: rgba(var(--green-rgb), 0.15);
-  color: var(--green-bright);
-  border: 1px solid rgba(var(--green-rgb), 0.3);
+  background: rgba(var(--purple-rgb), 0.15);
+  color: var(--purple);
+  border: 1px solid rgba(var(--purple-rgb), 0.35);
 }
 
 .status-delivered {
-  background: rgba(6, 182, 212, 0.18);
-  color: #67e8f9;
-  border: 1px solid rgba(6, 182, 212, 0.5);
+  background: rgba(var(--green-rgb), 0.22);
+  color: var(--green);
+  border: 1px solid rgba(var(--green-rgb), 0.45);
   font-weight: 600;
 }
 
 .status-available {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--blue);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.12);
+  color: var(--text-secondary);
+  border: 1px solid rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.25);
 }
 
 .status-listed {
@@ -1223,18 +1239,71 @@ body.marketplace-active .main {
   border: 1px solid rgba(var(--red-rgb), 0.3);
 }
 
-/* Delivered row highlight - subtle cyan tint */
+/* Delivered row highlight — subtle green tint signaling "resolved / done".
+   Applied consistently on every row where status === 'delivered'.
+   IMPORTANT: background goes on <td>, not <tr>, because <tr> backgrounds
+   can be unreliable depending on border-collapse and browser rendering.
+   The proužek (left bar) stays on tr via box-shadow which renders fine. */
 .tickets-table tbody tr.row-delivered {
-  background: rgba(6, 182, 212, 0.06);
-  border-left: 3px solid #06b6d4;
+  box-shadow: inset 4px 0 0 var(--green);
 }
-
-.tickets-table tbody tr.row-delivered:hover {
-  background: rgba(6, 182, 212, 0.12);
+.tickets-table tbody tr.row-delivered td {
+  background: rgba(var(--green-rgb), 0.12) !important;
 }
-
+.tickets-table tbody tr.row-delivered:hover td {
+  background: rgba(var(--green-rgb), 0.22) !important;
+}
 .tickets-table tbody tr.row-delivered td:first-child {
   border-left: none;
+}
+
+/* Light theme — more visible against the cream background.
+   Use !important so we win against any conflicting rules (zebra, hover, etc.) */
+[data-theme="light"] .tickets-table tbody tr.row-delivered td {
+  background: rgba(var(--green-rgb), 0.12) !important;
+}
+[data-theme="light"] .tickets-table tbody tr.row-delivered:hover td {
+  background: rgba(var(--green-rgb), 0.22) !important;
+}
+
+/* Written-off row — event passed without sale, recorded as realised loss.
+   Greyed out + diagonal stripe pattern to signal "this is closed but it
+   wasn't a happy ending". Less aggressive than past-event red because the
+   loss is already booked; no further action needed. */
+.tickets-table tbody tr.row-writeoff {
+  box-shadow: inset 4px 0 0 var(--text-tertiary);
+}
+.tickets-table tbody tr.row-writeoff td {
+  background: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.08) !important;
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.4);
+  text-decoration-thickness: 1px;
+}
+.tickets-table tbody tr.row-writeoff:hover td {
+  background: rgba(var(--text-tertiary-rgb, 138, 126, 106), 0.14) !important;
+}
+.tickets-table tbody tr.row-writeoff td:first-child {
+  border-left: none;
+}
+/* Don't strike through action buttons or status pill */
+.tickets-table tbody tr.row-writeoff .col-actions,
+.tickets-table tbody tr.row-writeoff .col-actions *,
+.tickets-table tbody tr.row-writeoff .status-pill {
+  text-decoration: none;
+}
+
+/* "Odepsat ztrátu" button — neutral-grey style (not red/danger because
+   it's a deliberate accounting action, not a destructive one). */
+.btn-writeoff {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-writeoff:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
 }
 
 .roi-pill {
@@ -1263,7 +1332,26 @@ body.marketplace-active .main {
 
 .actions-cell {
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Secondary actions (Clone, Edit, Del) — revealed on row hover so they don't
+   crowd the primary action button. Primary action (Zalistovat/Prodat/Doručit)
+   is always visible since it's the suggested next step for this row. */
+.actions-secondary {
+  display: flex;
   gap: 4px;
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.tickets-table tbody tr:hover .actions-secondary,
+.actions-secondary:focus-within {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 .col-actions {
@@ -1923,6 +2011,127 @@ body.bulk-bar-visible .main {
   font-weight: 600;
 }
 
+/* Inline inputs inside inbox cards — minimal chrome, blends with surrounding
+   text but gives clear "editable" affordance on focus. Replaces the read-only
+   inbox-detail-value span when the user can override missing parser fields. */
+.inbox-detail-input {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+  /* margin-left to align with span fields */
+  margin-left: -6px;
+}
+.inbox-detail-input:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-hover);
+}
+.inbox-detail-input:focus {
+  border-color: var(--purple);
+  background: var(--bg-tertiary);
+  outline: none;
+}
+.inbox-detail-input::placeholder {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* When approve is clicked but a required field is blank, the input pulses
+   red briefly + keeps a red border until the user starts typing. */
+.field-required-missing {
+  border-color: var(--red) !important;
+  background: rgba(var(--red-rgb, 220, 38, 38), 0.06) !important;
+  animation: required-pulse 0.6s ease;
+}
+.editable-title.field-required-missing {
+  border-color: var(--red) !important;
+  background: rgba(var(--red-rgb, 220, 38, 38), 0.06) !important;
+}
+@keyframes required-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--red-rgb, 220, 38, 38), 0); }
+  50% { box-shadow: 0 0 0 4px rgba(var(--red-rgb, 220, 38, 38), 0.25); }
+}
+.inbox-detail-input.mono-input {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.inbox-detail-input.price-input {
+  color: var(--green-bright);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+.inbox-detail-input.currency-input {
+  flex: 0 0 70px;
+  font-weight: 500;
+  text-align: center;
+}
+.inbox-price-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Editable title (event name) inside inbox card — contenteditable span styled
+   to look like a normal heading until hovered/focused. Shows placeholder when
+   empty so the user knows to click it. */
+.editable-title {
+  outline: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 1.2em;
+}
+.editable-title:hover {
+  border-color: var(--border-subtle);
+}
+.editable-title:focus {
+  border-color: var(--purple);
+  background: var(--bg-tertiary);
+}
+.editable-title:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* "Pokročilá úprava" button — visually distinct from primary actions, pushed
+   to the right so it doesn't fight for attention with Approve / Dismiss. */
+.inbox-advanced-btn {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.inbox-advanced-btn:hover {
+  opacity: 1;
+}
+
+/* Section labels inside the advanced edit modal — small caps headings that
+   divide event / tickets / price / buyer sections. */
+.modal-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin: 16px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.modal-section-label:first-child {
+  margin-top: 0;
+}
+
 .inbox-match-box {
   background: rgba(var(--green-rgb), 0.08);
   border: 1px solid rgba(var(--green-rgb), 0.3);
@@ -2178,47 +2387,100 @@ body.bulk-bar-visible .main {
   font-weight: 500;
 }
 
-/* Neprodané a event do 7 dní - jemné žluté pozadí */
-.tickets-table tbody tr.row-urgent-sell {
+/* Neprodané a event do 7 dní - jemné žluté pozadí.
+   Backgrounds go on <td> so they render reliably across the full row width;
+   <tr> backgrounds get clipped or skipped depending on border-collapse. */
+.tickets-table tbody tr.row-urgent-sell td {
   background: rgba(var(--yellow-rgb), 0.04);
 }
-.tickets-table tbody tr.row-urgent-sell:hover {
+.tickets-table tbody tr.row-urgent-sell:hover td {
   background: rgba(var(--yellow-rgb), 0.10);
 }
-.tickets-table tbody tr.row-urgent-sell.animated {
+.tickets-table tbody tr.row-urgent-sell.animated td {
   animation: row-pulse-yellow 2.8s ease-in-out infinite;
 }
 
 /* Prodané ale neodeslané a event do 5 dní - jemnější červené pozadí */
-.tickets-table tbody tr.row-urgent-deliver {
+.tickets-table tbody tr.row-urgent-deliver td {
   background: rgba(var(--red-rgb), 0.05);
 }
-.tickets-table tbody tr.row-urgent-deliver:hover {
+.tickets-table tbody tr.row-urgent-deliver:hover td {
   background: rgba(var(--red-rgb), 0.11);
 }
-.tickets-table tbody tr.row-urgent-deliver.animated {
+.tickets-table tbody tr.row-urgent-deliver.animated td {
   animation: row-pulse-red 2.0s ease-in-out infinite;
   animation-delay: -0.6s;
 }
 
 /* Light theme — saturated colors would make 0.04 too beige/salmon.
    Reduce opacity so tinting is subtle on white. */
-[data-theme="light"] .tickets-table tbody tr.row-urgent-sell {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-sell td {
   background: rgba(var(--yellow-rgb), 0.02);
 }
-[data-theme="light"] .tickets-table tbody tr.row-urgent-sell:hover {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-sell:hover td {
   background: rgba(var(--yellow-rgb), 0.05);
 }
-[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver td {
   background: rgba(var(--red-rgb), 0.025);
 }
-[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver:hover {
+[data-theme="light"] .tickets-table tbody tr.row-urgent-deliver:hover td {
   background: rgba(var(--red-rgb), 0.06);
 }
 
-.tickets-table tbody tr.row-urgent-sell.animated:hover,
-.tickets-table tbody tr.row-urgent-deliver.animated:hover {
+.tickets-table tbody tr.row-urgent-sell.animated:hover td,
+.tickets-table tbody tr.row-urgent-deliver.animated:hover td {
   animation: none;
+}
+
+/* PAST EVENT — event already happened but ticket isn't resolved (still
+   listed/available, or sold-but-not-delivered). This is the loudest visual
+   alert: stronger red tint than row-urgent-deliver, plus a solid left border
+   accent so the row stands out even on a packed table. Single intensity in
+   both themes — past-event is rare enough that we want it screaming. */
+.tickets-table tbody tr.row-past-event {
+  box-shadow: inset 4px 0 0 var(--red);
+  position: relative;
+}
+.tickets-table tbody tr.row-past-event td {
+  background: rgba(var(--red-rgb), 0.10);
+}
+.tickets-table tbody tr.row-past-event:hover td {
+  background: rgba(var(--red-rgb), 0.18);
+}
+.tickets-table tbody tr.row-past-event.animated td {
+  animation: row-pulse-past 1.6s ease-in-out infinite;
+}
+.tickets-table tbody tr.row-past-event.animated:hover td {
+  animation: none;
+}
+[data-theme="light"] .tickets-table tbody tr.row-past-event td {
+  background: rgba(var(--red-rgb), 0.07);
+}
+[data-theme="light"] .tickets-table tbody tr.row-past-event:hover td {
+  background: rgba(var(--red-rgb), 0.13);
+}
+@keyframes row-pulse-past {
+  0%, 100% { background-color: rgba(var(--red-rgb), 0.10); }
+  50%      { background-color: rgba(var(--red-rgb), 0.32); }
+}
+
+/* Past-event urgent chip — solid red background instead of the lighter
+   yellow/red tint used for upcoming events. Eye-catching but not overwhelming
+   since it sits inside an already-tinted row. */
+.urgent-chip.urgent-chip-past {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  font-weight: 600;
+}
+.urgent-chip.urgent-chip-past .urgent-chip-text {
+  color: #fff;
+}
+.urgent-chip.urgent-chip-past .urgent-mute-btn {
+  color: rgba(255, 255, 255, 0.8);
+}
+.urgent-chip.urgent-chip-past .urgent-mute-btn:hover {
+  color: #fff;
 }
 
 @keyframes row-pulse-yellow {
@@ -2267,11 +2529,15 @@ body.bulk-bar-visible .main {
 }
 
 [data-theme="light"] .status-sold {
-  color: #15803d;
+  background: rgba(var(--purple-rgb), 0.12);
+  color: var(--purple);
+  border: 1px solid rgba(var(--purple-rgb), 0.3);
 }
 
 [data-theme="light"] .status-available {
-  color: #1d4ed8;
+  background: rgba(90, 82, 72, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid rgba(90, 82, 72, 0.18);
 }
 
 [data-theme="light"] .status-listed {
@@ -2283,9 +2549,9 @@ body.bulk-bar-visible .main {
 }
 
 [data-theme="light"] .status-delivered {
-  background: rgba(6, 182, 212, 0.1);
-  color: #0e7490;
-  border: 1px solid rgba(6, 182, 212, 0.3);
+  background: rgba(var(--green-rgb), 0.16);
+  color: var(--green);
+  border: 1px solid rgba(var(--green-rgb), 0.4);
 }
 
 .urgent-chip.muted {
@@ -2448,6 +2714,14 @@ body.bulk-bar-visible .main {
 .todo-summary-card.not-listed .todo-summary-value { color: var(--blue); }
 .todo-summary-card.urgent-sell .todo-summary-value { color: var(--yellow); }
 .todo-summary-card.urgent-deliver .todo-summary-value { color: var(--red); }
+/* Past-event summary card — bold red, slight background tint to grab the eye
+   even before the user reads the section. */
+.todo-summary-card.past-event {
+  background: rgba(var(--red-rgb), 0.08);
+  border-color: rgba(var(--red-rgb), 0.35);
+}
+.todo-summary-card.past-event .todo-summary-value { color: var(--red); }
+.todo-summary-card.past-event .todo-summary-label { color: var(--red); font-weight: 600; }
 
 .todo-sections {
   display: flex;
@@ -2493,6 +2767,20 @@ body.bulk-bar-visible .main {
 .todo-section.list .todo-section-icon {
   background: rgba(59, 130, 246, 0.15);
   color: var(--blue);
+}
+
+/* Past-event section — solid red icon background and a subtle red border tint
+   on the whole card so the section reads as the most urgent on the page. */
+.todo-section.past {
+  border-color: rgba(var(--red-rgb), 0.4);
+  box-shadow: 0 0 0 1px rgba(var(--red-rgb), 0.15);
+}
+.todo-section.past .todo-section-icon {
+  background: var(--red);
+  color: #fff;
+}
+.todo-section.past .todo-section-title {
+  color: var(--red);
 }
 
 .todo-section-title {
@@ -2563,7 +2851,10 @@ body.bulk-bar-visible .main {
 .todo-item.level-critical .todo-item-days-num { color: var(--red); }
 .todo-item.level-high .todo-item-days-num { color: #f97316; }
 .todo-item.level-medium .todo-item-days-num { color: var(--yellow); }
-.todo-item.level-low .todo-item-days-num { color: var(--text-secondary); }
+/* Low urgency (notListed / KOUPENO state) — use a calm purple that matches
+   the gold/cream palette without screaming. The bullet `●` here is a status
+   indicator (purchased but not yet listed), not a date countdown. */
+.todo-item.level-low .todo-item-days-num { color: var(--purple); opacity: 0.75; }
 
 .todo-item-body {
   min-width: 0;
@@ -3162,6 +3453,23 @@ tr:hover .copy-btn {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* Past-event banner inside Sell modal — warns the user that the event already
+   happened, so if they're here to "sell at 0" they probably want the
+   Odepsat ztrátu button on the row instead. */
+.sell-past-banner {
+  background: rgba(var(--yellow-rgb), 0.10);
+  border: 1px solid rgba(var(--yellow-rgb), 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: -4px 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.sell-past-banner strong {
+  color: var(--purple);
 }
 
 .sell-info-label {
@@ -4758,6 +5066,14 @@ tr:hover .copy-btn {
   font-weight: 500;
 }
 
+/* Same-day flip — show as a small green badge, since fast resale is usually
+   a good thing (low inventory time = less risk, faster cashflow). */
+.hold-sameday {
+  color: var(--green);
+  font-size: 11px;
+  font-style: italic;
+}
+
 .hold-na {
   color: var(--text-tertiary);
 }
@@ -5305,4 +5621,282 @@ html[data-privacy="1"] body.privacy-mode { visibility: visible; }
   background: rgba(107, 114, 128, 0.15);
   color: #9ca3af;
   border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+/* ============================================================
+   DARK THEME POLISH (v1.15.6)
+   ------------------------------------------------------------
+   Subtle depth, warmth, and luminescence applied only in dark
+   mode. All rules below are scoped with html:not([data-theme="light"])
+   so they don't affect the cream light theme.
+
+   Goals:
+   - Move away from "flat black" toward warm, depth-rich charcoal
+   - Cards lift off the page with subtle shadow + inset highlights
+   - Gold accents have a soft glow (luminous, not metallic flat)
+   - Hover states feel responsive (depth shift, not just color)
+   - Table rows have zebra striping for scannability
+   - Heroes / hero stat cards get a soft gold-tinted gradient
+   ============================================================ */
+
+/* ── PAGE BG: warm radial gradient instead of flat #0a0908 ───── */
+html:not([data-theme="light"]) .app {
+  background:
+    radial-gradient(ellipse 1200px 800px at top right, rgba(var(--purple-rgb), 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 800px 600px at bottom left,  rgba(var(--purple-rgb), 0.02) 0%, transparent 50%),
+    var(--bg-primary);
+}
+
+/* ── SIDEBAR: subtle vertical gradient + soft gold glow at top ── */
+html:not([data-theme="light"]) .sidebar {
+  background:
+    linear-gradient(to bottom,
+      rgba(var(--purple-rgb), 0.025) 0%,
+      transparent 35%,
+      transparent 100%
+    ),
+    var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.02);
+}
+
+/* ── STAT CARDS: lift off the page with depth ──────────────────── */
+html:not([data-theme="light"]) .stat-card {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.015) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.15) 100%
+    ),
+    var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset, /* top highlight */
+    0 4px 16px rgba(0, 0, 0, 0.25);          /* drop shadow */
+}
+html:not([data-theme="light"]) .stat-card:hover {
+  border-color: rgba(var(--purple-rgb), 0.3);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 6px 20px rgba(0, 0, 0, 0.35),
+    0 0 24px rgba(var(--purple-rgb), 0.08);   /* gold glow on hover */
+  transform: translateY(-1px);
+}
+html:not([data-theme="light"]) .stat-card::before {
+  /* The gold left bar gets a subtle glow */
+  box-shadow: 0 0 12px rgba(var(--purple-rgb), 0.35);
+  opacity: 0.85;
+}
+
+/* ── HERO STAT CARDS (Celkový profit etc.): warm gold tint ──── */
+html:not([data-theme="light"]) .stats-row .stat-card {
+  background:
+    linear-gradient(135deg,
+      rgba(var(--purple-rgb), 0.025) 0%,
+      transparent 70%
+    ),
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.015) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.15) 100%
+    ),
+    var(--bg-card);
+}
+
+/* ── TABLES: zebra striping + warm hover ───────────────────── */
+html:not([data-theme="light"]) .tickets-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.012);
+}
+html:not([data-theme="light"]) .tickets-table tbody tr:hover td {
+  background: rgba(var(--purple-rgb), 0.06);
+}
+html:not([data-theme="light"]) .tickets-table tbody tr:hover {
+  box-shadow: inset 3px 0 0 rgba(var(--purple-rgb), 0.3);
+}
+/* Don't let zebra fight with urgent-row tinting or delivered/resolved rows */
+html:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-sell:nth-child(even) td,
+html:not([data-theme="light"]) .tickets-table tbody tr.row-urgent-deliver:nth-child(even) td,
+html:not([data-theme="light"]) .tickets-table tbody tr.row-past-event:nth-child(even) td,
+html:not([data-theme="light"]) .tickets-table tbody tr.row-delivered:nth-child(even) td {
+  background: inherit;
+}
+
+html:not([data-theme="light"]) .tickets-table th {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-secondary);
+  border-bottom: 1px solid rgba(var(--purple-rgb), 0.15);
+}
+
+/* ── PRIMARY BUTTON: gold with luminescence ──────────────── */
+html:not([data-theme="light"]) .btn-primary {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.15) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.1) 100%
+    ),
+    var(--purple);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    0 2px 8px rgba(var(--purple-rgb), 0.25),
+    0 0 16px rgba(var(--purple-rgb), 0.15);
+}
+html:not([data-theme="light"]) .btn-primary:hover {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 4px 14px rgba(var(--purple-rgb), 0.4),
+    0 0 24px rgba(var(--purple-rgb), 0.25);
+}
+
+/* ── DARK BUTTON: subtle depth, no flat block ──────────────── */
+html:not([data-theme="light"]) .btn-dark {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-tertiary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+}
+html:not([data-theme="light"]) .btn-dark:hover {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      transparent 100%
+    ),
+    var(--bg-hover);
+  border-color: rgba(var(--purple-rgb), 0.25);
+}
+
+/* ── NAV ITEMS in sidebar: warmer active state ──────────────── */
+html:not([data-theme="light"]) .nav-item.active {
+  background:
+    linear-gradient(90deg,
+      rgba(var(--purple-rgb), 0.18) 0%,
+      rgba(var(--purple-rgb), 0.08) 100%
+    );
+  box-shadow:
+    inset 3px 0 0 var(--purple),
+    0 0 16px rgba(var(--purple-rgb), 0.12);
+}
+html:not([data-theme="light"]) .nav-item:hover:not(.active) {
+  background: rgba(var(--purple-rgb), 0.05);
+}
+
+/* ── INPUTS: subtle depth, gold focus ring ────────────────── */
+html:not([data-theme="light"]) input,
+html:not([data-theme="light"]) select,
+html:not([data-theme="light"]) textarea {
+  background:
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.15) 0%,
+      transparent 50%
+    ),
+    var(--bg-tertiary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+}
+html:not([data-theme="light"]) input:focus,
+html:not([data-theme="light"]) select:focus,
+html:not([data-theme="light"]) textarea:focus {
+  border-color: var(--purple);
+  box-shadow:
+    0 0 0 3px rgba(var(--purple-rgb), 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.02) inset;
+}
+
+/* ── CATEGORY FILTER PILLS at top of Dashboard ─────────────── */
+html:not([data-theme="light"]) .cat-chip {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-tertiary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  transition: all 0.2s;
+}
+html:not([data-theme="light"]) .cat-chip.active {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      transparent 100%
+    ),
+    var(--purple);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    0 0 16px rgba(var(--purple-rgb), 0.25);
+}
+
+/* ── MODALS: backdrop blur + card lift ──────────────────────── */
+html:not([data-theme="light"]) .modal {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.65);
+}
+html:not([data-theme="light"]) .modal-content {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      transparent 100%
+    ),
+    var(--bg-card);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 24px 48px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(var(--purple-rgb), 0.08);
+}
+
+/* ── SCROLLBAR: gold-tinted for dark mode ───────────────────── */
+html:not([data-theme="light"]) ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html:not([data-theme="light"]) ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+html:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
+  background: rgba(var(--purple-rgb), 0.2);
+  border-radius: 5px;
+  border: 2px solid var(--bg-secondary);
+}
+html:not([data-theme="light"]) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--purple-rgb), 0.4);
+}
+
+/* ── CHARTS in Statistics: warmer grid lines, glow on data points ── */
+html:not([data-theme="light"]) .chart-card {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.012) 0%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.12) 100%
+    ),
+    var(--bg-card);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.025) inset,
+    0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* ── STATUS PILLS (Doručeno / Zalistováno / Prodáno): subtle gloss ── */
+html:not([data-theme="light"]) .status-pill {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 50%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+/* ── CLOUD / ONLINE BADGES in sidebar header: subtle glow ──── */
+html:not([data-theme="light"]) .cloud-badge {
+  box-shadow: 0 0 12px rgba(var(--purple-rgb), 0.15);
+}
+html:not([data-theme="light"]) #statusBadge {
+  box-shadow: 0 0 12px rgba(var(--green-rgb), 0.2);
+}
+
+/* ── HERO SUB (z 33 prodaných lístků...): subtle italic flair ──── */
+html:not([data-theme="light"]) .hero-sub strong {
+  color: var(--purple-hover);
+  text-shadow: 0 0 8px rgba(var(--purple-rgb), 0.2);
 }

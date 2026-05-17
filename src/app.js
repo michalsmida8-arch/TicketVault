@@ -64,7 +64,9 @@ let state = {
   payoutFilters: {
     search: '',
     platform: '',
-    status: ''
+    status: '',
+    month: '',   // 1-12 string, or '' for all
+    year: ''     // YYYY string, or '' for all
   },
   payoutRules: [],
   payingOutTicket: null,
@@ -163,6 +165,8 @@ function applyUiPrefsToUI() {
   set('#pFilterSearch', p.search);
   set('#pFilterPlatform', p.platform);
   set('#pFilterStatus', p.status);
+  set('#pFilterMonth', p.month);
+  set('#pFilterYear', p.year);
 
   // Membership filters
   const m = state.membershipFilters;
@@ -357,7 +361,10 @@ function saleCurrency(t) {
 }
 
 function calcProfit(t) {
-  if (t.status !== 'sold' && t.status !== 'delivered') return 0;
+  // 'cancelled' = written-off unsold ticket. salePrice will be 0 → profit
+  // comes out as -purchase × qty (negative), which is exactly what we want
+  // for the realised loss.
+  if (t.status !== 'sold' && t.status !== 'delivered' && t.status !== 'cancelled') return 0;
   const qty = Number(t.quantity) || 1;
   const sale = Number(t.salePrice) || 0;
   const purchase = Number(t.purchasePrice) || 0;
@@ -373,7 +380,7 @@ function calcProfit(t) {
 }
 
 function calcRoi(t) {
-  if ((t.status !== 'sold' && t.status !== 'delivered') || !t.purchasePrice) return 0;
+  if ((t.status !== 'sold' && t.status !== 'delivered' && t.status !== 'cancelled') || !t.purchasePrice) return 0;
   const qty = Number(t.quantity) || 1;
   const totalCost = (Number(t.purchasePrice) || 0) * qty;
   if (totalCost <= 0) return 0;
@@ -383,6 +390,7 @@ function calcRoi(t) {
 
 // Total revenue for one ticket row (sale price × quantity), in SALE currency.
 function calcRevenue(t) {
+  // cancelled tickets had no sale → revenue 0 (purchase becomes a loss, not negative revenue)
   if (t.status !== 'sold' && t.status !== 'delivered') return 0;
   return (Number(t.salePrice) || 0) * (Number(t.quantity) || 1);
 }
@@ -1712,16 +1720,31 @@ function updateMutedRowUI() {
 function getTicketUrgency(t) {
   if (!t || !t.eventDate) return null;
   const days = daysUntil(t.eventDate);
-  if (days === null || days < 0) return null;  // past events ignored
-  
+  if (days === null) return null;
+
   const cfg = getAlertsConfig();
   const isMuted = cfg.mutedTicketIds.includes(t.id);
-  
-  // Sold (ale ne doručeno) a event do N dní → "potřebuje doručit"
+
+  // ── Past events ────────────────────────────────────────────────────────
+  // Event already happened but ticket isn't in a final state (sold+delivered).
+  // This is the loudest alert — money is potentially lost (unsold ticket =
+  // wasted inventory; sold-but-not-delivered = customer didn't get the ticket
+  // and is likely opening a chargeback/dispute right now).
+  if (days < 0) {
+    // Tickets in a "done" state (delivered, refunded, or written off as a loss)
+    // are fine — event is just history at that point, no action needed.
+    if (t.status === 'delivered' || t.status === 'refunded' || t.status === 'cancelled') return null;
+    // Anything else (available/listed/sold) past the event date = real problem.
+    const type = t.status === 'sold' ? 'past-undelivered' : 'past-unsold';
+    return { type, days, level: 'critical', muted: isMuted };
+  }
+
+  // ── Upcoming events ────────────────────────────────────────────────────
+  // Sold but not yet delivered, event soon → "needs delivery"
   if (t.status === 'sold' && days <= cfg.undeliveredDays) {
     return { type: 'undelivered', days, level: 'critical', muted: isMuted };
   }
-  // Dostupné nebo listed a event do N dní → "potřebuje prodat"
+  // Still available/listed, event soon → "needs sale"
   if ((t.status === 'available' || t.status === 'listed') && days <= cfg.unsoldDays) {
     return { type: 'unsold', days, level: 'warning', muted: isMuted };
   }
@@ -1748,14 +1771,17 @@ window.debugUrgency = debugUrgencyStatus;
 
 function countUrgentTickets() {
   const all = state.db.tickets || [];
-  let unsold = 0, undelivered = 0;
+  let unsold = 0, undelivered = 0, past = 0;
   for (const t of all) {
     const u = getTicketUrgency(t);
     if (!u) continue;
-    if (u.type === 'unsold') unsold++;
+    // Past-event types count as their own bucket — counted separately so we
+    // can highlight them more prominently in the K-dořešení tab if needed.
+    if (u.type === 'past-unsold' || u.type === 'past-undelivered') past++;
+    else if (u.type === 'unsold') unsold++;
     else if (u.type === 'undelivered') undelivered++;
   }
-  return { unsold, undelivered, total: unsold + undelivered };
+  return { unsold, undelivered, past, total: unsold + undelivered + past };
 }
 
 function updateSidebarBadge() {
@@ -1813,8 +1839,18 @@ function render() {
   if (urgentCounts.total > 0) {
     console.log('[URGENT] Detected:', urgentCounts);
   }
-  if ($('#view-stats').classList.contains('active')) renderStatsPage();
-  if ($('#view-todo').classList.contains('active')) renderTodoPage();
+  // Re-render the currently-active detail view. Otherwise mutations made
+  // from within the Payouts/Stats/Todo/Expenses/etc. screens (e.g. "Označit
+  // přijaté") only refresh the global state, not the actively visible table —
+  // so the user has to navigate away and back to see the change.
+  if ($('#view-stats')?.classList.contains('active')) renderStatsPage();
+  if ($('#view-todo')?.classList.contains('active')) renderTodoPage();
+  if ($('#view-payouts')?.classList.contains('active')) renderPayoutsPage();
+  if ($('#view-expenses')?.classList.contains('active')) renderExpensesPage?.();
+  if ($('#view-inbox')?.classList.contains('active')) renderInboxPage?.();
+  if ($('#view-memberships')?.classList.contains('active')) renderMembershipsPage?.();
+  if ($('#view-mailboxes')?.classList.contains('active')) renderMailboxesPage?.();
+  if ($('#view-simcards')?.classList.contains('active')) renderSimcardsPage?.();
 }
 
 function getFilteredTickets() {
@@ -1885,7 +1921,10 @@ function renderStats() {
   } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
     all = all.filter(t => (t.category || 'concert') === state.dashboardCategory);
   }
-  const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered');
+  // Resolved tickets contribute to profit: sold/delivered (revenue minus cost)
+  // OR cancelled (= written off, revenue 0, profit = -cost). All three should
+  // flow through to dashboard totals as realised P&L.
+  const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered' || t.status === 'cancelled');
 
   // Aggregate in primary currency since tickets may have mixed currencies.
   const totalProfit = sold.reduce((s, t) => s + calcProfitInPrimary(t), 0);
@@ -1936,23 +1975,34 @@ function renderTickets() {
     const logo = t.logo 
       ? `<img src="${escapeHtml(t.logo)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${getEventInitials(t.eventName)}'">`
       : getEventInitials(t.eventName);
-    const isSold = t.status === 'sold';
-    const isDelivered = t.status === 'delivered';
-    const isSoldOrDelivered = isSold || isDelivered;
-    
+    // Normalize status — sometimes legacy or imported tickets have status
+    // values with trailing whitespace or different casing (e.g. "Delivered",
+    // "delivered ", "DELIVERED"). This caused only SOME delivered rows to
+    // get the green highlight while others stayed white.
+    const statusNorm = (t.status || '').toString().trim().toLowerCase();
+    const isSold = statusNorm === 'sold';
+    const isDelivered = statusNorm === 'delivered';
+    // 'cancelled' = written off (event passed, never sold) — a realised loss.
+    // Treated as "resolved" so the row stops showing past-event red, doesn't
+    // appear in K dořešení, and contributes its negative profit to dashboard
+    // totals. salePrice should be 0 → revenue 0 → profit = -purchasePrice.
+    const isWrittenOff = statusNorm === 'cancelled';
+    const isSoldOrDelivered = isSold || isDelivered || isWrittenOff;
+
     // Status label (pretty Czech labels)
     const statusLabels = {
       available: 'Koupeno',
       listed: 'Zalistováno',
       sold: 'Prodáno',
       delivered: '✓ Doručeno',
-      cancelled: 'Zrušeno'
+      cancelled: '❌ Odepsáno (ztráta)'
     };
-    const statusLabel = statusLabels[t.status] || (t.status || 'available');
+    const statusLabel = statusLabels[statusNorm] || (t.status || 'available');
     
     const urgency = getTicketUrgency(t);
     const cfg = getAlertsConfig();
     let rowClass = isDelivered ? 'row-delivered' : '';
+    if (isWrittenOff) rowClass = 'row-writeoff';   // overrides delivered (cancelled is a different state)
     if (urgency && !urgency.muted) {
       rowClass += (rowClass ? ' ' : '') + (urgency.type === 'undelivered' ? 'row-urgent-deliver' : 'row-urgent-sell');
       if (cfg.animations) {
@@ -1962,26 +2012,47 @@ function renderTickets() {
     
     // Pulsing dot + human-readable text + mute button
     let urgencyBadge = '';
+    let rowExtraClass = '';
     if (urgency) {
-      const daysText = urgency.days === 0
-        ? 'dnes je event'
-        : urgency.days === 1
-          ? 'zítra je event'
-          : `${urgency.days} dny do eventu`;
-      const action = urgency.type === 'undelivered' ? 'Doručit' : 'Prodat';
-      const dotClass = urgency.type === 'undelivered' ? 'urgent-dot-red' : 'urgent-dot-yellow';
+      // Past-event types use a clearer label since "−3 dny do eventu" reads weird.
+      let daysText;
+      if (urgency.type === 'past-unsold' || urgency.type === 'past-undelivered') {
+        const ago = Math.abs(urgency.days);
+        const action = urgency.type === 'past-undelivered' ? 'NEDORUČENO' : 'NEPRODÁNO';
+        daysText = ago === 0
+          ? `${action} · dnes byl event`
+          : ago === 1
+            ? `${action} · včera byl event`
+            : `${action} · event byl před ${ago} dny`;
+      } else {
+        daysText = urgency.days === 0
+          ? 'dnes je event'
+          : urgency.days === 1
+            ? 'zítra je event'
+            : `${urgency.days} dny do eventu`;
+      }
+      const action = (urgency.type === 'undelivered' || urgency.type === 'past-undelivered') ? 'Doručit' : 'Prodat';
+      // Past events get the red dot + a darker red chip variant. Add row class
+      // so the entire <tr> can show a subtle red background for visibility.
+      const isPast = urgency.type === 'past-unsold' || urgency.type === 'past-undelivered';
+      const dotClass = (urgency.type === 'undelivered' || isPast) ? 'urgent-dot-red' : 'urgent-dot-yellow';
+      const chipColorClass = isPast
+        ? 'urgent-chip-past'
+        : (urgency.type === 'undelivered' ? 'urgent-chip-red' : 'urgent-chip-yellow');
       const chipAnimClass = cfg.animations && !urgency.muted ? ' animated' : '';
       const chipMutedClass = urgency.muted ? ' muted' : '';
       const muteBtn = urgency.muted
         ? `<button class="urgent-mute-btn" data-unmute-id="${t.id}" title="Obnovit upozornění">🔔</button>`
         : `<button class="urgent-mute-btn" data-mute-id="${t.id}" title="Ztlumit upozornění pro tuto vstupenku">🔕</button>`;
       urgencyBadge = `
-        <span class="urgent-chip ${urgency.type === 'undelivered' ? 'urgent-chip-red' : 'urgent-chip-yellow'}${chipAnimClass}${chipMutedClass}" 
+        <span class="urgent-chip ${chipColorClass}${chipAnimClass}${chipMutedClass}"
               title="${action} — ${daysText}${urgency.muted ? ' (ztlumené)' : ''}">
           <span class="urgent-dot ${dotClass}${cfg.animations && !urgency.muted ? ' animated' : ''}"></span>
           <span class="urgent-chip-text">${daysText}</span>
           ${muteBtn}
         </span>`;
+      // Mark the row visually if event is past and ticket isn't resolved.
+      if (isPast && !urgency.muted) rowExtraClass = ' row-past-event';
     }
     
     // External IDs link (small icon next to event name)
@@ -1994,7 +2065,7 @@ function renderTickets() {
     }
     
     return `
-      <tr data-id="${t.id}" class="${rowClass}">
+      <tr data-id="${t.id}" data-status="${escapeHtml(String(t.status || ''))}" class="${rowClass}${rowExtraClass}">
         <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" ${checked}></td>
         <td>
           <div class="event-cell">
@@ -2056,6 +2127,9 @@ function renderTickets() {
           const saleD = new Date(t.saleDate);
           if (isNaN(purchaseD) || isNaN(saleD)) return '<span class="hold-na">—</span>';
           const days = Math.max(0, Math.round((saleD - purchaseD) / 86400000));
+          // 0 d = sold the same day. Show "stejný den" instead of bare "0 d"
+          // which looks like a parsing error at a glance.
+          if (days === 0) return '<span class="hold-final hold-sameday" title="Prodáno stejný den jako koupeno">stejný den</span>';
           return `<span class="hold-final" title="Prodáno za ${days} dní od nákupu">${days} d</span>`;
         })()}</td>
         <td class="col-profit ${profitClass}">${isSoldOrDelivered ? formatMoney(profit, primary) : '—'}</td>
@@ -2066,9 +2140,24 @@ function renderTickets() {
             ${t.status === 'listed' ? `<button class="btn btn-success btn-sm" data-action="sell" data-id="${t.id}">Prodat</button>` : ''}
             ${isSold ? `<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">✓ Doručit</button>` : ''}
             ${isDelivered ? `<button class="btn btn-undeliver btn-sm" data-action="undeliver" data-id="${t.id}" title="Vrátit zpět na prodáno">↶</button>` : ''}
-            <button class="btn btn-clone btn-sm" data-action="clone" data-id="${t.id}" title="Klonovat - vytvořit novou vstupenku s předvyplněnými daty">🗐</button>
-            <button class="btn btn-dark btn-sm" data-action="edit" data-id="${t.id}">Edit</button>
-            <button class="btn btn-danger btn-sm" data-action="delete" data-id="${t.id}">Del</button>
+            ${(() => {
+              // "Odepsat ztrátu" — only show when the event already passed AND the ticket
+              // never sold. This is the realised-loss path: ticket bought, not flipped,
+              // event happened, write off the purchase price as a loss instead of forcing
+              // the user to enter "0" in the sell modal (which the validator rejects).
+              const eventPassed = t.eventDate && new Date(t.eventDate) < new Date(new Date().toDateString());
+              const notResolved = t.status === 'available' || t.status === 'listed';
+              if (eventPassed && notResolved) {
+                return `<button class="btn btn-writeoff btn-sm" data-action="writeoff" data-id="${t.id}" title="Event prošel a vstupenka se neprodala — odepsat jako ztrátu">Odepsat ztrátu</button>`;
+              }
+              return '';
+            })()}
+            ${t.status === 'cancelled' ? `<button class="btn btn-undeliver btn-sm" data-action="unwriteoff" data-id="${t.id}" title="Vrátit zpět z odepsaného stavu">↶</button>` : ''}
+            <div class="actions-secondary">
+              <button class="btn btn-clone btn-sm" data-action="clone" data-id="${t.id}" title="Klonovat - vytvořit novou vstupenku s předvyplněnými daty">🗐</button>
+              <button class="btn btn-dark btn-sm" data-action="edit" data-id="${t.id}">Edit</button>
+              <button class="btn btn-danger btn-sm" data-action="delete" data-id="${t.id}">Del</button>
+            </div>
           </div>
         </td>
       </tr>
@@ -2088,6 +2177,8 @@ function renderTickets() {
       if (action === 'deliver') markDelivered(id);
       if (action === 'undeliver') markUndelivered(id);
       if (action === 'list') openListModal(state.db.tickets.find(t => t.id === id));
+      if (action === 'writeoff') writeOffTicket(id);
+      if (action === 'unwriteoff') unwriteOffTicket(id);
     });
   });
   
@@ -2274,11 +2365,24 @@ function collectTodoItems() {
   const notListed = [];
   const unsold = [];
   const undelivered = [];
+  const pastEvent = [];
 
   for (const t of all) {
     if (cfg.mutedTicketIds.includes(t.id)) continue;
 
     const days = t.eventDate ? daysUntil(t.eventDate) : null;
+
+    // PAST EVENT — date already gone but ticket isn't in a final state
+    // (delivered/refunded/cancelled). Highest priority bucket. Sort by how
+    // recently the event passed, most recent first.
+    // `cancelled` = written off as a realised loss — already a resolved state,
+    // so it shouldn't keep nagging the user in "K dořešení".
+    if (days !== null && days < 0) {
+      if (t.status !== 'delivered' && t.status !== 'refunded' && t.status !== 'cancelled') {
+        pastEvent.push({ ticket: t, days });
+      }
+      continue;
+    }
 
     // "K zalistování": status=available, no day threshold. Skip past events.
     if (cfg.todoShowNotListed &&
@@ -2306,8 +2410,10 @@ function collectTodoItems() {
   notListed.sort((a, b) => a.days - b.days);
   unsold.sort((a, b) => a.days - b.days);
   undelivered.sort((a, b) => a.days - b.days);
+  // Past events: sort by how recently the event was (smallest |days| first).
+  pastEvent.sort((a, b) => Math.abs(a.days) - Math.abs(b.days));
 
-  return { notListed, unsold, undelivered };
+  return { notListed, unsold, undelivered, pastEvent };
 }
 
 function getTodoUrgencyLevel(days) {
@@ -2330,6 +2436,12 @@ function renderTodoItem(item, kind) {
     level = 'low';
     daysNum = '●';
     daysLabel = 'KOUPENO';
+  } else if (kind === 'pastEvent') {
+    // Past event = always critical urgency. Show how many days AGO.
+    level = 'critical';
+    const ago = Math.abs(item.days);
+    daysNum = ago === 0 ? '!' : ago;
+    daysLabel = ago === 0 ? 'DNES' : ago === 1 ? 'VČERA' : 'DNÍ ZPĚT';
   } else {
     // Threshold depends on which action is pending: selling vs delivering.
     const threshold = kind === 'unsold' ? cfg.todoUnsoldDays : cfg.todoUndeliveredDays;
@@ -2365,6 +2477,15 @@ function renderTodoItem(item, kind) {
     primaryAction = `<button class="btn btn-success btn-sm" data-todo-action="sell" data-id="${t.id}">Prodat</button>`;
   } else if (kind === 'undelivered') {
     primaryAction = `<button class="btn btn-deliver btn-sm" data-todo-action="deliver" data-id="${t.id}">✓ Doručit</button>`;
+  } else if (kind === 'pastEvent') {
+    // For past events, the right action depends on current status: if sold but
+    // not delivered, prompt to deliver. Otherwise just open Edit so user can
+    // mark it refunded / delivered / whatever applies.
+    if (t.status === 'sold') {
+      primaryAction = `<button class="btn btn-deliver btn-sm" data-todo-action="deliver" data-id="${t.id}">✓ Doručit</button>`;
+    } else {
+      primaryAction = `<button class="btn btn-dark btn-sm" data-todo-action="edit" data-id="${t.id}">Vyřešit</button>`;
+    }
   } else { // notListed
     // Quick action: mark as Zalistováno (status=listed) directly.
     // Opens sell/listing flow — actually just flips status in one click.
@@ -2391,8 +2512,8 @@ function renderTodoItem(item, kind) {
 }
 
 function renderTodoPage() {
-  const { notListed, unsold, undelivered } = collectTodoItems();
-  const total = notListed.length + unsold.length + undelivered.length;
+  const { notListed, unsold, undelivered, pastEvent } = collectTodoItems();
+  const total = notListed.length + unsold.length + undelivered.length + pastEvent.length;
   const cfg = getAlertsConfig();
 
   // Summary cards — 4 mini cards on wider screens, wraps on narrow.
@@ -2403,6 +2524,11 @@ function renderTodoPage() {
         <span class="todo-summary-label">CELKEM</span>
         <span class="todo-summary-value">${total}</span>
       </div>
+      ${pastEvent.length > 0 ? `
+      <div class="todo-summary-card past-event">
+        <span class="todo-summary-label">PO TERMÍNU</span>
+        <span class="todo-summary-value">${pastEvent.length}</span>
+      </div>` : ''}
       <div class="todo-summary-card not-listed">
         <span class="todo-summary-label">K ZALISTOVÁNÍ</span>
         <span class="todo-summary-value">${notListed.length}</span>
@@ -2448,6 +2574,32 @@ function renderTodoPage() {
   }
 
   let html = '';
+
+  // Section 0: Po termínu (PAST EVENT) — highest priority. Always shown when
+  // any exist, regardless of cfg.todoShow* toggles, because it's a real loss
+  // signal: ticket was bought, event happened, money still tied up.
+  if (pastEvent.length > 0) {
+    html += `
+      <div class="todo-section past">
+        <div class="todo-section-header">
+          <div class="todo-section-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="todo-section-title">Po termínu eventu</div>
+            <div class="todo-section-hint">Event už proběhl, ale ticket není uzavřený</div>
+          </div>
+          <span class="todo-section-count">${pastEvent.length}</span>
+        </div>
+        <div class="todo-list">
+          ${pastEvent.map(i => renderTodoItem(i, 'pastEvent')).join('')}
+        </div>
+      </div>
+    `;
+  }
 
   // Section 1: K zalistování (Koupeno, not yet Listed)
   if (cfg.todoShowNotListed && notListed.length > 0) {
@@ -2555,8 +2707,8 @@ async function markAsListed(id) {
 function updateTodoBadge() {
   const badge = $('#navTodoBadge');
   if (!badge) return;
-  const { notListed, unsold, undelivered } = collectTodoItems();
-  const total = notListed.length + unsold.length + undelivered.length;
+  const { notListed, unsold, undelivered, pastEvent } = collectTodoItems();
+  const total = notListed.length + unsold.length + undelivered.length + pastEvent.length;
   if (total > 0) {
     badge.textContent = total;
     badge.style.display = '';
@@ -4978,6 +5130,22 @@ function getFilteredPayouts() {
   if (f.status === 'pending') list = list.filter(p => !p.isPaid && !p.isOverdue);
   if (f.status === 'overdue') list = list.filter(p => p.isOverdue);
   if (f.status === 'paid') list = list.filter(p => p.isPaid);
+
+  // Month/year filter — applied to expectedDate (when the payout is/was due).
+  // For "Vyplaceno" rows where the user marked their own paidOutDate, prefer
+  // that date instead, so a filter "Květen 2026" shows actually-received-in-May
+  // payouts rather than payouts that were scheduled for May but came late.
+  if (f.month || f.year) {
+    list = list.filter(p => {
+      const dateStr = (p.isPaid && p.ticket.paidOutDate) ? p.ticket.paidOutDate : p.expectedDate;
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      if (isNaN(d)) return false;
+      if (f.month && d.getMonth() + 1 !== Number(f.month)) return false;
+      if (f.year && d.getFullYear() !== Number(f.year)) return false;
+      return true;
+    });
+  }
   
   // Sort: overdue first, then upcoming by date, paid at the end
   list.sort((a, b) => {
@@ -5004,17 +5172,52 @@ function populatePayoutFilters() {
       platforms.map(pl => `<option value="${escapeHtml(pl)}">${escapeHtml(pl)}</option>`).join('');
     sel.value = current;
   }
+
+  // Populate year filter dynamically — only years that actually have payouts
+  // (expected or paid-out). Sorted descending so current year is first.
+  const yearSel = $('#pFilterYear');
+  if (yearSel) {
+    const years = new Set();
+    payouts.forEach(p => {
+      const dates = [p.expectedDate, p.ticket.paidOutDate, p.ticket.saleDate, p.ticket.eventDate]
+        .filter(Boolean);
+      dates.forEach(ds => {
+        const d = new Date(ds);
+        if (!isNaN(d)) years.add(d.getFullYear());
+      });
+    });
+    const sortedYears = [...years].sort((a, b) => b - a);
+    const current = yearSel.value;
+    yearSel.innerHTML = '<option value="">Všechny roky</option>' +
+      sortedYears.map(y => `<option value="${y}">${y}</option>`).join('');
+    yearSel.value = current;
+  }
 }
 
 function renderPayoutsPage() {
   populatePayoutFilters();
   const list = getFilteredPayouts();
   const all = getPayoutTickets();
-  
-  // Stats
-  const pending = all.filter(p => !p.isPaid);
-  const paid = all.filter(p => p.isPaid);
-  const overdue = all.filter(p => p.isOverdue);
+  const f = state.payoutFilters;
+
+  // Stats — respect month/year filter but ignore search/platform/status so the
+  // numbers still show the full breakdown for the selected period. E.g. filter
+  // "Červen 2026" should show "kolik mi v červnu má přijít" without being
+  // confused by an unrelated status="Vyplaceno" filter.
+  const scoped = (f.month || f.year)
+    ? all.filter(p => {
+        const dateStr = (p.isPaid && p.ticket.paidOutDate) ? p.ticket.paidOutDate : p.expectedDate;
+        if (!dateStr) return false;
+        const d = new Date(dateStr);
+        if (isNaN(d)) return false;
+        if (f.month && d.getMonth() + 1 !== Number(f.month)) return false;
+        if (f.year && d.getFullYear() !== Number(f.year)) return false;
+        return true;
+      })
+    : all;
+  const pending = scoped.filter(p => !p.isPaid);
+  const paid = scoped.filter(p => p.isPaid);
+  const overdue = scoped.filter(p => p.isOverdue);
   
   // p.amount is the sale revenue, denominated in saleCurrency. Convert from
   // saleCurrency (not ticketCurrency, which is purchase ccy) to primary so the
@@ -5427,14 +5630,115 @@ function renderInboxPage() {
       else if (action === 'apply-sale') await applyInboxSale(id, btn.dataset.ticketId);
       else if (action === 'create-and-mark-sold') await createTicketFromInboxAsSold(id);
       else if (action === 'pick-match') openMatchPickerModal(id);
+      else if (action === 'advanced-edit') openInboxAdvancedEditModal(id);
     });
+  });
+
+  // Inline-edit handlers — save overrides on blur so the user can fix
+  // missing fields right in the inbox card before approving.
+  // Both <input> and contenteditable spans are covered.
+  list.querySelectorAll('.inbox-detail-input').forEach(el => {
+    el.addEventListener('change', async () => {
+      await saveInboxFieldOverride(el.dataset.id, el.dataset.field, el.value);
+    });
+    // Stop click from bubbling into the card so we don't accidentally trigger
+    // some future "click card to expand" interaction.
+    el.addEventListener('click', e => e.stopPropagation());
+  });
+  list.querySelectorAll('.editable-title').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const val = (el.textContent || '').trim();
+      await saveInboxFieldOverride(el.dataset.id, el.dataset.field, val);
+    });
+    // Enter key commits + blurs (instead of inserting newline).
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    });
+    el.addEventListener('click', e => e.stopPropagation());
   });
 }
 
+// ============================================================
+// FALLBACK SUBJECT PARSER
+// ------------------------------------------------------------
+// When the server-side parser returns a successful 'kind' but leaves event
+// name / order ID / platform blank, we mine the email subject for whatever
+// we can rescue. Handles common patterns from Ticketmaster (ES/UK/US),
+// Stubhub, Viagogo, AXS, Eventim, See Tickets, Live Nation, etc.
+//
+// This NEVER overwrites fields that already have values from the server
+// parser — it only fills in the blanks.
+// ============================================================
+function enrichParsedFromSubject(parsed, subject) {
+  if (!subject) return parsed;
+  const out = { ...parsed };
+  const s = subject;
+
+  // ── Platform detection ───────────────────────────────────────────────
+  // Server typically sets this, but rescue if blank.
+  if (!out.platform || out.platform === '—' || out.platform === 'Neznámá platforma') {
+    if (/ticketmaster/i.test(s) || /referencia\s+\d+/i.test(s)) out.platform = 'Ticketmaster';
+    else if (/stubhub/i.test(s)) out.platform = 'Stubhub';
+    else if (/viagogo/i.test(s)) out.platform = 'Viagogo';
+    else if (/eventim/i.test(s)) out.platform = 'Eventim';
+    else if (/livenation|live\s+nation/i.test(s)) out.platform = 'Live Nation';
+    else if (/axs\s/i.test(s)) out.platform = 'AXS';
+    else if (/seetickets|see\s+tickets/i.test(s)) out.platform = 'See Tickets';
+  }
+
+  // ── Order / reference ID ────────────────────────────────────────────
+  // Ticketmaster ES: "número de referencia 011377758"
+  // Ticketmaster UK/US: "Order #12-12345/SF" / "Order Confirmation: 12345"
+  // Stubhub: "Order 12345" / "#STH-12345"
+  // Viagogo: "Order ID 123-456-789"
+  if (!out.orderId) {
+    const ref = s.match(/(?:n[uú]mero de referencia|reference|order(?:\s*id|\s*#|\s*number)?|orden(?:\s*n[uú]m)?|booking(?:\s*ref)?)\s*[:#]?\s*([A-Z0-9][\w\-/.]{4,})/i);
+    if (ref) out.orderId = ref[1];
+  }
+
+  // ── Event name ──────────────────────────────────────────────────────
+  // Strip common email prefixes ("Fwd:", "Re:", "RE:", "FW:") first.
+  let work = s.replace(/^(?:Fwd|Fw|Re|RE)\s*:\s*/gi, '').trim();
+  // Strip leading platform/marketing prefixes ("Confirmacion de compra para", etc.)
+  const eventPatterns = [
+    // Spanish: "Confirmacion de compra para <EVENT>, número de referencia ..."
+    /confirmaci[oó]n?\s+de\s+compra\s+para\s+([^,]+?)(?:,\s*n[uú]mero|,\s*orden|,\s*referencia|$)/i,
+    // English: "Your tickets for <EVENT>" / "Confirmation for <EVENT>"
+    /your\s+(?:order|tickets?|booking)\s+(?:for|to)\s+(.+?)(?:\s*[-–—]\s*order|\s*\#|\s*\(|$)/i,
+    /(?:confirmation|confirmed)\s+(?:for|of)?\s*[:\-]?\s*(.+?)(?:\s*[-–—]\s*order|\s*\#|\s*\(|$)/i,
+    // German: "Ihre Bestellung für <EVENT>"
+    /ihre\s+bestellung\s+(?:für|fuer)\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+    // Czech: "Vaše objednávka pro <EVENT>"
+    /vaše?\s+objedn[áa]vk[ay]\s+(?:pro|na)\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+    // French: "Votre commande pour <EVENT>"
+    /votre\s+commande\s+pour\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+    // Italian: "Conferma ordine per <EVENT>"
+    /conferma\s+ordine\s+per\s+(.+?)(?:\s*[-–—]|\s*\(|$)/i,
+  ];
+  if (!out.event) {
+    for (const pat of eventPatterns) {
+      const m = work.match(pat);
+      if (m && m[1].trim().length > 3) {
+        out.event = m[1].trim()
+          // Strip trailing reference noise that crept past the comma
+          .replace(/\s*[-–—]?\s*(?:n[uú]mero|orden|referencia|order|booking).*$/i, '')
+          .trim();
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 function renderInboxCard(item) {
-  const p = item.parsed || {};
+  // Apply subject-based enrichment to fill in blanks the server parser left.
+  // This is non-destructive (only fills missing fields) and applied for both
+  // 'purchase' and 'sale' kinds, plus failed/unknown.
+  const p = enrichParsedFromSubject(item.parsed || {}, item.subject);
+  // Also stash user-edited overrides if present (from inline field edits).
+  if (item.parsedOverrides) Object.assign(p, item.parsedOverrides);
   const received = new Date(item.receivedAt).toLocaleString('cs-CZ');
-  
+
   // Failed parser
   if (!p.success) {
     return `
@@ -5519,35 +5823,60 @@ function renderInboxCard(item) {
           ${p.saleType === 'sold_transfer_needed' ? ' · TRANSFER' : ''}
           ${p.saleType === 'sold_upload_needed' ? ' · UPLOAD' : ''}
         </span>
-        <span class="inbox-platform-badge">${escapeHtml(p.platform)}</span>
+        <span class="inbox-platform-badge">${escapeHtml(p.platform || '—')}</span>
         <span class="inbox-date">${received}</span>
       </div>
-      <div class="inbox-title">${escapeHtml(p.event || '(bez názvu)')}</div>
+      <div class="inbox-title editable-title" data-field="event" data-id="${item.id}"
+           contenteditable="true" spellcheck="false"
+           data-placeholder="(klikni pro zadání eventu)">${escapeHtml(p.event || '')}</div>
       <div class="inbox-subject">${escapeHtml(item.subject || '')}</div>
       <div class="inbox-details-grid">
         <div class="inbox-detail">
           <span class="inbox-detail-label">Datum</span>
-          <span class="inbox-detail-value">${p.eventDate ? formatDate(p.eventDate) : '—'}${p.eventTime ? ' ' + p.eventTime : ''}</span>
+          <input class="inbox-detail-input" type="text" data-field="eventDate" data-id="${item.id}"
+                 value="${escapeHtml(p.eventDate ? p.eventDate : '')}"
+                 placeholder="YYYY-MM-DD"
+                 inputmode="numeric">
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Místo</span>
-          <span class="inbox-detail-value">${escapeHtml(p.venue || '—')}</span>
+          <input class="inbox-detail-input" type="text" data-field="venue" data-id="${item.id}"
+                 value="${escapeHtml(p.venue || '')}"
+                 placeholder="např. Etihad Stadium">
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Sekce</span>
-          <span class="inbox-detail-value">${escapeHtml(p.section || '—')}${p.row ? ', Row ' + escapeHtml(p.row) : ''}</span>
+          <input class="inbox-detail-input" type="text" data-field="section" data-id="${item.id}"
+                 value="${escapeHtml(p.section || '')}"
+                 placeholder="např. Gold Circle">
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Ks</span>
-          <span class="inbox-detail-value">${p.quantity || 1}</span>
+          <input class="inbox-detail-input" type="number" min="1" data-field="quantity" data-id="${item.id}"
+                 value="${p.quantity || 1}">
         </div>
         <div class="inbox-detail">
-          <span class="inbox-detail-label">${isPurchase ? 'Cena' : 'Proceeds'}</span>
-          <span class="inbox-detail-value price">${price.toFixed(2)} ${currency}</span>
+          <span class="inbox-detail-label">${isPurchase ? 'Cena celkem' : 'Proceeds'}</span>
+          <div class="inbox-price-row">
+            <input class="inbox-detail-input price-input" type="number" step="0.01" data-field="totalAmount" data-id="${item.id}"
+                   value="${price ? price.toFixed(2) : ''}"
+                   placeholder="0.00">
+            <select class="inbox-detail-input currency-input" data-field="currency" data-id="${item.id}">
+              ${['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'].map(c => `<option value="${c}" ${c === currency ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+          </div>
         </div>
         <div class="inbox-detail">
           <span class="inbox-detail-label">Order ID</span>
-          <span class="inbox-detail-value" style="font-family: var(--font-mono); font-size: 11px;">${escapeHtml(p.orderId || '—')}</span>
+          <input class="inbox-detail-input mono-input" type="text" data-field="orderId" data-id="${item.id}"
+                 value="${escapeHtml(p.orderId || '')}"
+                 placeholder="číslo objednávky">
+        </div>
+        <div class="inbox-detail">
+          <span class="inbox-detail-label">Datum nákupu</span>
+          <input class="inbox-detail-input" type="date" data-field="purchaseDate" data-id="${item.id}"
+                 value="${escapeHtml(p.purchaseDate || (item.receivedAt ? new Date(item.receivedAt).toISOString().split('T')[0] : ''))}"
+                 title="Předvyplněno datem přijetí emailu — uprav pokud potřebuješ">
         </div>
         ${p.buyerName ? `
         <div class="inbox-detail">
@@ -5561,7 +5890,12 @@ function renderInboxCard(item) {
         </div>` : ''}
       </div>
       ${matchInfo}
-      <div class="inbox-actions">${actions}</div>
+      <div class="inbox-actions">
+        ${actions}
+        <button class="btn btn-dark btn-sm inbox-advanced-btn" data-inbox-action="advanced-edit" data-inbox-id="${item.id}" title="Upravit všechny detaily">
+          🔧 Pokročilá úprava
+        </button>
+      </div>
     </div>
   `;
 }
@@ -5570,8 +5904,80 @@ function renderInboxCard(item) {
 async function approveInboxItem(id) {
   const item = (state.db.inbox || []).find(i => i.id === id);
   if (!item || !item.parsed?.success) return;
-  const p = item.parsed;
-  
+  // Build the effective parsed object: server parsed → subject enrichment → user overrides.
+  // This way the user's inline-edited fields (and advanced-modal saves) win.
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed, item.subject),
+    item.parsedOverrides || {}
+  );
+
+  // ─── Required fields validation ──────────────────────────────────────
+  // Refuse to create a ticket if critical fields are missing. The user must
+  // either edit them inline on the inbox card or use the Advanced Edit modal.
+  // Critical = event + eventDate + venue + section + (quantity > 0) + price.
+  // We tolerate missing row/seat/orderId because they're optional.
+  const missing = [];
+  if (!p.event || p.event === '(bez názvu)') missing.push('Název eventu');
+  if (!p.eventDate) missing.push('Datum eventu');
+  if (!p.venue) missing.push('Místo');
+  if (!p.section) missing.push('Sekce');
+  if (!p.quantity || p.quantity < 1) missing.push('Počet ks');
+  // For purchases, we need at least one of totalAmount or pricePerTicket
+  if (p.kind === 'purchase' && !p.totalAmount && !p.pricePerTicket) {
+    missing.push('Cena');
+  }
+
+  if (missing.length > 0) {
+    toast(`Chybí povinné údaje: ${missing.join(', ')}. Doplň je v kartě nebo přes 🔧 Pokročilá úprava.`, 'error', 6000);
+    // Visually highlight the missing inputs so the user sees what's empty
+    const card = document.querySelector(`.inbox-card[data-id="${id}"]`);
+    if (card) {
+      // Map field names to data-field attributes
+      const fieldMap = {
+        'Název eventu': 'event',
+        'Datum eventu': 'eventDate',
+        'Místo': 'venue',
+        'Sekce': 'section',
+        'Počet ks': 'quantity',
+        'Cena': 'totalAmount'
+      };
+      missing.forEach(label => {
+        const fieldName = fieldMap[label];
+        if (!fieldName) return;
+        const el = card.querySelector(`[data-field="${fieldName}"]`);
+        if (el) {
+          el.classList.add('field-required-missing');
+          // Remove highlight when user starts editing
+          const removeOnce = () => {
+            el.classList.remove('field-required-missing');
+            el.removeEventListener('input', removeOnce);
+            el.removeEventListener('focus', removeOnce);
+          };
+          el.addEventListener('input', removeOnce);
+          el.addEventListener('focus', removeOnce);
+        }
+      });
+    }
+    return;
+  }
+
+  // ─── Purchase date auto-fill ────────────────────────────────────────
+  // If the email parser didn't set purchaseDate, derive it from when the
+  // email arrived in our inbox (receivedAt) — that's when the user *bought*
+  // the tickets, give or take a few minutes. The user can override this
+  // later by editing the ticket directly in the Inventory.
+  let purchaseDate = p.purchaseDate || '';
+  if (!purchaseDate && item.receivedAt) {
+    // Convert ISO timestamp to YYYY-MM-DD (local time, not UTC, so 23:59
+    // forwards don't roll over to the next day in the user's timezone).
+    const d = new Date(item.receivedAt);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    purchaseDate = `${yyyy}-${mm}-${dd}`;
+  }
+
   // Create ticket from parsed data
   // Seat: either a single seat (from p.seat) or join all seat numbers
   // from multi-seat purchases (p.seats = [{section, row, seat, ...}, ...]).
@@ -5593,6 +5999,7 @@ async function approveInboxItem(id) {
     account: p.accountEmail || '',
     platform: p.platform || 'Other',
     status: 'available',
+    purchaseDate,
     purchasePrice: p.kind === 'purchase' ? (p.pricePerTicket || (p.totalAmount ? p.totalAmount / (p.quantity || 1) : 0)) : 0,
     salePrice: 0,
     // Preserve the currency the email was in (parser extracts £ → GBP, $ → USD, etc).
@@ -5633,11 +6040,251 @@ async function dismissInboxItem(id) {
   toast('Zahozeno', 'info', 2000);
 }
 
+// ============================================================
+// INBOX FIELD OVERRIDES
+// ------------------------------------------------------------
+// Lets the user inline-edit fields on inbox cards (event name, date, venue,
+// section, qty, price, currency, orderId, etc.) when the server parser
+// missed something. Overrides are stored as `item.parsedOverrides` and
+// preserved across reloads — applied on top of the server parsed payload
+// at approve-time, so the resulting ticket has the user's corrections.
+// ============================================================
+async function saveInboxFieldOverride(id, field, rawValue) {
+  if (!id || !field) return;
+  const items = state.db.inbox || [];
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+
+  // Coerce value type per field. Numeric fields → Number, blank → delete override.
+  let value = rawValue;
+  if (typeof value === 'string') value = value.trim();
+  if (field === 'quantity') {
+    value = value === '' ? null : Math.max(1, parseInt(value, 10) || 1);
+  } else if (field === 'totalAmount' || field === 'pricePerTicket') {
+    value = value === '' ? null : parseFloat(value);
+    if (Number.isNaN(value)) value = null;
+  }
+
+  item.parsedOverrides = item.parsedOverrides || {};
+  if (value === null || value === '' || value === undefined) {
+    delete item.parsedOverrides[field];
+  } else {
+    item.parsedOverrides[field] = value;
+  }
+
+  // Persist via the same DB upsert path the rest of the inbox uses.
+  // We piggyback on the inbox state setter — it already accepts arbitrary
+  // patches in the item record.
+  try {
+    if (window.api.updateInboxItem) {
+      await window.api.updateInboxItem(id, { parsedOverrides: item.parsedOverrides });
+    } else if (window.api.saveInbox) {
+      // Fallback: rewrite the whole inbox array.
+      await window.api.saveInbox(items);
+    }
+  } catch (e) {
+    console.warn('saveInboxFieldOverride failed:', e);
+  }
+}
+
+// ─── Advanced Edit Modal ─────────────────────────────────────────────
+// One-click "Pokročilá úprava" opens a structured modal with all parseable
+// fields (event, date, time, venue, section, row, seat, qty, price, currency,
+// platform, order ID, buyer name/email). Saves overrides into the same
+// `parsedOverrides` bag, then re-renders the inbox.
+function openInboxAdvancedEditModal(id) {
+  const item = (state.db.inbox || []).find(i => i.id === id);
+  if (!item) return;
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed || {}, item.subject),
+    item.parsedOverrides || {}
+  );
+
+  // Build modal HTML — inline so we don't need to mutate index.html.
+  // Two-column form, scrollable on small screens.
+  const existing = document.getElementById('modalInboxEdit');
+  if (existing) existing.remove();
+
+  const currencies = ['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'];
+  const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','Other'];
+
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.id = 'modalInboxEdit';
+  modal.innerHTML = `
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3>🔧 Pokročilá úprava emailu</h3>
+        <button class="modal-close" id="iaeClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-section-label">Event</div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Název eventu</label>
+            <input type="text" id="iaeEvent" value="${escapeHtml(p.event || '')}" placeholder="Bad Bunny - World Tour">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Datum eventu (YYYY-MM-DD)</label>
+            <input type="text" id="iaeDate" value="${escapeHtml(p.eventDate || '')}" placeholder="2026-06-07">
+          </div>
+          <div class="form-group">
+            <label>Čas eventu</label>
+            <input type="text" id="iaeTime" value="${escapeHtml(p.eventTime || '')}" placeholder="20:00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Místo / Venue</label>
+            <input type="text" id="iaeVenue" value="${escapeHtml(p.venue || '')}" placeholder="Estadio Riyadh Air Metropolitano">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Datum nákupu <span style="color: var(--text-tertiary); font-weight: 400;">(automaticky podle data přijetí emailu)</span></label>
+            <input type="date" id="iaePurchaseDate" value="${escapeHtml(p.purchaseDate || (item.receivedAt ? new Date(item.receivedAt).toISOString().split('T')[0] : ''))}">
+          </div>
+        </div>
+
+        <div class="modal-section-label">Vstupenky</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Sekce / Zóna</label>
+            <input type="text" id="iaeSection" value="${escapeHtml(p.section || '')}" placeholder="Gold Circle">
+          </div>
+          <div class="form-group">
+            <label>Řada</label>
+            <input type="text" id="iaeRow" value="${escapeHtml(p.row || '')}">
+          </div>
+          <div class="form-group">
+            <label>Sedadlo(a)</label>
+            <input type="text" id="iaeSeat" value="${escapeHtml(p.seat || '')}">
+          </div>
+          <div class="form-group">
+            <label>Počet ks</label>
+            <input type="number" id="iaeQty" value="${p.quantity || 1}" min="1">
+          </div>
+        </div>
+
+        <div class="modal-section-label">Cena / Platforma</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cena celkem</label>
+            <input type="number" step="0.01" id="iaeTotal" value="${p.totalAmount || ''}" placeholder="326.60">
+          </div>
+          <div class="form-group">
+            <label>Cena/ks</label>
+            <input type="number" step="0.01" id="iaePerKs" value="${p.pricePerTicket || ''}" placeholder="163.30">
+          </div>
+          <div class="form-group">
+            <label>Měna</label>
+            <select id="iaeCurrency">
+              ${currencies.map(c => `<option value="${c}" ${c === (p.currency || 'EUR') ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Platforma</label>
+            <select id="iaePlatform">
+              ${platforms.map(pl => `<option value="${pl}" ${pl === (p.platform || 'Other') ? 'selected' : ''}>${pl}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group form-full">
+            <label>Order ID / Reference</label>
+            <input type="text" id="iaeOrderId" value="${escapeHtml(p.orderId || '')}" placeholder="011377758" style="font-family: var(--font-mono);">
+          </div>
+        </div>
+
+        ${(p.kind === 'sale' || p.buyerName || p.buyerEmail) ? `
+        <div class="modal-section-label">Kupující (jen pro prodej)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Jméno kupujícího</label>
+            <input type="text" id="iaeBuyerName" value="${escapeHtml(p.buyerName || '')}">
+          </div>
+          <div class="form-group">
+            <label>Email kupujícího</label>
+            <input type="email" id="iaeBuyerEmail" value="${escapeHtml(p.buyerEmail || '')}">
+          </div>
+        </div>` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" id="iaeCancel">Zrušit</button>
+        <button class="btn btn-primary" id="iaeSave">Uložit změny</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector('#iaeClose').addEventListener('click', close);
+  modal.querySelector('#iaeCancel').addEventListener('click', close);
+  modal.querySelector('.modal-backdrop').addEventListener('click', close);
+
+  modal.querySelector('#iaeSave').addEventListener('click', async () => {
+    const get = (id) => modal.querySelector('#' + id)?.value.trim();
+    const getNum = (id) => {
+      const v = modal.querySelector('#' + id)?.value;
+      if (v === '' || v == null) return null;
+      const n = parseFloat(v);
+      return Number.isNaN(n) ? null : n;
+    };
+
+    const updates = {
+      event: get('iaeEvent'),
+      eventDate: get('iaeDate'),
+      eventTime: get('iaeTime'),
+      purchaseDate: get('iaePurchaseDate'),
+      venue: get('iaeVenue'),
+      section: get('iaeSection'),
+      row: get('iaeRow'),
+      seat: get('iaeSeat'),
+      quantity: getNum('iaeQty') || 1,
+      totalAmount: getNum('iaeTotal'),
+      pricePerTicket: getNum('iaePerKs'),
+      currency: get('iaeCurrency'),
+      platform: get('iaePlatform'),
+      orderId: get('iaeOrderId'),
+    };
+    const bn = get('iaeBuyerName'); if (bn) updates.buyerName = bn;
+    const be = get('iaeBuyerEmail'); if (be) updates.buyerEmail = be;
+
+    // Strip empty strings/null to keep parsedOverrides clean.
+    const cleaned = {};
+    for (const [k, v] of Object.entries(updates)) {
+      if (v !== null && v !== undefined && v !== '') cleaned[k] = v;
+    }
+
+    item.parsedOverrides = { ...(item.parsedOverrides || {}), ...cleaned };
+    try {
+      if (window.api.updateInboxItem) {
+        await window.api.updateInboxItem(id, { parsedOverrides: item.parsedOverrides });
+      } else if (window.api.saveInbox) {
+        await window.api.saveInbox(state.db.inbox || []);
+      }
+    } catch (e) {
+      console.warn('saveInboxFieldOverride failed:', e);
+    }
+    close();
+    renderInboxPage();
+    toast('Změny uloženy', 'success', 1800);
+  });
+}
+
 async function applyInboxSale(inboxId, ticketId) {
   const item = (state.db.inbox || []).find(i => i.id === inboxId);
   const ticket = (state.db.tickets || []).find(t => t.id === ticketId);
   if (!item || !ticket) return;
-  const p = item.parsed;
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed || {}, item.subject),
+    item.parsedOverrides || {}
+  );
 
   const platformLower = (p.platform || '').toLowerCase();
   const salePricePerKs = p.pricePerTicket || (p.totalAmount && p.quantity ? p.totalAmount / p.quantity : 0);
@@ -5762,7 +6409,11 @@ async function applyInboxSale(inboxId, ticketId) {
 async function createTicketFromInboxAsSold(inboxId) {
   const item = (state.db.inbox || []).find(i => i.id === inboxId);
   if (!item || !item.parsed?.success) return;
-  const p = item.parsed;
+  const p = Object.assign(
+    {},
+    enrichParsedFromSubject(item.parsed, item.subject),
+    item.parsedOverrides || {}
+  );
   
   const platformLower = (p.platform || '').toLowerCase();
   const salePricePerKs = p.pricePerTicket || (p.totalAmount && p.quantity ? p.totalAmount / p.quantity : 0);
@@ -7805,9 +8456,21 @@ function openSellModal(ticket) {
   qtyInput.value = totalQty;
   qtyInput.max = totalQty;
   qtyInput.min = 1;
+
+  // If the event already passed and the user is in this modal, they probably
+  // want to record an actual sale. But sometimes they want to register a LOSS
+  // (no buyer found, event over). Surface that path with an inline tip so they
+  // don't get stuck typing "0" and hitting the validator.
+  const eventPassed = ticket.eventDate && new Date(ticket.eventDate) < new Date(new Date().toDateString());
+  const pastEventBanner = eventPassed
+    ? `<div class="sell-past-banner">
+         ⚠ Event už proběhl. Pokud se vstupenka <strong>neprodala</strong>, použij místo tohoto modalu tlačítko <strong>Odepsat ztrátu</strong> v řádku — nákupní cena se zaeviduje jako realizovaná ztráta.
+       </div>`
+    : '';
   
   // Info banner
   $('#sellInfoBanner').innerHTML = `
+    ${pastEventBanner}
     <div class="sell-info-row">
       <span class="sell-info-label">Event:</span>
       <span class="sell-info-value">${escapeHtml(ticket.eventName || '—')}</span>
@@ -7824,13 +8487,20 @@ function openSellModal(ticket) {
   
   // Pre-fill price: if ticket had a salePrice before (after editing), use it, else empty.
   // salePrice is stored as per-ticket price; if mode is "total", we multiply below.
+  // IMPORTANT: explicitly clear and set the value to avoid showing stale "0" from
+  // previous modal opens or zero-valued Numbers.
+  const sellPriceInput = $('#sellPrice');
+  sellPriceInput.value = '';   // hard clear first
   const savedPerKs = Number(ticket.salePrice) || 0;
   const initialQty = totalQty;
-  if (state.sellPriceMode === 'total' && savedPerKs > 0) {
-    $('#sellPrice').value = (savedPerKs * initialQty).toFixed(2);
-  } else {
-    $('#sellPrice').value = savedPerKs || '';
+  if (savedPerKs > 0) {
+    if (state.sellPriceMode === 'total') {
+      sellPriceInput.value = (savedPerKs * initialQty).toFixed(2);
+    } else {
+      sellPriceInput.value = savedPerKs.toFixed(2);
+    }
   }
+  // Don't pre-fill 0 — leave empty so the placeholder "0.00" shows instead.
   $('#sellDate').value = new Date().toISOString().slice(0, 10);
 
   // Currency dropdown — default to ticket's currency (or saleCurrency if previously set)
@@ -7849,15 +8519,30 @@ function openSellModal(ticket) {
   updateSellHints();
   
   $('#modalSell').classList.add('active');
-  $('#sellQuantity').focus();
-  $('#sellQuantity').select();
+  // Focus the price input — it's the field the user MUST fill in. Quantity
+  // defaults to "all available" so it usually doesn't need editing, and the
+  // big bottleneck in this modal has historically been "Zadej platnou cenu"
+  // toasts because users didn't notice the price input was empty.
+  setTimeout(() => {
+    const pi = $('#sellPrice');
+    if (pi) {
+      pi.focus();
+      pi.select();
+    }
+  }, 80);
 }
 
 // Read price from the input AND the current mode, always return per-ticket price.
 // Single source of truth for derived values (total revenue, profit, etc.).
 function getSellPricePerKs() {
-  const raw = parseFloat($('#sellPrice').value);
-  if (!raw || raw <= 0) return 0;
+  // Accept both "1234.56" and "1234,56" (Czech keyboard layout often produces commas).
+  // The native <input type="number"> usually rejects commas, but if a paste or
+  // localized formatting slips through, .value can still contain a comma. We
+  // normalize defensively here.
+  let raw = $('#sellPrice').value;
+  if (typeof raw === 'string') raw = raw.replace(',', '.').trim();
+  raw = parseFloat(raw);
+  if (!raw || isNaN(raw) || raw <= 0) return 0;
   if (state.sellPriceMode === 'total') {
     const qty = parseInt($('#sellQuantity').value) || 1;
     return qty > 0 ? raw / qty : 0;
@@ -8064,7 +8749,9 @@ async function confirmSell() {
   const saleCurrency = sellCurrency !== ticketCcy ? sellCurrency : undefined;
 
   if (!pricePerKs || pricePerKs <= 0) {
-    toast('Zadej platnou cenu', 'error');
+    toast('Zadej platnou prodejní cenu (musí být větší než 0)', 'error');
+    $('#sellPrice').focus();
+    $('#sellPrice').select();
     return;
   }
   
@@ -8191,6 +8878,59 @@ async function markUndelivered(id) {
   await window.api.upsertTicket(updated);
   await refreshDb();
   toast('Vráceno zpět na "Prodáno"', 'info');
+}
+
+// ─── Write-off (unsold past-event ticket = realised loss) ────────────────
+// When an event passes and the ticket never sold, this records the purchase
+// price as a realised loss. Status becomes 'cancelled', salePrice = 0, and
+// downstream calculations (profit, ROI, dashboard totals) will treat the
+// negative purchase price as a confirmed loss.
+async function writeOffTicket(id) {
+  const ticket = state.db.tickets.find(t => t.id === id);
+  if (!ticket) return;
+  const purchaseCost = (Number(ticket.purchasePrice) || 0) * (Number(ticket.quantity) || 1);
+  const currency = ticket.currency || getDefaultTicketCurrency();
+  const confirmed = await window.api.confirm({
+    type: 'warning',
+    buttons: ['Zrušit', 'Odepsat jako ztrátu'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Odepsat vstupenku jako ztrátu',
+    message: `Odepsat "${ticket.eventName || 'vstupenku'}" jako ztrátu?`,
+    detail: `Event prošel a vstupenka se neprodala. Zaeviduje se realizovaná ztráta ${formatMoney(purchaseCost, currency)} (nákupní cena × ${ticket.quantity || 1} ks).\n\nVstupenka bude označena jako "Zrušeno". Vrátit lze tlačítkem ↶.`
+  });
+  if (!confirmed) return;
+  const updated = {
+    ...ticket,
+    status: 'cancelled',
+    salePrice: 0,
+    saleDate: new Date().toISOString().slice(0, 10),
+    writeOffReason: 'unsold-past-event',
+    writeOffAt: new Date().toISOString()
+  };
+  await window.api.upsertTicket(updated);
+  await refreshDb();
+  toast(`Odepsáno jako ztráta ${formatMoney(purchaseCost, currency)}`, 'info', 3500);
+}
+
+async function unwriteOffTicket(id) {
+  const ticket = state.db.tickets.find(t => t.id === id);
+  if (!ticket) return;
+  // Revert to whatever state makes sense — if it was listed before writeoff
+  // we don't know, so default to 'listed' (it's the closest pre-writeoff state
+  // for a past-event unsold ticket). User can change to 'available' via Edit
+  // if they prefer.
+  const updated = {
+    ...ticket,
+    status: 'listed',
+    salePrice: 0,
+    saleDate: null,
+    writeOffReason: null,
+    writeOffAt: null
+  };
+  await window.api.upsertTicket(updated);
+  await refreshDb();
+  toast('Vráceno zpět ze stavu Zrušeno', 'info');
 }
 
 async function bulkDelete() {
@@ -8640,6 +9380,16 @@ function setupEventListeners() {
   // Save ticket
   $('#btnSaveTicket').addEventListener('click', saveTicket);
   $('#btnConfirmSell').addEventListener('click', confirmSell);
+  // Enter inside the price field submits the modal — saves a click for the
+  // common case "type price → Enter → done".
+  ['#sellPrice', '#sellQuantity'].forEach(sel => {
+    $(sel)?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmSell();
+      }
+    });
+  });
   // Live updates in sell modal
   $('#sellQuantity')?.addEventListener('input', updateSellHints);
   $('#sellPrice')?.addEventListener('input', updateSellHints);
@@ -9097,11 +9847,23 @@ function setupEventListeners() {
     saveUiPrefs();
     renderPayoutsPage();
   });
+  $('#pFilterMonth')?.addEventListener('change', (ev) => {
+    state.payoutFilters.month = ev.target.value;
+    saveUiPrefs();
+    renderPayoutsPage();
+  });
+  $('#pFilterYear')?.addEventListener('change', (ev) => {
+    state.payoutFilters.year = ev.target.value;
+    saveUiPrefs();
+    renderPayoutsPage();
+  });
   $('#btnPReset')?.addEventListener('click', () => {
-    state.payoutFilters = { search: '', platform: '', status: '' };
+    state.payoutFilters = { search: '', platform: '', status: '', month: '', year: '' };
     $('#pFilterSearch').value = '';
     $('#pFilterPlatform').value = '';
     $('#pFilterStatus').value = '';
+    if ($('#pFilterMonth')) $('#pFilterMonth').value = '';
+    if ($('#pFilterYear')) $('#pFilterYear').value = '';
     saveUiPrefs();
     renderPayoutsPage();
   });
