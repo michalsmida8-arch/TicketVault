@@ -7557,6 +7557,374 @@ function downloadMonthlyReport() {
   toast(`Report stažen: ${filename}`, 'success', 3000);
 }
 
+// ============================================================================
+// PAYOUTS PDF REPORT
+// ----------------------------------------------------------------------------
+// Different angle than the monthly profit report: this one focuses on CASH
+// RECEIVED in a given month. Use cases:
+//   - Daňové přiznání (income reporting)
+//   - Reconciliation with bank statement
+//   - "Kolik mi reálně přišlo z prodejů v dubnu" — accounting-friendly
+//
+// Important: keyed by paidOutDate (when money arrived), NOT saleDate.
+// A ticket sold in March but paid out in April counts toward April here.
+// ============================================================================
+
+/** Aggregate payouts data for one month. */
+function collectPayoutMonthData(month, year) {
+  const tickets = state.db.tickets || [];
+
+  const inMonth = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d)) return false;
+    return d.getFullYear() === year && (d.getMonth() + 1) === month;
+  };
+
+  // RECEIVED: tickets where paidOutDate falls in this month
+  const receivedThisMonth = tickets.filter(t => t.paidOutDate && inMonth(t.paidOutDate));
+
+  // Per-payout row, converted to primary currency for consistent totals
+  const primary = getPrimaryCurrency();
+  const rows = receivedThisMonth.map(t => {
+    // Use explicit paidOutAmount if user recorded it (matches their bank statement),
+    // otherwise fall back to the sale revenue (salePrice × qty in sale ccy).
+    const rawAmount = t.paidOutAmount != null
+      ? Number(t.paidOutAmount)
+      : (Number(t.salePrice) || 0) * (Number(t.quantity) || 1);
+    const sourceCcy = saleCurrency(t);
+    const amountInPrimary = convertCurrency(rawAmount, sourceCcy, primary);
+    return {
+      ticket: t,
+      event: t.eventName || '—',
+      eventDate: t.eventDate,
+      saleDate: t.saleDate,
+      paidOutDate: t.paidOutDate,
+      platform: t.platform || '—',
+      qty: Number(t.quantity) || 1,
+      amount: amountInPrimary,
+      rawAmount,
+      currency: sourceCcy,
+      status: 'paid'
+    };
+  });
+
+  // Pending (not yet paid, all-time, scoped to ones expected in this month or earlier)
+  // — gives the user "kolik mi ještě dluží" context. Uses expected date, not paid date.
+  const allPayouts = getPayoutTickets();
+  // "Čeká k vyplacení v tomto měsíci" — only payouts expected WITHIN the
+  // selected month, not yet paid. Earlier intent was to show a running
+  // backlog ("≤ end of month") but that confuses users: dashboard says
+  // 1 944 € pending and report says 4 773 € pending because report scoops
+  // up old overdue items from previous months.
+  // New behavior: scope to the selected month's window so report matches
+  // dashboard semantics for the current month.
+  const pendingInMonth = allPayouts.filter(p => {
+    if (p.isPaid) return false;
+    if (!p.expectedDate) return false;
+    const d = new Date(p.expectedDate);
+    if (isNaN(d)) return false;
+    return d.getFullYear() === year && (d.getMonth() + 1) === month;
+  });
+  const pendingSum = pendingInMonth.reduce((s, p) =>
+    s + convertCurrency(p.amount, saleCurrency(p.ticket), primary), 0);
+
+  // Separately track "stuck from earlier months" — payouts whose expected
+  // date passed BEFORE this month and that still haven't paid. These are
+  // real problems the user should see, but they're not "pending in May".
+  const stuckFromEarlier = allPayouts.filter(p => {
+    if (p.isPaid) return false;
+    if (!p.expectedDate) return false;
+    const d = new Date(p.expectedDate);
+    if (isNaN(d)) return false;
+    // Expected BEFORE the selected month started
+    return d < new Date(year, month - 1, 1);
+  });
+  const stuckSum = stuckFromEarlier.reduce((s, p) =>
+    s + convertCurrency(p.amount, saleCurrency(p.ticket), primary), 0);
+
+  // Overdue = pending AND expected date already passed (today is past it)
+  const overdueCount = pendingInMonth.filter(p => p.isOverdue).length + stuckFromEarlier.length;
+
+  // Totals
+  const totalReceived = rows.reduce((s, r) => s + r.amount, 0);
+  const avgPayout = rows.length > 0 ? totalReceived / rows.length : 0;
+
+  // Breakdown by platform
+  const byPlatform = {};
+  rows.forEach(r => {
+    if (!byPlatform[r.platform]) byPlatform[r.platform] = { count: 0, amount: 0 };
+    byPlatform[r.platform].count += 1;
+    byPlatform[r.platform].amount += r.amount;
+  });
+
+  return {
+    rows,
+    totalReceived,
+    avgPayout,
+    count: rows.length,
+    pendingSum,
+    pendingCount: pendingInMonth.length,
+    stuckSum,
+    stuckCount: stuckFromEarlier.length,
+    overdueCount,
+    byPlatform
+  };
+}
+
+/** Open payout report modal — populate year, pre-fill current month. */
+function openPayoutReportModal() {
+  const modal = $('#modalPayoutReport');
+  if (!modal) return;
+
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+
+  const yearSel = $('#payoutReportYear');
+  if (yearSel) {
+    const years = [];
+    for (let y = currentYear + 1; y >= currentYear - 3; y--) years.push(y);
+    yearSel.innerHTML = years.map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('');
+  }
+  $('#payoutReportMonth').value = String(currentMonth);
+
+  modal.classList.add('active');
+  updatePayoutReportPreview();
+}
+
+function updatePayoutReportPreview() {
+  const month = parseInt($('#payoutReportMonth')?.value, 10);
+  const year = parseInt($('#payoutReportYear')?.value, 10);
+  if (!month || !year) return;
+  const data = collectPayoutMonthData(month, year);
+  const primary = getPrimaryCurrency();
+  if ($('#prpReceived')) {
+    $('#prpReceived').textContent = formatMoney(data.totalReceived, primary);
+    $('#prpReceived').style.color = data.totalReceived > 0 ? 'var(--green)' : '';
+  }
+  if ($('#prpCount')) $('#prpCount').textContent = String(data.count);
+  if ($('#prpAvg')) $('#prpAvg').textContent = data.count > 0 ? formatMoney(data.avgPayout, primary) : '—';
+  if ($('#prpPending')) {
+    if (data.pendingCount === 0 && data.stuckCount === 0) {
+      $('#prpPending').textContent = '— (žádné výplaty nečekají)';
+    } else if (data.stuckCount === 0) {
+      $('#prpPending').textContent = `${formatMoney(data.pendingSum, primary)} (${data.pendingCount} v ${MONTH_NAMES_CS[month - 1]})`;
+    } else {
+      $('#prpPending').textContent = `${formatMoney(data.pendingSum, primary)} (${data.pendingCount} v ${MONTH_NAMES_CS[month - 1]}) + ${formatMoney(data.stuckSum, primary)} po termínu z dřívějška`;
+    }
+  }
+}
+
+function downloadPayoutReport() {
+  const month = parseInt($('#payoutReportMonth')?.value, 10);
+  const year = parseInt($('#payoutReportYear')?.value, 10);
+  if (!month || !year) {
+    toast('Vyber měsíc a rok', 'error');
+    return;
+  }
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    toast('PDF knihovna se nenačetla — zkontroluj internet', 'error', 4000);
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const data = collectPayoutMonthData(month, year);
+  const primary = getPrimaryCurrency();
+  const monthLabelAscii = `${['Leden','Unor','Brezen','Duben','Kveten','Cerven','Cervenec','Srpen','Zari','Rijen','Listopad','Prosinec'][month - 1]} ${year}`;
+
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const GOLD = [212, 175, 95];
+  const GREEN = [22, 163, 74];
+  const RED = [185, 28, 28];
+
+  // ASCII-safe money formatter (same as monthly report — see fix in 1.15.19)
+  const fmtPlain = (n, ccyCode) => {
+    if (n == null || isNaN(n)) return '-';
+    const code = (ccyCode || primary || 'EUR').toUpperCase();
+    const formatted = Math.abs(n).toLocaleString('cs-CZ', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).replace(/\u00A0/g, ' ');
+    const sign = n < 0 ? '-' : '';
+    return `${sign}${formatted} ${code}`;
+  };
+
+  // ─── HEADER ─────────────────────────────────────────────────────────
+  doc.setFillColor(...GOLD);
+  doc.rect(0, 0, 210, 32, 'F');
+  doc.setTextColor(255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TicketVault', 15, 16);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Report vyplat  ·  ${monthLabelAscii}`, 15, 25);
+
+  const now = new Date();
+  const ts = `${String(now.getDate()).padStart(2,'0')}.${String(now.getMonth()+1).padStart(2,'0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  doc.setFontSize(8);
+  doc.text(`Vygenerovano: ${ts}`, 195, 25, { align: 'right' });
+
+  let y = 45;
+
+  // ─── KPI CARDS ──────────────────────────────────────────────────────
+  doc.setTextColor(40);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Souhrn vyplat', 15, y);
+  y += 7;
+
+  const kpiCards = [
+    { label: 'CELKEM PRIJATO', value: fmtPlain(data.totalReceived), color: data.totalReceived > 0 ? GREEN : [40, 40, 40] },
+    { label: 'POCET VYPLAT', value: String(data.count), color: [40, 40, 40] },
+    { label: 'PRUMERNA VYPLATA', value: data.count > 0 ? fmtPlain(data.avgPayout) : '-', color: [40, 40, 40] },
+    { label: 'CEKA K VYPLACENI', value: fmtPlain(data.pendingSum), color: data.pendingSum > 0 ? [40, 40, 40] : [40, 40, 40] }
+  ];
+  const cardW = 44;
+  const cardH = 22;
+  let cx = 15;
+  kpiCards.forEach(c => {
+    doc.setDrawColor(220);
+    doc.setFillColor(252, 250, 245);
+    doc.roundedRect(cx, y, cardW, cardH, 2, 2, 'FD');
+    doc.setTextColor(110);
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text(c.label, cx + 3, y + 5);
+    doc.setTextColor(...c.color);
+    doc.setFontSize(10);
+    doc.text(c.value, cx + 3, y + 13);
+    cx += cardW + 3;
+  });
+  y += cardH + 10;
+
+  // ─── BREAKDOWN BY PLATFORM ──────────────────────────────────────────
+  if (Object.keys(data.byPlatform).length > 0) {
+    doc.setTextColor(40);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Podle platformy', 15, y);
+    y += 4;
+    const platformRows = Object.entries(data.byPlatform)
+      .sort((a, b) => b[1].amount - a[1].amount)
+      .map(([pl, v]) => [pl.replace(/[^\x00-\x7F]/g, '?'), String(v.count), fmtPlain(v.amount)]);
+    doc.autoTable({
+      startY: y,
+      head: [['Platforma', 'Pocet vyplat', 'Castka']],
+      body: platformRows,
+      theme: 'striped',
+      headStyles: { fillColor: GOLD, textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 10, cellPadding: 2.5 },
+      columnStyles: {
+        1: { halign: 'right', cellWidth: 35 },
+        2: { halign: 'right', fontStyle: 'bold', cellWidth: 50 }
+      },
+      margin: { left: 15, right: 15 }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ─── PENDING NOTE (clarify what "Ceka k vyplaceni" means) ─────────────
+  // Show two distinct buckets so the user understands what's being summed:
+  //   1. Pending IN this month — payouts the user expects in this month
+  //      (matches dashboard's "Čeká na výplatu" semantics).
+  //   2. Stuck FROM EARLIER — payouts whose expected date already passed in
+  //      a previous month and that still haven't arrived. These are problems.
+  if (data.pendingCount > 0 || data.stuckCount > 0) {
+    if (y > 250) { doc.addPage(); y = 20; }
+    doc.setTextColor(40);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Cekajici vyplaty', 15, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const noteLines = [];
+    if (data.pendingCount > 0) {
+      noteLines.push(`V ${monthLabelAscii}: ${data.pendingCount} vyplat, celkem ${fmtPlain(data.pendingSum)}`);
+    }
+    if (data.stuckCount > 0) {
+      noteLines.push(`Po terminu z drivejska: ${data.stuckCount} vyplat, celkem ${fmtPlain(data.stuckSum)}`);
+    }
+    noteLines.forEach((line, i) => {
+      // Red color for stuck/overdue lines
+      if (data.stuckCount > 0 && i === noteLines.length - 1 && data.stuckCount > 0) {
+        doc.setTextColor(...RED);
+      } else {
+        doc.setTextColor(80);
+      }
+      doc.text(line, 15, y + i * 4.5);
+    });
+    y += noteLines.length * 4.5 + 6;
+  }
+
+  // ─── DETAIL TABLE ───────────────────────────────────────────────────
+  if (data.rows.length > 0) {
+    if (y > 220) { doc.addPage(); y = 20; }
+    doc.setTextColor(40);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Detail prijatych vyplat', 15, y);
+    y += 4;
+
+    const sortedRows = [...data.rows].sort((a, b) => (a.paidOutDate || '').localeCompare(b.paidOutDate || ''));
+    doc.autoTable({
+      startY: y,
+      head: [['Datum vyplaty', 'Event', 'Platforma', 'Ks', 'Castka']],
+      body: sortedRows.map(r => [
+        r.paidOutDate ? formatDate(r.paidOutDate) : '-',
+        r.event.substring(0, 36).replace(/[^\x00-\x7F]/g, '?'),
+        r.platform.replace(/[^\x00-\x7F]/g, '?'),
+        String(r.qty),
+        fmtPlain(r.amount)
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: GOLD, textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        3: { halign: 'right', cellWidth: 12 },
+        4: { halign: 'right', fontStyle: 'bold', cellWidth: 38 }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    // Total row at the bottom of table
+    const finalY = doc.lastAutoTable.finalY;
+    if (finalY < 270) {
+      doc.setDrawColor(40);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CELKEM:', 130, finalY + 6);
+      doc.setTextColor(...GREEN);
+      doc.text(fmtPlain(data.totalReceived), 195, finalY + 6, { align: 'right' });
+    }
+  } else {
+    // No payouts at all in this month — show empty-state line
+    doc.setTextColor(150);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'italic');
+    doc.text(`V mesici ${monthLabelAscii} ti neprisla zadna vyplata.`, 15, y + 5);
+  }
+
+  // ─── FOOTER on every page ───────────────────────────────────────────
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`TicketVault Payouts Report  ·  ${monthLabelAscii}  ·  Strana ${i}/${totalPages}`,
+      105, 290, { align: 'center' });
+  }
+
+  const filename = `TicketVault_Vyplaty_${year}-${String(month).padStart(2, '0')}.pdf`;
+  doc.save(filename);
+
+  $('#modalPayoutReport').classList.remove('active');
+  toast(`Report výplat stažen: ${filename}`, 'success', 3000);
+}
+
 function renderStatsPage() {
   if (!state.statsFilters) state.statsFilters = { month: '', year: '' };
   populateStatsYearFilter();
@@ -10341,6 +10709,12 @@ function setupEventListeners() {
   // Live preview when user changes month/year in the modal
   $('#reportMonth')?.addEventListener('change', updateReportPreview);
   $('#reportYear')?.addEventListener('change', updateReportPreview);
+
+  // Payouts PDF report — same UX pattern but cash-received angle
+  $('#btnPayoutReport')?.addEventListener('click', openPayoutReportModal);
+  $('#btnDownloadPayoutReport')?.addEventListener('click', downloadPayoutReport);
+  $('#payoutReportMonth')?.addEventListener('change', updatePayoutReportPreview);
+  $('#payoutReportYear')?.addEventListener('change', updatePayoutReportPreview);
   
   // Settings actions
   $('#btnChangeDbPath').addEventListener('click', changeDbPath);

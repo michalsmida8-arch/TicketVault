@@ -894,6 +894,7 @@
           </select>
           <button class="btn btn-dark" id="btnPReset">× Reset</button>
           <button class="btn btn-dark" id="btnPExport">Export CSV</button>
+          <button class="btn btn-primary" id="btnPayoutReport" title="Vygenerovat PDF report výplat">📄 Vygenerovat report</button>
         </div>
 
         <div class="table-wrapper">
@@ -2549,6 +2550,55 @@
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>
         <button class="btn btn-primary" id="btnDownloadReport">📥 Stáhnout PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Payouts Report — pick month/year, generate PDF of payouts -->
+  <div class="modal" id="modalPayoutReport">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>📄 Vygenerovat report výplat</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <p class="report-modal-hint">
+          Stáhne PDF se souhrnem výplat, které ti za zvolený měsíc reálně přišly. Hodí se pro účetní nebo daňové přiznání.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Měsíc</label>
+            <select id="payoutReportMonth">
+              <option value="1">Leden</option>
+              <option value="2">Únor</option>
+              <option value="3">Březen</option>
+              <option value="4">Duben</option>
+              <option value="5">Květen</option>
+              <option value="6">Červen</option>
+              <option value="7">Červenec</option>
+              <option value="8">Srpen</option>
+              <option value="9">Září</option>
+              <option value="10">Říjen</option>
+              <option value="11">Listopad</option>
+              <option value="12">Prosinec</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Rok</label>
+            <select id="payoutReportYear"></select>
+          </div>
+        </div>
+        <div class="report-preview" id="payoutReportPreview">
+          <div class="report-preview-row"><span>💰 Celkem přijato:</span> <strong id="prpReceived">—</strong></div>
+          <div class="report-preview-row"><span>📦 Počet výplat:</span> <strong id="prpCount">—</strong></div>
+          <div class="report-preview-row"><span>📊 Průměrná výplata:</span> <strong id="prpAvg">—</strong></div>
+          <div class="report-preview-row"><span>⏳ Čeká k vyplacení:</span> <strong id="prpPending">—</strong></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnDownloadPayoutReport">📥 Stáhnout PDF</button>
       </div>
     </div>
   </div>
