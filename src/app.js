@@ -64,7 +64,9 @@ let state = {
   payoutFilters: {
     search: '',
     platform: '',
-    status: ''
+    status: '',
+    month: '',   // 1-12 string, or '' for all
+    year: ''     // YYYY string, or '' for all
   },
   payoutRules: [],
   payingOutTicket: null,
@@ -163,6 +165,8 @@ function applyUiPrefsToUI() {
   set('#pFilterSearch', p.search);
   set('#pFilterPlatform', p.platform);
   set('#pFilterStatus', p.status);
+  set('#pFilterMonth', p.month);
+  set('#pFilterYear', p.year);
 
   // Membership filters
   const m = state.membershipFilters;
@@ -5126,6 +5130,22 @@ function getFilteredPayouts() {
   if (f.status === 'pending') list = list.filter(p => !p.isPaid && !p.isOverdue);
   if (f.status === 'overdue') list = list.filter(p => p.isOverdue);
   if (f.status === 'paid') list = list.filter(p => p.isPaid);
+
+  // Month/year filter — applied to expectedDate (when the payout is/was due).
+  // For "Vyplaceno" rows where the user marked their own paidOutDate, prefer
+  // that date instead, so a filter "Květen 2026" shows actually-received-in-May
+  // payouts rather than payouts that were scheduled for May but came late.
+  if (f.month || f.year) {
+    list = list.filter(p => {
+      const dateStr = (p.isPaid && p.ticket.paidOutDate) ? p.ticket.paidOutDate : p.expectedDate;
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      if (isNaN(d)) return false;
+      if (f.month && d.getMonth() + 1 !== Number(f.month)) return false;
+      if (f.year && d.getFullYear() !== Number(f.year)) return false;
+      return true;
+    });
+  }
   
   // Sort: overdue first, then upcoming by date, paid at the end
   list.sort((a, b) => {
@@ -5152,17 +5172,52 @@ function populatePayoutFilters() {
       platforms.map(pl => `<option value="${escapeHtml(pl)}">${escapeHtml(pl)}</option>`).join('');
     sel.value = current;
   }
+
+  // Populate year filter dynamically — only years that actually have payouts
+  // (expected or paid-out). Sorted descending so current year is first.
+  const yearSel = $('#pFilterYear');
+  if (yearSel) {
+    const years = new Set();
+    payouts.forEach(p => {
+      const dates = [p.expectedDate, p.ticket.paidOutDate, p.ticket.saleDate, p.ticket.eventDate]
+        .filter(Boolean);
+      dates.forEach(ds => {
+        const d = new Date(ds);
+        if (!isNaN(d)) years.add(d.getFullYear());
+      });
+    });
+    const sortedYears = [...years].sort((a, b) => b - a);
+    const current = yearSel.value;
+    yearSel.innerHTML = '<option value="">Všechny roky</option>' +
+      sortedYears.map(y => `<option value="${y}">${y}</option>`).join('');
+    yearSel.value = current;
+  }
 }
 
 function renderPayoutsPage() {
   populatePayoutFilters();
   const list = getFilteredPayouts();
   const all = getPayoutTickets();
-  
-  // Stats
-  const pending = all.filter(p => !p.isPaid);
-  const paid = all.filter(p => p.isPaid);
-  const overdue = all.filter(p => p.isOverdue);
+  const f = state.payoutFilters;
+
+  // Stats — respect month/year filter but ignore search/platform/status so the
+  // numbers still show the full breakdown for the selected period. E.g. filter
+  // "Červen 2026" should show "kolik mi v červnu má přijít" without being
+  // confused by an unrelated status="Vyplaceno" filter.
+  const scoped = (f.month || f.year)
+    ? all.filter(p => {
+        const dateStr = (p.isPaid && p.ticket.paidOutDate) ? p.ticket.paidOutDate : p.expectedDate;
+        if (!dateStr) return false;
+        const d = new Date(dateStr);
+        if (isNaN(d)) return false;
+        if (f.month && d.getMonth() + 1 !== Number(f.month)) return false;
+        if (f.year && d.getFullYear() !== Number(f.year)) return false;
+        return true;
+      })
+    : all;
+  const pending = scoped.filter(p => !p.isPaid);
+  const paid = scoped.filter(p => p.isPaid);
+  const overdue = scoped.filter(p => p.isOverdue);
   
   // p.amount is the sale revenue, denominated in saleCurrency. Convert from
   // saleCurrency (not ticketCurrency, which is purchase ccy) to primary so the
@@ -7055,6 +7110,451 @@ function populateStatsYearFilter() {
   sel.innerHTML = '<option value="">Všechny roky</option>' + 
     [...years].sort((a, b) => b - a).map(y => `<option value="${y}">${y}</option>`).join('');
   sel.value = current;
+}
+
+// ============================================================================
+// MONTHLY PDF REPORT
+// ----------------------------------------------------------------------------
+// Generates a professional monthly summary PDF with profit/cashflow/top events.
+// Uses jsPDF + autotable loaded from jsdelivr CDN (declared in index.html so
+// they're available globally as window.jspdf and window.jspdf.autoTable).
+//
+// Trigger: "📄 Vygenerovat report" button on the Statistics page.
+// Output:  TicketVault_Report_YYYY-MM.pdf, downloaded directly by the browser.
+// ============================================================================
+
+const MONTH_NAMES_CS = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+
+/** Aggregate all data needed for one month's report. */
+function collectMonthData(month, year) {
+  const tickets = state.db.tickets || [];
+  const expenses = state.db.expenses || [];
+
+  // Match a YYYY-MM-DD (or ISO) date string against the selected month+year.
+  const inMonth = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d)) return false;
+    return d.getFullYear() === year && (d.getMonth() + 1) === month;
+  };
+
+  // P&L: tickets that resolved (sold/delivered/cancelled) inside this month,
+  // keyed by saleDate. cancelled = realised loss, counts toward the negative.
+  const soldThisMonth = tickets.filter(t =>
+    (t.status === 'sold' || t.status === 'delivered' || t.status === 'cancelled') &&
+    inMonth(t.saleDate)
+  );
+
+  // Cashflow IN — actual payouts received this month (paidOutDate)
+  const paidThisMonth = tickets.filter(t => t.paidOutDate && inMonth(t.paidOutDate));
+  const cashIn = paidThisMonth.reduce((s, t) => {
+    const amt = t.paidOutAmount != null ? Number(t.paidOutAmount) : 0;
+    // If no explicit paidOutAmount stored, fall back to the sale revenue
+    const fallback = (Number(t.salePrice) || 0) * (Number(t.quantity) || 1);
+    return s + convertCurrency(amt || fallback, saleCurrency(t), getPrimaryCurrency());
+  }, 0);
+
+  // Cashflow OUT — purchases + expenses paid this month
+  const boughtThisMonth = tickets.filter(t => inMonth(t.purchaseDate));
+  const ticketSpend = boughtThisMonth.reduce((s, t) => {
+    const cost = (Number(t.purchasePrice) || 0) * (Number(t.quantity) || 1);
+    return s + convertCurrency(cost, ticketCurrency(t), getPrimaryCurrency());
+  }, 0);
+  const expensesThisMonth = expenses.filter(e => inMonth(e.date));
+  const expenseSpend = expensesThisMonth.reduce((s, e) => {
+    return s + convertCurrency(Number(e.amount) || 0, e.currency || getPrimaryCurrency(), getPrimaryCurrency());
+  }, 0);
+  const cashOut = ticketSpend + expenseSpend;
+
+  // Per-ticket P&L rows (in primary currency for consistency)
+  const rows = soldThisMonth.map(t => {
+    const qty = Number(t.quantity) || 1;
+    const profitPrimary = calcProfitInPrimary(t);
+    const revenuePrimary = calcRevenueInPrimary(t);
+    const costPrimary = calcCostInPrimary(t);
+    const roi = costPrimary > 0 ? (profitPrimary / costPrimary) * 100 : 0;
+    return {
+      event: t.eventName || '—',
+      eventDate: t.eventDate,
+      saleDate: t.saleDate,
+      qty,
+      cost: costPrimary,
+      sale: revenuePrimary,
+      profit: profitPrimary,
+      roi,
+      platform: t.platform || '—',
+      status: t.status
+    };
+  });
+
+  // KPIs
+  const totalProfit = rows.reduce((s, r) => s + r.profit, 0);
+  const totalRevenue = rows.reduce((s, r) => s + r.sale, 0);
+  const totalCost = rows.reduce((s, r) => s + r.cost, 0);
+  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+  const avgRoi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+
+  // Top 5 events by absolute profit
+  const sortedByProfit = [...rows].sort((a, b) => b.profit - a.profit);
+  const top5 = sortedByProfit.slice(0, 5);
+
+  // Breakdown by platform
+  const byPlatform = {};
+  rows.forEach(r => {
+    if (!byPlatform[r.platform]) byPlatform[r.platform] = { count: 0, profit: 0, revenue: 0 };
+    byPlatform[r.platform].count += r.qty;
+    byPlatform[r.platform].profit += r.profit;
+    byPlatform[r.platform].revenue += r.sale;
+  });
+
+  // Breakdown by category — uses inferEventCategory if available, otherwise 'other'
+  const byCategory = { football: { count: 0, profit: 0 }, concert: { count: 0, profit: 0 }, other: { count: 0, profit: 0 } };
+  rows.forEach((r, i) => {
+    const t = soldThisMonth[i];
+    let cat = 'other';
+    try {
+      if (typeof inferEventCategory === 'function') cat = inferEventCategory(t) || 'other';
+    } catch {}
+    if (!byCategory[cat]) byCategory[cat] = { count: 0, profit: 0 };
+    byCategory[cat].count += r.qty;
+    byCategory[cat].profit += r.profit;
+  });
+
+  return {
+    rows,
+    totalProfit, totalRevenue, totalCost, totalQty, avgRoi,
+    cashIn, cashOut, cashNet: cashIn - cashOut,
+    top5, byPlatform, byCategory,
+    ticketCount: rows.length,
+    payoutCount: paidThisMonth.length,
+    purchaseCount: boughtThisMonth.length
+  };
+}
+
+/** Open the report modal — pre-fill with current month/year, populate years dropdown. */
+function openReportModal() {
+  const modal = $('#modalMonthlyReport');
+  if (!modal) return;
+
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+
+  // Populate year dropdown: current ± 3 years
+  const yearSel = $('#reportYear');
+  if (yearSel) {
+    const years = [];
+    for (let y = currentYear + 1; y >= currentYear - 3; y--) years.push(y);
+    yearSel.innerHTML = years.map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('');
+  }
+  $('#reportMonth').value = String(currentMonth);
+
+  modal.classList.add('active');
+  updateReportPreview();
+}
+
+/** Refresh the inline preview cards inside the modal. */
+function updateReportPreview() {
+  const month = parseInt($('#reportMonth')?.value, 10);
+  const year = parseInt($('#reportYear')?.value, 10);
+  if (!month || !year) return;
+  const data = collectMonthData(month, year);
+  const primary = getPrimaryCurrency();
+  $('#rpTickets').textContent = `${data.ticketCount} (${data.totalQty} ks)`;
+  $('#rpProfit').textContent = formatMoney(data.totalProfit, primary);
+  $('#rpProfit').style.color = data.totalProfit >= 0 ? 'var(--green)' : 'var(--red)';
+  $('#rpRoi').textContent = data.avgRoi.toFixed(1) + ' %';
+  // Revenue + cost = the two inputs to "Čistý zisk" (profit = revenue − cost),
+  // shown so the user can verify the calculation matches their expectations.
+  if ($('#rpRevenue')) $('#rpRevenue').textContent = formatMoney(data.totalRevenue, primary);
+  if ($('#rpCost')) $('#rpCost').textContent = formatMoney(data.totalCost, primary);
+}
+
+/** Build and download the PDF. */
+function downloadMonthlyReport() {
+  const month = parseInt($('#reportMonth')?.value, 10);
+  const year = parseInt($('#reportYear')?.value, 10);
+  if (!month || !year) {
+    toast('Vyber měsíc a rok', 'error');
+    return;
+  }
+
+  // Check that jsPDF loaded (CDN script may have been blocked offline)
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    toast('PDF knihovna se nenačetla — zkontroluj internet a obnov aplikaci', 'error', 4000);
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const data = collectMonthData(month, year);
+  const primary = getPrimaryCurrency();
+  const monthLabel = `${MONTH_NAMES_CS[month - 1]} ${year}`;
+  // ASCII-safe variant for PDF (default helvetica font lacks Czech diacritics)
+  const monthLabelAscii = `${['Leden','Unor','Brezen','Duben','Kveten','Cerven','Cervenec','Srpen','Zari','Rijen','Listopad','Prosinec'][month - 1]} ${year}`;
+
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const GOLD = [212, 175, 95];
+  const GREEN = [22, 163, 74];
+  const RED = [185, 28, 28];
+
+  // ─── HEADER ─────────────────────────────────────────────────────────
+  doc.setFillColor(...GOLD);
+  doc.rect(0, 0, 210, 32, 'F');
+  doc.setTextColor(255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TicketVault', 15, 16);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Mesicni report  ·  ${monthLabelAscii}`, 15, 25);
+
+  // Timestamp top-right
+  const now = new Date();
+  const ts = `${String(now.getDate()).padStart(2,'0')}.${String(now.getMonth()+1).padStart(2,'0')}.${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  doc.setFontSize(8);
+  doc.text(`Vygenerovano: ${ts}`, 195, 25, { align: 'right' });
+
+  let y = 45;
+
+  // ─── KPI CARDS (4 across) ───────────────────────────────────────────
+  doc.setTextColor(40);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Souhrn mesice', 15, y);
+  y += 7;
+
+  // Format money with ASCII-safe currency suffix. The default formatMoney()
+  // uses symbols (€, £, $) which the PDF font (helvetica) renders for the
+  // major ones but not for Kč — and our broad non-ASCII strip below would
+  // wipe € too. So we build the string manually:
+  //   number with cs-CZ thousands/decimals → " EUR"
+  // toLocaleString('cs-CZ') uses non-breaking-space (U+00A0) as the thousands
+  // separator, which renders as a blank box in jsPDF's default helvetica font.
+  // Convert to a plain ASCII space so the PDF reads correctly.
+  const fmtPlain = (n, ccyCode) => {
+    if (n == null || isNaN(n)) return '-';
+    const code = (ccyCode || primary || 'EUR').toUpperCase();
+    const formatted = Math.abs(n).toLocaleString('cs-CZ', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).replace(/\u00A0/g, ' ');   // NBSP → regular space
+    const sign = n < 0 ? '-' : '';
+    return `${sign}${formatted} ${code}`;
+  };
+  const kpiCards = [
+    { label: 'CELKOVY PROFIT', value: fmtPlain(data.totalProfit), color: data.totalProfit >= 0 ? GREEN : RED },
+    { label: 'PRODANO TICKETU', value: `${data.totalQty} ks / ${data.ticketCount} prod.`, color: [40, 40, 40] },
+    { label: 'PRUMERNY ROI', value: data.avgRoi.toFixed(1) + ' %', color: data.avgRoi >= 0 ? GREEN : RED },
+    { label: 'TOP EVENT', value: data.top5[0] ? data.top5[0].event.replace(/[^\x00-\x7F]/g, '?') : '-', color: [40, 40, 40], isLongText: true }
+  ];
+  const cardW = 44;
+  const cardH = 22;   // was 20, +2mm to accommodate 2-line TOP EVENT wrap
+  let cx = 15;
+  kpiCards.forEach(c => {
+    doc.setDrawColor(220);
+    doc.setFillColor(252, 250, 245);
+    doc.roundedRect(cx, y, cardW, cardH, 2, 2, 'FD');
+    doc.setTextColor(110);
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text(c.label, cx + 3, y + 5);
+    doc.setTextColor(...c.color);
+    if (c.isLongText) {
+      // TOP EVENT can be long ("METALLICA: M72 WORLD TOUR | 1-DAY TICKET..."),
+      // so wrap to fit card width. Smaller font (8pt) gives ~22 chars/line,
+      // 2 lines = ~44 chars total, plenty for typical event titles. If still
+      // too long, jsPDF truncates with ... at the end of line 2.
+      doc.setFontSize(8);
+      const maxLines = 2;
+      const lineHeight = 3.5;   // mm
+      const cardInner = cardW - 6;   // card width minus left+right padding
+      const lines = doc.splitTextToSize(c.value, cardInner).slice(0, maxLines);
+      lines.forEach((line, i) => {
+        doc.text(line, cx + 3, y + 11 + i * lineHeight);
+      });
+    } else {
+      doc.setFontSize(10);
+      doc.text(c.value, cx + 3, y + 13);
+    }
+    cx += cardW + 3;
+  });
+  y += cardH + 10;
+
+  // ─── ČISTÝ ZISK SUMMARY ─────────────────────────────────────────────
+  // User wanted "čistý zisk" (net profit) instead of cashflow because the
+  // accounting view is more intuitive for them: tržba − náklady = profit.
+  // Cashflow is still computed in collectMonthData but not shown in PDF —
+  // people kept confusing "NET cashflow" with "profit" which is a different
+  // metric (cashflow = money in vs out this month, profit = sales − costs).
+  doc.setTextColor(40);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Cisty zisk', 15, y);
+  y += 4;
+
+  doc.autoTable({
+    startY: y,
+    head: [['Polozka', 'Castka']],
+    body: [
+      ['Trzba (prodeje)', fmtPlain(data.totalRevenue)],
+      ['Naklady (nakupni cena)', fmtPlain(data.totalCost)],
+      ['Cisty zisk', fmtPlain(data.totalProfit)]
+    ],
+    theme: 'striped',
+    headStyles: { fillColor: GOLD, textColor: 255, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 10 },
+    styles: { cellPadding: 2.5 },
+    columnStyles: {
+      1: { halign: 'right', fontStyle: 'bold', cellWidth: 50 }
+    },
+    didParseCell: (h) => {
+      // Color the Čistý zisk row according to sign
+      if (h.section === 'body' && h.row.index === 2 && h.column.index === 1) {
+        h.cell.styles.textColor = data.totalProfit >= 0 ? GREEN : RED;
+      }
+    },
+    margin: { left: 15, right: 15 }
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  // ─── BREAKDOWN BY PLATFORM ──────────────────────────────────────────
+  if (Object.keys(data.byPlatform).length > 0) {
+    if (y > 230) { doc.addPage(); y = 20; }
+    doc.setTextColor(40);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Podle platformy', 15, y);
+    y += 4;
+    const platformRows = Object.entries(data.byPlatform)
+      .sort((a, b) => b[1].profit - a[1].profit)
+      .map(([pl, v]) => [pl.replace(/[^\x00-\x7F]/g, '?'), String(v.count), fmtPlain(v.revenue), fmtPlain(v.profit)]);
+    doc.autoTable({
+      startY: y,
+      head: [['Platforma', 'Ks', 'Trzba', 'Profit']],
+      body: platformRows,
+      theme: 'striped',
+      headStyles: { fillColor: GOLD, textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 2 },
+      columnStyles: {
+        1: { halign: 'right', cellWidth: 20 },
+        2: { halign: 'right', cellWidth: 40 },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 40 }
+      },
+      margin: { left: 15, right: 15 }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ─── TOP 5 EVENTS ───────────────────────────────────────────────────
+  if (data.top5.length > 0) {
+    if (y > 220) { doc.addPage(); y = 20; }
+    doc.setTextColor(40);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('TOP 5 eventu', 15, y);
+    y += 4;
+    doc.autoTable({
+      startY: y,
+      head: [['#', 'Event', 'Ks', 'Profit', 'ROI']],
+      body: data.top5.map((r, i) => [
+        String(i + 1),
+        r.event.substring(0, 45).replace(/[^\x00-\x7F]/g, '?'),
+        String(r.qty),
+        fmtPlain(r.profit),
+        r.roi.toFixed(1) + ' %'
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: GOLD, textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 2 },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 10 },
+        2: { halign: 'right', cellWidth: 15 },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 35 },
+        4: { halign: 'right', cellWidth: 20 }
+      },
+      didParseCell: (h) => {
+        if (h.section === 'body' && h.column.index === 3) {
+          // Cell text format: "330,19 EUR" or "-50,25 EUR" — strip currency
+          // code and spaces, then convert cs-CZ decimal comma to a dot so
+          // parseFloat actually gets the right number. Otherwise "330,19"
+          // parses as 33019 and every cell incorrectly looks positive.
+          const cleaned = String(h.cell.raw)
+            .replace(/[A-Za-z\s]/g, '')   // drop "EUR ", " GBP", etc.
+            .replace(/\./g, '')           // drop thousand separators ("1.234,56" → "1234,56")
+            .replace(',', '.');            // decimal comma → dot
+          const val = parseFloat(cleaned);
+          if (!isNaN(val)) h.cell.styles.textColor = val >= 0 ? GREEN : RED;
+        }
+      },
+      margin: { left: 15, right: 15 }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ─── PAGE 2: FULL P&L DETAIL ────────────────────────────────────────
+  if (data.rows.length > 0) {
+    doc.addPage();
+    doc.setFillColor(...GOLD);
+    doc.rect(0, 0, 210, 14, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Detail prodeju  ·  ${monthLabelAscii}`, 15, 9);
+
+    doc.autoTable({
+      startY: 20,
+      head: [['Event', 'Datum eventu', 'Prodano', 'Ks', 'Naklad', 'Trzba', 'Profit', 'ROI']],
+      body: data.rows.map(r => [
+        r.event.substring(0, 28).replace(/[^\x00-\x7F]/g, '?'),
+        r.eventDate ? formatDate(r.eventDate) : '—',
+        r.saleDate ? formatDate(r.saleDate) : '—',
+        String(r.qty),
+        fmtPlain(r.cost),
+        fmtPlain(r.sale),
+        fmtPlain(r.profit),
+        r.roi.toFixed(1) + ' %'
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: GOLD, textColor: 255, fontStyle: 'bold', fontSize: 7 },
+      styles: { fontSize: 7, cellPadding: 1.5 },
+      columnStyles: {
+        3: { halign: 'right' },
+        4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'right', fontStyle: 'bold' },
+        7: { halign: 'right' }
+      },
+      didParseCell: (h) => {
+        if (h.section === 'body' && h.column.index === 6) {
+          const cleaned = String(h.cell.raw)
+            .replace(/[A-Za-z\s]/g, '')
+            .replace(/\./g, '')
+            .replace(',', '.');
+          const val = parseFloat(cleaned);
+          if (!isNaN(val)) h.cell.styles.textColor = val >= 0 ? GREEN : RED;
+        }
+      },
+      margin: { left: 10, right: 10 }
+    });
+  }
+
+  // ─── FOOTER on every page ───────────────────────────────────────────
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`TicketVault Monthly Report  ·  ${monthLabelAscii}  ·  Strana ${i}/${totalPages}`,
+      105, 290, { align: 'center' });
+  }
+
+  // Save
+  const filename = `TicketVault_Report_${year}-${String(month).padStart(2, '0')}.pdf`;
+  doc.save(filename);
+
+  // Close modal + toast
+  $('#modalMonthlyReport').classList.remove('active');
+  toast(`Report stažen: ${filename}`, 'success', 3000);
 }
 
 function renderStatsPage() {
@@ -9792,11 +10292,23 @@ function setupEventListeners() {
     saveUiPrefs();
     renderPayoutsPage();
   });
+  $('#pFilterMonth')?.addEventListener('change', (ev) => {
+    state.payoutFilters.month = ev.target.value;
+    saveUiPrefs();
+    renderPayoutsPage();
+  });
+  $('#pFilterYear')?.addEventListener('change', (ev) => {
+    state.payoutFilters.year = ev.target.value;
+    saveUiPrefs();
+    renderPayoutsPage();
+  });
   $('#btnPReset')?.addEventListener('click', () => {
-    state.payoutFilters = { search: '', platform: '', status: '' };
+    state.payoutFilters = { search: '', platform: '', status: '', month: '', year: '' };
     $('#pFilterSearch').value = '';
     $('#pFilterPlatform').value = '';
     $('#pFilterStatus').value = '';
+    if ($('#pFilterMonth')) $('#pFilterMonth').value = '';
+    if ($('#pFilterYear')) $('#pFilterYear').value = '';
     saveUiPrefs();
     renderPayoutsPage();
   });
@@ -9822,6 +10334,13 @@ function setupEventListeners() {
     saveUiPrefs();
     renderStatsPage();
   });
+
+  // Monthly PDF report
+  $('#btnGenerateReport')?.addEventListener('click', openReportModal);
+  $('#btnDownloadReport')?.addEventListener('click', downloadMonthlyReport);
+  // Live preview when user changes month/year in the modal
+  $('#reportMonth')?.addEventListener('change', updateReportPreview);
+  $('#reportYear')?.addEventListener('change', updateReportPreview);
   
   // Settings actions
   $('#btnChangeDbPath').addEventListener('click', changeDbPath);

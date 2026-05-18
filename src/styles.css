@@ -1568,6 +1568,41 @@ body.bulk-bar-visible .main {
   max-width: 420px;
 }
 
+/* Monthly PDF report — preview cards inside the picker modal show what the
+   report will contain BEFORE user commits to downloading. Updates live as
+   they change month/year. Same warm palette as the rest of the app. */
+.report-modal-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.report-preview {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-preview-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  gap: 8px;
+}
+.report-preview-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-size: 12px;
+}
+
 .modal-large {
   max-width: 1100px;
   width: 92%;
