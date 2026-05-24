@@ -1912,15 +1912,16 @@ function calcHoldDays(t) {
 
 function renderStats() {
   // Apply the dashboard category filter so the 5 stat cards (Profit / Spent /
-  // Revenue / Sold / Stock) reflect ONLY the selected category — same scope
-  // as the table below them. 'selected' is the pseudo-category that filters
-  // to multi-select chosen rows, mirroring the same logic in getFilteredTickets.
-  let all = state.db.tickets;
-  if (state.dashboardCategory === 'selected') {
-    all = all.filter(t => state.selectedIds.has(t.id));
-  } else if (state.dashboardCategory && state.dashboardCategory !== 'all') {
-    all = all.filter(t => (t.category || 'concert') === state.dashboardCategory);
-  }
+  // Dashboard stat cards reflect WHAT'S ACTUALLY VISIBLE in the table below.
+  // That means honoring every filter the user has applied: category chip,
+  // month, year, status, search, and the date-range pickers. This way the
+  // "Celkový profit" / "Utraceno" / "Prodáno" numbers above the table always
+  // describe the rows you can see, not the entire DB.
+  //
+  // Implementation: reuse getFilteredTickets() instead of starting from
+  // state.db.tickets + only filtering by category. That function already
+  // contains all the filter logic the table uses.
+  let all = getFilteredTickets();
   // Resolved tickets contribute to profit: sold/delivered (revenue minus cost)
   // OR cancelled (= written off, revenue 0, profit = -cost). All three should
   // flow through to dashboard totals as realised P&L.
@@ -1946,6 +1947,10 @@ function renderStats() {
 }
 
 function renderTickets() {
+  // Refresh dashboard stat cards too — they live above the table and the user
+  // expects them to track whatever filters are applied. Without this, totals
+  // stay stale at "all tickets ever" while the table shows only this month.
+  renderStats();
   const list = getFilteredTickets();
   const tbody = $('#ticketsBody');
   const empty = $('#emptyState');
@@ -6034,9 +6039,21 @@ async function approveInboxItem(id) {
 }
 
 async function dismissInboxItem(id) {
-  await markInboxItemState(id, 'dismissed');
-  await refreshDb();
+  // Optimistic local update: flip the state in memory immediately so the card
+  // disappears on the next render even before the cloud round-trips. Without
+  // this, refreshDb()'s cloud pull can race ahead of the cloud push and return
+  // a stale copy where the item is still 'pending_review' → card reappears.
+  const item = (state.db.inbox || []).find(i => i.id === id);
+  if (item) {
+    item.state = 'dismissed';
+    item.resolvedAt = new Date().toISOString();
+  }
+  // Re-render right away from the now-updated in-memory state
   renderInboxPage();
+  updateInboxBadge();
+
+  // Persist (this awaits the cloud push inside the IPC handler)
+  await markInboxItemState(id, 'dismissed');
   toast('Zahozeno', 'info', 2000);
 }
 
