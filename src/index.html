@@ -420,24 +420,54 @@
         <!-- STAT CARDS -->
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="stat-label">CELKOVÝ PROFIT</div>
+            <div class="stat-card-top">
+              <div class="stat-label">CELKOVÝ PROFIT</div>
+              <div class="stat-icon stat-icon-profit">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+            </div>
             <div class="stat-value profit" id="statProfit">0,00 EUR</div>
+            <div class="stat-trend" id="statProfitTrend"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">UTRACENO</div>
+            <div class="stat-card-top">
+              <div class="stat-label">UTRACENO</div>
+              <div class="stat-icon stat-icon-spent">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+              </div>
+            </div>
             <div class="stat-value loss" id="statSpent">0,00 EUR</div>
+            <div class="stat-trend" id="statSpentTrend"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">CELKOVÝ OBRAT</div>
+            <div class="stat-card-top">
+              <div class="stat-label">CELKOVÝ OBRAT</div>
+              <div class="stat-icon stat-icon-revenue">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+              </div>
+            </div>
             <div class="stat-value revenue" id="statRevenue">0,00 EUR</div>
+            <div class="stat-trend" id="statRevenueTrend"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">PRODÁNO / CELKEM</div>
+            <div class="stat-card-top">
+              <div class="stat-label">PRODÁNO / CELKEM</div>
+              <div class="stat-icon stat-icon-sold">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.59a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+              </div>
+            </div>
             <div class="stat-value sold" id="statSold">0 / 0</div>
+            <div class="stat-trend" id="statSoldTrend"></div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">ZBÝVÁ PRODAT</div>
+            <div class="stat-card-top">
+              <div class="stat-label">ZBÝVÁ PRODAT</div>
+              <div class="stat-icon stat-icon-stock">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              </div>
+            </div>
             <div class="stat-value stock" id="statStock">0</div>
+            <div class="stat-trend" id="statStockTrend"></div>
           </div>
         </div>
 
@@ -709,6 +739,19 @@
         <div class="chart-card chart-card-full">
           <h3>KUMULATIVNÍ ZISK V ČASE</h3>
           <div class="chart-wrap"><canvas id="chartCumulative"></canvas></div>
+        </div>
+
+        <!-- PLATFORM DISTRIBUTION (full width, custom bars) -->
+        <div class="chart-card chart-card-full platform-dist-card">
+          <div class="platform-dist-head">
+            <h3>ROZLOŽENÍ PRODEJŮ PODLE PLATFORMY</h3>
+            <div class="platform-dist-toggle" id="platformDistToggle" role="tablist" aria-label="Metrika rozložení">
+              <button class="pdist-toggle-btn active" data-metric="count">Počet ks</button>
+              <button class="pdist-toggle-btn" data-metric="revenue">Obrat</button>
+              <button class="pdist-toggle-btn" data-metric="profit">Profit</button>
+            </div>
+          </div>
+          <div class="platform-dist-bars" id="platformDistBars"></div>
         </div>
 
         <!-- MONTHLY PROFIT BAR + INVENTORY OVER TIME (side by side) -->

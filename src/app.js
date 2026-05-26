@@ -1947,6 +1947,82 @@ function renderStats() {
   $('#statRevenue').textContent = formatMoney(revenue, primary);
   $('#statSold').textContent = `${soldQty} / ${totalQty}`;
   $('#statStock').textContent = formatInt(inStockQty);
+
+  // ── Trend badges: this month vs previous month ──────────────────────
+  // Shows "+12%" style deltas under each KPI. Computed from ALL tickets
+  // (not the filtered set) comparing the current calendar month to the one
+  // before it — this is a fixed "momentum" indicator, independent of the
+  // table filters, so it stays meaningful even while you filter the table.
+  renderStatTrends();
+}
+
+// Compute month-over-month deltas and paint the little trend badges.
+function renderStatTrends() {
+  const allTickets = state.db.tickets || [];
+  const now = new Date();
+  const curY = now.getFullYear(), curM = now.getMonth();   // 0-indexed month
+  // Previous month (handles January → December of last year)
+  const prevDate = new Date(curY, curM - 1, 1);
+  const prevY = prevDate.getFullYear(), prevM = prevDate.getMonth();
+
+  const inMonth = (dateStr, y, m) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    return !isNaN(d) && d.getFullYear() === y && d.getMonth() === m;
+  };
+
+  // Build metric totals for a given month
+  const metricsFor = (y, m) => {
+    const soldThis = allTickets.filter(t =>
+      (t.status === 'sold' || t.status === 'delivered' || t.status === 'cancelled') &&
+      inMonth(t.saleDate, y, m));
+    const boughtThis = allTickets.filter(t => inMonth(t.purchaseDate, y, m));
+    const profit = soldThis.reduce((s, t) => s + calcProfitInPrimary(t), 0);
+    const spent = boughtThis.reduce((s, t) => s + calcCostInPrimary(t), 0);
+    const revenue = soldThis.reduce((s, t) => s + calcRevenueInPrimary(t), 0);
+    const soldQty = soldThis.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+    return { profit, spent, revenue, soldQty };
+  };
+
+  const cur = metricsFor(curY, curM);
+  const prev = metricsFor(prevY, prevM);
+
+  // Percent change helper. Returns null when there's no baseline (prev = 0)
+  // so we can show "nové" instead of a meaningless ∞%.
+  const pctChange = (now, before) => {
+    if (before === 0) return now === 0 ? 0 : null;
+    return ((now - before) / Math.abs(before)) * 100;
+  };
+
+  // Paint one badge. higherIsBetter controls the color (for "Utraceno" more
+  // spending isn't necessarily good, but we keep it neutral-informative).
+  const paint = (elId, pct, opts = {}) => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (pct === null) {
+      el.innerHTML = `<span class="trend-chip trend-new">nové tento měsíc</span>`;
+      return;
+    }
+    const rounded = Math.round(pct);
+    if (rounded === 0) {
+      el.innerHTML = `<span class="trend-chip trend-flat">beze změny vs minulý měsíc</span>`;
+      return;
+    }
+    const up = rounded > 0;
+    // For most metrics up = good (green). For "spent" we stay neutral grey.
+    const cls = opts.neutral ? 'trend-neutral' : (up ? 'trend-up' : 'trend-down');
+    const arrow = up ? '▲' : '▼';
+    el.innerHTML = `<span class="trend-chip ${cls}">${arrow} ${Math.abs(rounded)}% <span class="trend-sub">vs minulý měsíc</span></span>`;
+  };
+
+  paint('statProfitTrend', pctChange(cur.profit, prev.profit));
+  paint('statSpentTrend', pctChange(cur.spent, prev.spent), { neutral: true });
+  paint('statRevenueTrend', pctChange(cur.revenue, prev.revenue));
+  paint('statSoldTrend', pctChange(cur.soldQty, prev.soldQty));
+  // "Zbývá prodat" is a snapshot (current stock), not a monthly flow — no
+  // meaningful month-over-month, so we leave its trend area empty.
+  const stockTrend = document.getElementById('statStockTrend');
+  if (stockTrend) stockTrend.innerHTML = '';
 }
 
 function renderTickets() {
@@ -8911,9 +8987,123 @@ function renderCharts(sold, all) {
       }
     });
   });
+
+  // Platform distribution panel (custom bars, not Chart.js)
+  renderPlatformDistribution();
 }
 
-// ============ TICKET MODAL ============
+// ============ PLATFORM DISTRIBUTION ============
+// Custom horizontal-bar panel showing how sales split across marketplaces
+// (Stubhub / Viagogo / SyncSeats / ...). Three metrics togglable: count of
+// tickets, gross revenue, and profit. Uses the same gold/cream palette and
+// the per-platform brand-ish colors so it feels native, not like a generic
+// chart library widget. Honors the active stats month/year filter.
+function renderPlatformDistribution() {
+  const container = document.getElementById('platformDistBars');
+  if (!container) return;
+
+  if (!state.platformDistMetric) state.platformDistMetric = 'count';
+  const metric = state.platformDistMetric;
+  const primary = getPrimaryCurrency();
+
+  // Use the same filtered set the rest of the stats page uses, and only count
+  // tickets that actually sold (sold/delivered) — those are the ones with a
+  // platform that "did the selling".
+  const all = getStatsFilteredTickets();
+  const sold = all.filter(t => t.status === 'sold' || t.status === 'delivered');
+
+  // Aggregate per platform
+  const agg = {};
+  sold.forEach(t => {
+    const p = t.platform || 'Jiná';
+    if (!agg[p]) agg[p] = { count: 0, revenue: 0, profit: 0 };
+    agg[p].count += Number(t.quantity) || 1;
+    agg[p].revenue += calcRevenueInPrimary(t);
+    agg[p].profit += calcProfitInPrimary(t);
+  });
+
+  const rows = Object.entries(agg).map(([platform, v]) => ({
+    platform,
+    value: v[metric],
+    count: v.count,
+    revenue: v.revenue,
+    profit: v.profit
+  }));
+
+  if (rows.length === 0) {
+    container.innerHTML = `<div class="platform-dist-empty">Zatím žádné prodeje${(state.statsFilters?.month || state.statsFilters?.year) ? ' v tomto období' : ''}. Prodej vstupenku a uvidíš rozložení podle platforem.</div>`;
+    return;
+  }
+
+  // Sort descending by chosen metric (use absolute for profit so big losses
+  // still sort near the top — they're significant too)
+  rows.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+
+  // Total for percentage — for count/revenue use plain sum; for profit use
+  // sum of positives so percentages stay intuitive (a loss-making platform
+  // shows a tiny/negative bar rather than skewing the scale).
+  const maxAbs = Math.max(...rows.map(r => Math.abs(r.value)), 1);
+  const total = rows.reduce((s, r) => s + r.value, 0);
+
+  // Brand-ish colors per platform, falling back to the gold accent.
+  const platformColor = (p) => {
+    const map = {
+      'Stubhub': '#e8590c',       // Stubhub orange-red
+      'Viagogo': '#1d4ed8',       // Viagogo blue
+      'SyncSeats': '#16a34a',     // SyncSeats green
+      'Ticketmaster': '#0061ff',
+      'AXS': '#e11d48',
+      'Eventim': '#0ea5e9',
+      'Seatgeek': '#ef4444',
+      'Vivid': '#d6336c',
+      'TickPick': '#22c55e'
+    };
+    return map[p] || 'var(--purple, #d4a94a)';
+  };
+
+  const fmtVal = (r) => {
+    if (metric === 'count') return `${r.count} ks`;
+    if (metric === 'revenue') return formatMoney(r.revenue, primary);
+    return formatMoney(r.profit, primary);
+  };
+
+  container.innerHTML = rows.map(r => {
+    const pct = total !== 0 ? (r.value / total) * 100 : 0;
+    // Bar width relative to the biggest platform (not to total) so even a
+    // dominant platform doesn't make small ones invisible.
+    const widthPct = (Math.abs(r.value) / maxAbs) * 100;
+    const color = platformColor(r.platform);
+    const isNeg = r.value < 0;
+    return `
+      <div class="pdist-row">
+        <div class="pdist-row-label">
+          <span class="pdist-dot" style="background:${color}"></span>
+          <span class="pdist-name">${escapeHtml(r.platform)}</span>
+        </div>
+        <div class="pdist-track">
+          <div class="pdist-fill ${isNeg ? 'pdist-fill-neg' : ''}" style="width:${Math.max(widthPct, 2)}%;background:${isNeg ? 'var(--red)' : color}"></div>
+        </div>
+        <div class="pdist-value">
+          <span class="pdist-amount">${fmtVal(r)}</span>
+          <span class="pdist-pct">${pct >= 0 ? '' : '−'}${Math.abs(pct).toFixed(0)}%</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Wire up the metric toggle (idempotent — clear old listeners by cloning)
+  const toggle = document.getElementById('platformDistToggle');
+  if (toggle && !toggle.dataset.bound) {
+    toggle.dataset.bound = '1';
+    toggle.querySelectorAll('.pdist-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.platformDistMetric = btn.dataset.metric;
+        toggle.querySelectorAll('.pdist-toggle-btn').forEach(b =>
+          b.classList.toggle('active', b === btn));
+        renderPlatformDistribution();
+      });
+    });
+  }
+}
 // ============ BUYER SECTION HELPERS ============
 function updateBuyerSectionVisibility() {
   const section = $('#buyerSection');

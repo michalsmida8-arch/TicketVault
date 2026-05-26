@@ -978,6 +978,77 @@ body.marketplace-active .main {
   border-color: var(--border);
 }
 
+/* Top row of the card: label on the left, icon badge on the right */
+.stat-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stat-card-top .stat-label {
+  margin-bottom: 8px;
+}
+
+/* Icon badge — soft rounded square, tinted per metric. Sits top-right of the
+   card like in modern finance dashboards. */
+.stat-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--purple);
+  background: rgba(var(--purple-rgb), 0.12);
+}
+.stat-icon-profit  { color: #2f9e6e; background: rgba(47, 158, 110, 0.12); }
+.stat-icon-spent   { color: #c0623f; background: rgba(192, 98, 63, 0.12); }
+.stat-icon-revenue { color: #3b82f6; background: rgba(59, 130, 246, 0.12); }
+.stat-icon-sold    { color: var(--purple); background: rgba(var(--purple-rgb), 0.14); }
+.stat-icon-stock   { color: #8a7e6a; background: rgba(138, 126, 106, 0.14); }
+[data-theme="light"] .stat-icon-stock { color: #6a5f4d; }
+
+/* Trend badge under the value */
+.stat-trend {
+  margin-top: 8px;
+  min-height: 18px;   /* reserve space so cards stay equal height even when empty */
+}
+.trend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+}
+.trend-sub {
+  font-weight: 400;
+  opacity: 0.7;
+  letter-spacing: 0;
+}
+.trend-up {
+  color: #2f9e6e;
+  background: rgba(47, 158, 110, 0.12);
+}
+.trend-down {
+  color: #c0623f;
+  background: rgba(192, 98, 63, 0.12);
+}
+.trend-neutral {
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+}
+.trend-flat,
+.trend-new {
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  font-weight: 500;
+}
+
 .stat-label {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1813,6 +1884,140 @@ body.bulk-bar-visible .main {
   flex: 1;
   min-height: 0;
   width: 100%;
+}
+
+/* ── Platform distribution panel ───────────────────────────────────────
+   Custom horizontal bars, auto-height (overrides the fixed 360px of
+   .chart-card so it grows with the number of platforms). */
+.platform-dist-card {
+  height: auto !important;
+}
+.platform-dist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.platform-dist-head h3 {
+  margin-bottom: 0;
+}
+.platform-dist-toggle {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+.pdist-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+.pdist-toggle-btn:hover {
+  color: var(--text-secondary);
+}
+.pdist-toggle-btn.active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.platform-dist-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pdist-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 130px;
+  align-items: center;
+  gap: 14px;
+}
+.pdist-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pdist-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pdist-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdist-track {
+  position: relative;
+  height: 22px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.pdist-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 6px;
+  /* Animate width in on render */
+  animation: pdist-grow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 0.35s ease;
+  min-width: 4px;
+}
+@keyframes pdist-grow {
+  from { width: 0 !important; }
+}
+.pdist-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.pdist-amount {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.pdist-pct {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  min-width: 34px;
+  text-align: right;
+}
+.platform-dist-empty {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  text-align: center;
+  padding: 28px 16px;
+}
+
+/* Narrow screens — drop the fixed label/value columns to keep bars usable */
+@media (max-width: 640px) {
+  .pdist-row {
+    grid-template-columns: 110px 1fr 90px;
+    gap: 8px;
+  }
+  .pdist-name { font-size: 12px; }
+  .pdist-amount { font-size: 12px; }
 }
 
 .chart-card canvas {
