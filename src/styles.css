@@ -3206,6 +3206,87 @@ body.bulk-bar-visible .main {
   text-transform: uppercase;
 }
 
+/* ── Team group headers (collapsible) ──────────────────────────────────
+   Each team's accounts sit under a clickable header row that toggles the
+   group open/closed. Sticky so the team name stays visible while scrolling
+   through a long group. */
+.memberships-table tr.team-group-header {
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-tertiary);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.memberships-table tr.team-group-header:hover {
+  background: var(--bg-hover);
+}
+.memberships-table tr.team-group-header td {
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+.team-group-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.team-group-caret {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+  display: inline-block;
+  width: 12px;
+}
+.team-group-caret.collapsed {
+  transform: rotate(-90deg);
+}
+.team-logo-sm {
+  width: 20px !important;
+  height: 20px !important;
+  font-size: 8px !important;
+}
+.team-group-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.team-group-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-card);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.team-group-paired {
+  font-size: 10px;
+  color: var(--purple);
+  background: rgba(var(--purple-rgb), 0.1);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+
+/* ── Pairing groups ────────────────────────────────────────────────────
+   Accounts in the same pairing group sit consecutively (sorted) and share a
+   left-border stripe whose color matches their number bubble (group 1 always
+   one color, group 2 another, etc — set inline per row from GROUP_STRIPE_COLORS).
+   The first row of each group gets a separator + gap so groups read as blocks. */
+.memberships-table tr.pairing-group-head td {
+  border-top: 2px solid var(--border);
+  padding-top: 14px;
+}
+/* Emphasize the pairing bubble on the group head, dim it on continuation
+   rows — so the "leader" of each pairing is visually obvious. */
+.memberships-table tr.pairing-group-head .group-pill {
+  font-weight: 700;
+  transform: scale(1.05);
+}
+.memberships-table tr:not(.pairing-group-head) .group-pill {
+  opacity: 0.55;
+}
+
 .email-cell {
   font-family: var(--font-mono);
   font-size: 11px;

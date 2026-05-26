@@ -97,7 +97,9 @@ function saveUiPrefs() {
       simcardFilters: state.simcardFilters,
       expenseFilters: state.expenseFilters,
       payoutFilters: state.payoutFilters,
-      inboxFilters: state.inboxFilters
+      inboxFilters: state.inboxFilters,
+      // Set isn't JSON-serializable — convert to array
+      collapsedTeams: state.collapsedTeams ? [...state.collapsedTeams] : []
     };
     localStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
   } catch (_) { /* localStorage full or disabled — no-op */ }
@@ -126,6 +128,7 @@ function loadUiPrefs() {
     if (prefs.expenseFilters) Object.assign(state.expenseFilters, prefs.expenseFilters);
     if (prefs.payoutFilters) Object.assign(state.payoutFilters, prefs.payoutFilters);
     if (prefs.inboxFilters) Object.assign(state.inboxFilters, prefs.inboxFilters);
+    if (Array.isArray(prefs.collapsedTeams)) state.collapsedTeams = new Set(prefs.collapsedTeams);
   } catch (_) { /* corrupt JSON — ignore and keep defaults */ }
 }
 
@@ -4074,6 +4077,37 @@ function getGroupColor(groupNum) {
   return GROUP_COLORS[idx];
 }
 
+// Solid (opaque) stripe color for the left border of a pairing group, derived
+// from the same palette as the number bubble so the stripe and bubble always
+// match. Each pairing number maps to ONE consistent color — group 1 is always
+// the same color, group 2 always another, etc. (Unlike the old alternating
+// scheme which confusingly gave groups 1 and 3 the same color.)
+const GROUP_STRIPE_COLORS = [
+  '#a78bfa', // 1 purple
+  '#10b981', // 2 green
+  '#3b82f6', // 3 blue
+  '#f97316', // 4 orange
+  '#ec4899', // 5 pink
+  '#06b6d4', // 6 cyan
+  '#fbbf24', // 7 yellow
+  '#ef4444', // 8 red
+  '#84cc16', // 9 lime
+  '#d946ef', // 10 fuchsia
+  '#14b8a6', // 11 teal
+  '#fb923c', // 12 amber
+  '#6366f1', // 13 indigo
+  '#bef264', // 14 light-lime
+  '#f472b6', // 15 rose
+  '#94a3b8'  // 16 slate
+];
+function getGroupStripeColor(groupNum) {
+  if (!groupNum && groupNum !== 0) return null;
+  const n = parseInt(groupNum);
+  if (isNaN(n)) return null;
+  const idx = n <= 0 ? 0 : ((n - 1) % GROUP_STRIPE_COLORS.length);
+  return GROUP_STRIPE_COLORS[idx];
+}
+
 function getTeamInitials(team) {
   if (!team) return '?';
   const words = team.split(/\s+/).filter(Boolean);
@@ -4118,6 +4152,82 @@ function populateMembershipFilters() {
   fillSel('mFilterGroup', groups, 'Všechny skupiny');
 }
 
+// Render a single membership <tr>. Extracted so both the grouped view and any
+// future flat view can share the exact same row markup.
+// opts.stripeColor — solid color for the left border (per pairing group)
+// opts.isGroupHead — true for the first row of a pairing group (adds a top
+//                    separator + emphasizes the pairing number bubble).
+function renderMembershipRow(m, opts = {}) {
+  const { stripeColor = null, isGroupHead = false } = opts;
+  const checked = state.selectedMembershipIds.has(m.id) ? 'checked' : '';
+  const revealed = state.revealedPasswords.has(m.id);
+  const groupColor = getGroupColor(m.group);
+  const groupStyle = groupColor
+    ? `background:${groupColor.bg};color:${groupColor.text};border:1px solid ${groupColor.border}`
+    : 'background:var(--bg-tertiary);color:var(--text-tertiary);border:1px solid var(--border)';
+  // Left-border stripe matching the pairing group color (applied to first cell)
+  const stripeStyle = stripeColor ? `box-shadow: inset 4px 0 0 ${stripeColor};` : '';
+
+  const emailClass = 'email-' + (m.status || 'neutral');
+  const emailDotColor = {
+    green: '#10b981', blue: '#3b82f6', red: '#ef4444', neutral: '#9999a8'
+  }[m.status || 'neutral'];
+
+  const pwDisplay = m.password
+    ? (revealed ? escapeHtml(m.password) : '••••••••')
+    : '—';
+
+  const urlCell = m.url
+    ? `<a class="url-link" href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer" title="Otevřít: ${escapeHtml(m.url)}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>`
+    : `<span style="color:var(--text-tertiary)">—</span>`;
+
+  const lpVal = (m.lp === 0 || m.lp) ? m.lp : '';
+
+  return `
+    <tr data-id="${m.id}" class="membership-row ${isGroupHead ? 'pairing-group-head' : ''}">
+      <td class="col-check" style="${stripeStyle}"><input type="checkbox" class="m-row-check" data-id="${m.id}" ${checked}></td>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">${escapeHtml(m.memberId || '—')}</td>
+      <td>
+        <div class="team-cell">
+          <div class="team-logo">${getTeamInitials(m.team)}</div>
+          <span>${escapeHtml(m.team || '—')}</span>
+        </div>
+      </td>
+      <td class="email-cell ${emailClass}" title="${escapeHtml(m.email || '')}">
+        <span class="email-status-dot" style="background:${emailDotColor}"></span>
+        <span class="cell-text">${escapeHtml(m.email || '—')}</span>
+        ${m.email ? `<button class="copy-btn" data-copy="${escapeHtml(m.email)}" title="Kopírovat email">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>` : ''}
+      </td>
+      <td>${escapeHtml(m.card || '—')}</td>
+      <td class="pw-cell-wrap">
+        <span class="pw-cell ${revealed ? 'revealed' : ''}" data-pw-id="${m.id}" title="Klikni pro zobrazení/skrytí">${pwDisplay}</span>
+        ${m.password ? `<button class="copy-btn" data-copy="${escapeHtml(m.password)}" title="Kopírovat heslo">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>` : ''}
+      </td>
+      <td><span class="group-pill" style="${groupStyle}">${m.group || '—'}</span></td>
+      <td class="lp-cell">
+        <input type="number" class="lp-input" data-lp-id="${m.id}" value="${lpVal}" placeholder="—" min="0" step="1">
+      </td>
+      <td>${escapeHtml(m.owner || '—')}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(m.bankAccount || '—')}</td>
+      <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(m.phone || '—')}</td>
+      <td class="url-cell">${urlCell}</td>
+      <td class="col-actions">
+        <div class="actions-cell">
+          <button class="btn btn-clone btn-sm" data-m-action="clone" data-id="${m.id}" title="Klonovat membership">🗐</button>
+          <button class="btn btn-dark btn-sm" data-m-action="edit" data-id="${m.id}">Edit</button>
+          <button class="btn btn-danger btn-sm" data-m-action="delete" data-id="${m.id}">Del</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderMembershipsPage() {
   populateMembershipFilters();
   const list = getFilteredMemberships();
@@ -4131,75 +4241,94 @@ function renderMembershipsPage() {
     return;
   }
   empty.style.display = 'none';
-  
-  tbody.innerHTML = list.map(m => {
-    const checked = state.selectedMembershipIds.has(m.id) ? 'checked' : '';
-    const revealed = state.revealedPasswords.has(m.id);
-    const groupColor = getGroupColor(m.group);
-    const groupStyle = groupColor
-      ? `background:${groupColor.bg};color:${groupColor.text};border:1px solid ${groupColor.border}`
-      : 'background:var(--bg-tertiary);color:var(--text-tertiary);border:1px solid var(--border)';
-    
-    const emailClass = 'email-' + (m.status || 'neutral');
-    const emailDotColor = {
-      green: '#10b981', blue: '#3b82f6', red: '#ef4444', neutral: '#9999a8'
-    }[m.status || 'neutral'];
-    
-    const pwDisplay = m.password
-      ? (revealed ? escapeHtml(m.password) : '••••••••')
-      : '—';
-    
-    const urlCell = m.url
-      ? `<a class="url-link" href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer" title="Otevřít: ${escapeHtml(m.url)}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </a>`
-      : `<span style="color:var(--text-tertiary)">—</span>`;
-    
-    const lpVal = (m.lp === 0 || m.lp) ? m.lp : '';
-    
-    return `
-      <tr data-id="${m.id}">
-        <td class="col-check"><input type="checkbox" class="m-row-check" data-id="${m.id}" ${checked}></td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)">${escapeHtml(m.memberId || '—')}</td>
-        <td>
-          <div class="team-cell">
-            <div class="team-logo">${getTeamInitials(m.team)}</div>
-            <span>${escapeHtml(m.team || '—')}</span>
+
+  // ── Group rows by team ──────────────────────────────────────────────
+  // Memberships often number 30-50+ across many teams. A flat table forces
+  // scrolling + hunting. Grouping under collapsible team headers (with a
+  // count badge) lets the user collapse teams they don't care about and
+  // jump straight to the one they're working on.
+  // Collapsed state lives in state.collapsedTeams (a Set), persisted via prefs.
+  if (!state.collapsedTeams) state.collapsedTeams = new Set();
+
+  const groups = {};
+  list.forEach(m => {
+    const team = m.team || '(bez týmu)';
+    if (!groups[team]) groups[team] = [];
+    groups[team].push(m);
+  });
+  // Sort teams alphabetically, but keep "(bez týmu)" last
+  const teamNames = Object.keys(groups).sort((a, b) => {
+    if (a === '(bez týmu)') return 1;
+    if (b === '(bez týmu)') return -1;
+    return a.localeCompare(b);
+  });
+
+  // Column count for the group-header colspan (keep in sync with <thead>)
+  const COL_COUNT = 13;
+
+  const rowsHtml = teamNames.map(team => {
+    const members = groups[team];
+    const collapsed = state.collapsedTeams.has(team);
+    // Quick per-team stats shown in the header: count + how many have a ballot pairing
+    const pairedCount = members.filter(m => m.group).length;
+
+    const headerRow = `
+      <tr class="team-group-header" data-team="${escapeHtml(team)}">
+        <td colspan="${COL_COUNT}">
+          <div class="team-group-header-inner">
+            <span class="team-group-caret ${collapsed ? 'collapsed' : ''}">▼</span>
+            <div class="team-logo team-logo-sm">${getTeamInitials(team)}</div>
+            <span class="team-group-name">${escapeHtml(team)}</span>
+            <span class="team-group-count">${members.length} ${members.length === 1 ? 'účet' : (members.length < 5 ? 'účty' : 'účtů')}</span>
+            ${pairedCount > 0 ? `<span class="team-group-paired">${pairedCount}× párování</span>` : ''}
           </div>
         </td>
-        <td class="email-cell ${emailClass}" title="${escapeHtml(m.email || '')}">
-          <span class="email-status-dot" style="background:${emailDotColor}"></span>
-          <span class="cell-text">${escapeHtml(m.email || '—')}</span>
-          ${m.email ? `<button class="copy-btn" data-copy="${escapeHtml(m.email)}" title="Kopírovat email">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          </button>` : ''}
-        </td>
-        <td>${escapeHtml(m.card || '—')}</td>
-        <td class="pw-cell-wrap">
-          <span class="pw-cell ${revealed ? 'revealed' : ''}" data-pw-id="${m.id}" title="Klikni pro zobrazení/skrytí">${pwDisplay}</span>
-          ${m.password ? `<button class="copy-btn" data-copy="${escapeHtml(m.password)}" title="Kopírovat heslo">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          </button>` : ''}
-        </td>
-        <td><span class="group-pill" style="${groupStyle}">${m.group || '—'}</span></td>
-        <td class="lp-cell">
-          <input type="number" class="lp-input" data-lp-id="${m.id}" value="${lpVal}" placeholder="—" min="0" step="1">
-        </td>
-        <td>${escapeHtml(m.owner || '—')}</td>
-        <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(m.bankAccount || '—')}</td>
-        <td style="font-family:var(--font-mono);font-size:11px">${escapeHtml(m.phone || '—')}</td>
-        <td class="url-cell">${urlCell}</td>
-        <td class="col-actions">
-          <div class="actions-cell">
-            <button class="btn btn-clone btn-sm" data-m-action="clone" data-id="${m.id}" title="Klonovat membership">🗐</button>
-            <button class="btn btn-dark btn-sm" data-m-action="edit" data-id="${m.id}">Edit</button>
-            <button class="btn btn-danger btn-sm" data-m-action="delete" data-id="${m.id}">Del</button>
-          </div>
-        </td>
-      </tr>
-    `;
+      </tr>`;
+
+    if (collapsed) return headerRow;
+
+    // ── Sort members by pairing group within the team ───────────────────
+    // Accounts that belong together (same `group` number) should appear
+    // consecutively. Numeric sort; accounts with no pairing sort last.
+    const sortedMembers = [...members].sort((a, b) => {
+      const ga = (a.group === '' || a.group == null) ? Infinity : Number(a.group);
+      const gb = (b.group === '' || b.group == null) ? Infinity : Number(b.group);
+      if (ga !== gb) return ga - gb;
+      // Tie-break by email so order is stable within a pairing
+      return (a.email || '').localeCompare(b.email || '');
+    });
+
+    // ── Per-group stripe color ─────────────────────────────────────────
+    // Each pairing group gets its OWN consistent color (group 1 = purple,
+    // 2 = green, 3 = blue...) matching the number bubble. The first row of
+    // each group is marked (separator + emphasized number) so the start of
+    // each group is obvious.
+    let lastGroup = null;
+    const memberRows = sortedMembers.map(m => {
+      const gKey = (m.group === '' || m.group == null) ? '__none__' : String(m.group);
+      const isNewGroup = gKey !== lastGroup;
+      lastGroup = gKey;
+      const stripeColor = gKey === '__none__' ? null : getGroupStripeColor(m.group);
+      return renderMembershipRow(m, { stripeColor, isGroupHead: isNewGroup });
+    }).join('');
+    return headerRow + memberRows;
   }).join('');
-  
+
+  tbody.innerHTML = rowsHtml;
+
+  // ── Collapse/expand on header click ─────────────────────────────────
+  tbody.querySelectorAll('.team-group-header').forEach(hdr => {
+    hdr.addEventListener('click', (e) => {
+      // Don't toggle if the click was on a checkbox or button inside (none here, but safe)
+      if (e.target.closest('input,button,a')) return;
+      const team = hdr.dataset.team;
+      if (state.collapsedTeams.has(team)) state.collapsedTeams.delete(team);
+      else state.collapsedTeams.add(team);
+      saveUiPrefs();
+      renderMembershipsPage();
+    });
+  });
+
   // Bind actions
   tbody.querySelectorAll('[data-m-action]').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -6124,7 +6253,7 @@ function openInboxAdvancedEditModal(id) {
   if (existing) existing.remove();
 
   const currencies = ['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'];
-  const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','Other'];
+  const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','SyncSeats','Other'];
 
   const modal = document.createElement('div');
   modal.className = 'modal active';
@@ -10465,6 +10594,24 @@ function setupEventListeners() {
     $('#mFilterTeam').value = '';
     $('#mFilterOwner').value = '';
     $('#mFilterGroup').value = '';
+    saveUiPrefs();
+    renderMembershipsPage();
+  });
+  $('#btnMToggleAll')?.addEventListener('click', () => {
+    // If any team is currently expanded, collapse all. Otherwise expand all.
+    // Determine current state from the teams actually shown.
+    if (!state.collapsedTeams) state.collapsedTeams = new Set();
+    const teams = [...new Set((getFilteredMemberships()).map(m => m.team || '(bez týmu)'))];
+    const anyExpanded = teams.some(t => !state.collapsedTeams.has(t));
+    if (anyExpanded) {
+      // Collapse everything
+      teams.forEach(t => state.collapsedTeams.add(t));
+      $('#btnMToggleAll').textContent = '⊞ Rozbalit vše';
+    } else {
+      // Expand everything
+      state.collapsedTeams.clear();
+      $('#btnMToggleAll').textContent = '⊟ Sbalit vše';
+    }
     saveUiPrefs();
     renderMembershipsPage();
   });
