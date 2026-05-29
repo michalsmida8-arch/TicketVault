@@ -708,9 +708,15 @@ ipcMain.handle('shell:openExternal', async (event, url) => {
 //
 // We normalize on EUR as the base (rates[EUR] = 1, rates[USD] = 1.08, ...) so
 // conversion through EUR works: amount_in_B = (amount_in_A / rateA) * rateB.
+// NOTE: this list MUST stay in sync with the CURRENCIES array in src/app.js.
+// Any code listed there for display also needs its rate fetched here, otherwise
+// convertCurrency() fail-opens and shows the raw (unconverted) amount with the
+// wrong currency symbol. RSD was added to app.js for the Tickets.rs parser but
+// was missing here, so Serbian-dinar amounts showed up as e.g. "52 316 €".
 const SUPPORTED_CURRENCY_CODES = [
   'EUR', 'CZK', 'USD', 'GBP', 'CHF', 'PLN', 'HUF', 'SEK', 'NOK', 'DKK',
-  'CAD', 'AUD', 'JPY', 'MXN', 'BRL', 'ZAR', 'AED', 'SGD', 'NZD', 'TRY'
+  'CAD', 'AUD', 'JPY', 'MXN', 'BRL', 'ZAR', 'AED', 'SGD', 'NZD', 'TRY',
+  'RSD'
 ];
 
 async function fetchExchangeRatesFromApi() {
