@@ -253,6 +253,7 @@ const CURRENCIES = [
   { code: 'SGD', symbol: 'S$', name: 'Singapurský dolar',   locale: 'en-SG' },
   { code: 'NZD', symbol: 'NZ$',name: 'Novozélandský dolar', locale: 'en-NZ' },
   { code: 'TRY', symbol: '₺',  name: 'Turecká lira',        locale: 'tr-TR' },
+  { code: 'RSD', symbol: 'дин',name: 'Srbský dinár',        locale: 'sr-RS' },
 ];
 
 const CURRENCY_BY_CODE = Object.fromEntries(CURRENCIES.map(c => [c.code, c]));
@@ -6072,7 +6073,7 @@ function renderInboxCard(item) {
                    value="${price ? price.toFixed(2) : ''}"
                    placeholder="0.00">
             <select class="inbox-detail-input currency-input" data-field="currency" data-id="${item.id}">
-              ${['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'].map(c => `<option value="${c}" ${c === currency ? 'selected' : ''}>${c}</option>`).join('')}
+              ${['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON','RSD'].map(c => `<option value="${c}" ${c === currency ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -6328,7 +6329,7 @@ function openInboxAdvancedEditModal(id) {
   const existing = document.getElementById('modalInboxEdit');
   if (existing) existing.remove();
 
-  const currencies = ['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON'];
+  const currencies = ['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON','RSD'];
   const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','SyncSeats','Other'];
 
   const modal = document.createElement('div');
