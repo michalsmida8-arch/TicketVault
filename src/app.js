@@ -16,7 +16,7 @@ let state = {
   sortDir: 'desc',
   filters: {
     search: '',
-    status: '',
+    status: [],   // multi-select: array of status codes; [] = all statuses
     month: '',
     year: '',
     dateFrom: '',
@@ -117,6 +117,7 @@ function loadUiPrefs() {
     if (typeof prefs.sortBy === 'string') state.sortBy = prefs.sortBy;
     if (prefs.sortDir === 'asc' || prefs.sortDir === 'desc') state.sortDir = prefs.sortDir;
     if (prefs.filters) Object.assign(state.filters, prefs.filters);
+    normalizeStatusFilter();  // back-compat: old prefs stored status as a string
     if (typeof prefs.dashboardCategory === 'string' &&
         ['all', 'football', 'concert', 'other'].includes(prefs.dashboardCategory)) {
       state.dashboardCategory = prefs.dashboardCategory;
@@ -132,6 +133,42 @@ function loadUiPrefs() {
   } catch (_) { /* corrupt JSON — ignore and keep defaults */ }
 }
 
+// ---- Inventory status multi-select filter helpers ----
+const STATUS_FILTER_LABELS = {
+  available: 'Koupeno', listed: 'Zalistováno', sold: 'Prodáno',
+  delivered: 'Doručeno', cancelled: 'Zrušeno'
+};
+// Back-compat: older prefs stored filters.status as a string ('' or 'sold').
+// Normalize it to an array ([] = all statuses).
+function normalizeStatusFilter() {
+  const s = state.filters.status;
+  if (Array.isArray(s)) return;
+  state.filters.status = (s === '' || s == null) ? [] : [s];
+}
+// Reflect state.filters.status into the checkboxes + the toggle button label.
+function syncStatusFilter() {
+  normalizeStatusFilter();
+  const sel = state.filters.status;
+  document.querySelectorAll('#filterStatusPanel input[type="checkbox"]').forEach(cb => {
+    cb.checked = sel.includes(cb.value);
+  });
+  const label = document.querySelector('#filterStatusLabel');
+  if (label) {
+    if (!sel.length) label.textContent = 'Všechny statusy';
+    else if (sel.length === 1) label.textContent = STATUS_FILTER_LABELS[sel[0]] || sel[0];
+    else label.textContent = `Vybráno: ${sel.length}`;
+  }
+}
+// Open/close the dropdown panel. Pass true/false to force, or nothing to toggle.
+function openStatusPanel(open) {
+  const panel = document.querySelector('#filterStatusPanel');
+  const toggle = document.querySelector('#filterStatusToggle');
+  if (!panel || !toggle) return;
+  const willOpen = (open != null) ? open : panel.hasAttribute('hidden');
+  if (willOpen) { panel.removeAttribute('hidden'); toggle.setAttribute('aria-expanded', 'true'); }
+  else { panel.setAttribute('hidden', ''); toggle.setAttribute('aria-expanded', 'false'); }
+}
+
 // Sync loaded state back to form inputs + sort-header arrows
 // so the UI visually matches the restored preferences after a restart.
 function applyUiPrefsToUI() {
@@ -139,7 +176,7 @@ function applyUiPrefsToUI() {
   const f = state.filters;
   const set = (id, v) => { const el = $(id); if (el && v != null) el.value = v; };
   set('#filterSearch', f.search);
-  set('#filterStatus', f.status);
+  syncStatusFilter();
   set('#filterMonth', f.month);
   set('#filterYear', f.year);
   set('#filterDateFrom', f.dateFrom);
@@ -1880,7 +1917,8 @@ function getFilteredTickets() {
       (t.account || '').toLowerCase().includes(q)
     );
   }
-  if (f.status) list = list.filter(t => t.status === f.status);
+  const statusSel = Array.isArray(f.status) ? f.status : (f.status ? [f.status] : []);
+  if (statusSel.length) list = list.filter(t => statusSel.includes(t.status));
   if (f.month) list = list.filter(t => t.eventDate && new Date(t.eventDate).getMonth() + 1 === parseInt(f.month));
   if (f.year) list = list.filter(t => t.eventDate && new Date(t.eventDate).getFullYear() === parseInt(f.year));
   if (f.dateFrom) list = list.filter(t => t.eventDate && t.eventDate >= f.dateFrom);
@@ -10637,11 +10675,23 @@ function setupEventListeners() {
     saveUiPrefs();
     renderTickets();
   });
-  $('#filterStatus').addEventListener('change', (e) => {
-    state.filters.status = e.target.value;
+  // Status multi-select dropdown (checkboxes)
+  syncStatusFilter();
+  $('#filterStatusToggle')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openStatusPanel();
+  });
+  $('#filterStatusPanel')?.addEventListener('click', (e) => e.stopPropagation());
+  $('#filterStatusPanel')?.addEventListener('change', (e) => {
+    if (!e.target || !e.target.matches('input[type="checkbox"]')) return;
+    state.filters.status = [...document.querySelectorAll('#filterStatusPanel input[type="checkbox"]:checked')].map(cb => cb.value);
+    syncStatusFilter();
     saveUiPrefs();
     renderTickets();
   });
+  // Close the panel on outside click or Escape.
+  document.addEventListener('click', () => openStatusPanel(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openStatusPanel(false); });
   $('#filterMonth').addEventListener('change', (e) => {
     state.filters.month = e.target.value;
     saveUiPrefs();
@@ -10664,9 +10714,9 @@ function setupEventListeners() {
   });
   
   $('#btnReset').addEventListener('click', () => {
-    state.filters = { search: '', status: '', month: '', year: '', dateFrom: '', dateTo: '' };
+    state.filters = { search: '', status: [], month: '', year: '', dateFrom: '', dateTo: '' };
     $('#filterSearch').value = '';
-    $('#filterStatus').value = '';
+    syncStatusFilter();
     $('#filterMonth').value = '';
     $('#filterYear').value = '';
     $('#filterDateFrom').value = '';

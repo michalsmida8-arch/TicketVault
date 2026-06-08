@@ -474,14 +474,18 @@
         <!-- FILTERS -->
         <div class="filters">
           <input type="text" class="filter-input" id="filterSearch" placeholder="Hledat event nebo místo...">
-          <select class="filter-select" id="filterStatus">
-            <option value="">Všechny statusy</option>
-            <option value="available">Koupeno</option>
-            <option value="listed">Zalistováno</option>
-            <option value="sold">Prodáno</option>
-            <option value="delivered">Doručeno</option>
-            <option value="cancelled">Zrušeno</option>
-          </select>
+          <div class="filter-multiselect" id="filterStatusMS">
+            <button type="button" class="filter-select filter-ms-toggle" id="filterStatusToggle" aria-haspopup="true" aria-expanded="false">
+              <span id="filterStatusLabel">Všechny statusy</span>
+            </button>
+            <div class="filter-ms-panel" id="filterStatusPanel" hidden>
+              <label class="filter-ms-opt"><input type="checkbox" value="available"> Koupeno</label>
+              <label class="filter-ms-opt"><input type="checkbox" value="listed"> Zalistováno</label>
+              <label class="filter-ms-opt"><input type="checkbox" value="sold"> Prodáno</label>
+              <label class="filter-ms-opt"><input type="checkbox" value="delivered"> Doručeno</label>
+              <label class="filter-ms-opt"><input type="checkbox" value="cancelled"> Zrušeno</label>
+            </div>
+          </div>
           <select class="filter-select" id="filterMonth">
             <option value="">Všechny měsíce</option>
             <option value="1">Leden</option>
