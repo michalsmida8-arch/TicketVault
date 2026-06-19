@@ -1191,6 +1191,177 @@ body.marketplace-active .main {
   accent-color: var(--text-secondary);
 }
 
+/* ============ PREMIER LEAGUE FIXTURES ============ */
+.pl-season, .pl-updated {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.pl-updated { margin-left: auto; }
+.pl-fixtures { display: flex; flex-direction: column; gap: 18px; }
+.pl-empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-tertiary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+.pl-round {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.pl-round-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pl-round-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-card);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.pl-match {
+  display: grid;
+  grid-template-columns: 30px 160px 1fr 1.2fr;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pl-match:last-child { border-bottom: none; }
+.pl-match:hover { background: var(--bg-hover); }
+.pl-match-when { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+.pl-match-teams {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.pl-match-teams .pl-home { text-align: right; flex: 1; }
+.pl-match-teams .pl-away { text-align: left; flex: 1; }
+.pl-match-teams .pl-vs {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  flex: 0 0 auto;
+}
+.pl-match-venue { font-size: 12px; color: var(--text-tertiary); text-align: right; }
+@media (max-width: 720px) {
+  .pl-match { grid-template-columns: 30px 1fr; gap: 4px 10px; }
+  .pl-match-venue, .pl-match-teams .pl-home, .pl-match-teams .pl-away { text-align: left; }
+}
+
+/* watch star toggle on PL list */
+.pl-watch-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  padding: 2px;
+  transition: color 0.15s, transform 0.1s;
+}
+.pl-watch-btn:hover { transform: scale(1.2); color: #f59e0b; }
+.pl-watch-btn.watched { color: #f59e0b; }
+
+/* ============ WATCHED MATCHES (Sledované akce) ============ */
+.watch-intro {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  margin: 0 0 16px;
+  max-width: 760px;
+  line-height: 1.5;
+}
+.watch-card {
+  display: grid;
+  grid-template-columns: 1fr 320px 32px;
+  align-items: center;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.watch-teams { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.watch-tag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.watch-meta { font-size: 12px; color: var(--text-tertiary); margin-top: 3px; }
+.watch-sale label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.watch-sale-inputs { display: flex; gap: 8px; margin-bottom: 6px; }
+.watch-sale-inputs input, .watch-note {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.watch-sale-inputs input[type="date"] { flex: 1.4; }
+.watch-sale-inputs input[type="time"] { flex: 1; }
+.watch-note { width: 100%; box-sizing: border-box; }
+.watch-sale-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.watch-sale-badge.soon { color: #16a34a; background: rgba(22,163,74,0.12); }
+.watch-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  padding: 4px;
+}
+.watch-remove:hover { color: #dc2626; }
+@media (max-width: 720px) {
+  .watch-card { grid-template-columns: 1fr; }
+}
+
 /* ============ TABLE ============ */
 .table-wrapper {
   background: var(--bg-card);

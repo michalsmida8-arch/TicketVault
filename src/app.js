@@ -1655,6 +1655,7 @@ function updateClock() {
 async function refreshDb() {
   state.db = await window.api.loadDb();
   if (!state.db.tickets) state.db.tickets = [];
+  if (!state.db.watchedMatches) state.db.watchedMatches = [];
 
   // Show cloud offline warning if applicable
   if (state.db._offline) {
@@ -1665,6 +1666,8 @@ async function refreshDb() {
   }
 
   populateYearFilter();
+  updateWatchedBadge();
+  notifyWatchedOnSale();
   render();
 }
 
@@ -2865,6 +2868,8 @@ function switchView(name) {
   if (name === 'expenses') renderExpensesPage();
   if (name === 'payouts') renderPayoutsPage();
   if (name === 'inbox') renderInboxPage();
+  if (name === 'premierleague') renderPremierLeaguePage();
+  if (name === 'watched') renderWatchedPage();
   if (name === 'todo') renderTodoPage();
   if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo') ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
@@ -2874,6 +2879,344 @@ function switchView(name) {
     loadCurrencySettingsUI();
     loadMailForwardUI();
   }
+}
+
+// ============ PREMIER LEAGUE FIXTURES ============
+// Data comes from the backend /pl-fixtures endpoint, which fetches and caches
+// the official Premier League eCal calendar. We keep an in-memory copy per
+// session and re-fetch on demand (🔄 Aktualizovat) or when first opened.
+function plBackendBase() {
+  let api = (typeof authState !== 'undefined' && authState && authState.apiUrl) ? authState.apiUrl : DEFAULT_API_URL;
+  return String(api).replace(/\/api\/?$/, '');
+}
+
+function plInitState() {
+  if (!state.pl) state.pl = { fixtures: [], teams: [], updatedAt: null, selectedTeams: [], round: '', search: '', loaded: false, loading: false, _wired: false };
+}
+
+async function renderPremierLeaguePage() {
+  plInitState();
+  setupPLListenersOnce();
+  if (!state.pl.loaded && !state.pl.loading) await fetchPLFixtures(false);
+  else renderPLList();
+}
+
+async function fetchPLFixtures(force) {
+  plInitState();
+  const box = $('#plFixtures');
+  state.pl.loading = true;
+  if (box) box.innerHTML = '<div class="pl-empty">Načítám rozlosy…</div>';
+  try {
+    const data = await window.api.fetchPLFixtures(force);
+    if (!data || !Array.isArray(data.fixtures)) throw new Error(data && data.error ? data.error : 'Neplatná odpověď');
+    state.pl.fixtures = data.fixtures;
+    state.pl.teams = data.teams || [];
+    state.pl.rawCount = data.rawCount || 0;
+    state.pl.updatedAt = data.updatedAt || null;
+    state.pl.loaded = true;
+    buildPLTeamFilter();
+    buildPLRoundFilter();
+    renderPLList();
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="pl-empty">Nepodařilo se načíst rozlosy.<br><small>${escapeHtml(e.message || '')}</small></div>`;
+  } finally {
+    state.pl.loading = false;
+  }
+}
+
+function buildPLTeamFilter() {
+  const panel = $('#plTeamPanel');
+  if (!panel) return;
+  panel.innerHTML = state.pl.teams.map(t =>
+    `<label class="filter-ms-opt"><input type="checkbox" value="${escapeHtml(t)}"> ${escapeHtml(t)}</label>`
+  ).join('');
+  syncPLTeamLabel();
+}
+
+function buildPLRoundFilter() {
+  const sel = $('#plRoundFilter');
+  if (!sel) return;
+  const rounds = [...new Set(state.pl.fixtures.map(f => f.round).filter(r => r != null))].sort((a, b) => a - b);
+  sel.innerHTML = '<option value="">Všechna kola</option>' + rounds.map(r => `<option value="${r}">Kolo ${r}</option>`).join('');
+  sel.value = state.pl.round || '';
+}
+
+function syncPLTeamLabel() {
+  const sel = state.pl.selectedTeams || [];
+  document.querySelectorAll('#plTeamPanel input[type="checkbox"]').forEach(cb => { cb.checked = sel.includes(cb.value); });
+  const label = $('#plTeamLabel');
+  if (label) label.textContent = !sel.length ? 'Všechny týmy' : (sel.length === 1 ? sel[0] : `Vybráno: ${sel.length}`);
+}
+
+function plFilteredFixtures() {
+  const pl = state.pl;
+  let list = pl.fixtures;
+  if (pl.selectedTeams && pl.selectedTeams.length) {
+    list = list.filter(f => pl.selectedTeams.includes(f.home) || pl.selectedTeams.includes(f.away));
+  }
+  if (pl.round !== '' && pl.round != null) {
+    list = list.filter(f => String(f.round) === String(pl.round));
+  }
+  if (pl.search) {
+    const q = pl.search.toLowerCase();
+    list = list.filter(f => (f.home || '').toLowerCase().includes(q) || (f.away || '').toLowerCase().includes(q) || (f.venue || '').toLowerCase().includes(q));
+  }
+  return list;
+}
+
+function renderPLList() {
+  const box = $('#plFixtures');
+  if (!box || !state.pl) return;
+  if (state.pl.updatedAt) {
+    const upd = $('#plUpdated');
+    if (upd) upd.textContent = 'Aktualizováno ' + new Date(state.pl.updatedAt).toLocaleString('cs-CZ');
+  }
+  const seasonEl = $('#plSeason');
+  if (seasonEl && !seasonEl.textContent) seasonEl.textContent = '2026/27';
+
+  const list = plFilteredFixtures();
+  if (!list.length) {
+    if (!state.pl.fixtures.length) {
+      box.innerHTML = '<div class="pl-empty">Feed je připojený, ale zatím v něm nejsou žádné zápasy — jen oznámení od eCalu.<br><small>Rozlosy se po vydání plní postupně. Zkus za chvíli „Aktualizovat", nebo na pl.ecal.com ověř, že tvůj odběr zahrnuje rozlosy (All fixtures / konkrétní tým).</small></div>';
+    } else {
+      box.innerHTML = '<div class="pl-empty">Žádné zápasy neodpovídají filtru.</div>';
+    }
+    return;
+  }
+
+  const groups = new Map();
+  for (const f of list) {
+    const key = f.round != null ? f.round : '—';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+  const keys = [...groups.keys()].sort((a, b) => (a === '—' ? 1 : b === '—' ? -1 : a - b));
+  const dayFmt = new Intl.DateTimeFormat('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric' });
+  const watchedIds = new Set((state.db.watchedMatches || []).map(w => w.id));
+  let html = '';
+  for (const key of keys) {
+    html += `<div class="pl-round"><div class="pl-round-head">Kolo ${key}<span class="pl-round-count">${groups.get(key).length}</span></div>`;
+    for (const f of groups.get(key)) {
+      let when = '';
+      if (f.start) {
+        const dt = new Date(f.start);
+        when = dayFmt.format(dt) + (f.time ? ' · ' + dt.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : '');
+      } else if (f.date) { when = f.date; }
+      const watched = watchedIds.has(f.id);
+      html += `
+        <div class="pl-match">
+          <button class="pl-watch-btn${watched ? ' watched' : ''}" data-fixid="${escapeHtml(f.id)}" title="${watched ? 'Sledováno — kliknutím odebrat' : 'Sledovat tento zápas'}">${watched ? '★' : '☆'}</button>
+          <div class="pl-match-when">${escapeHtml(when || 'TBD')}</div>
+          <div class="pl-match-teams"><span class="pl-home">${escapeHtml(f.home || f.title || '?')}</span><span class="pl-vs">v</span><span class="pl-away">${escapeHtml(f.away || '')}</span></div>
+          <div class="pl-match-venue">${escapeHtml(f.venue || '')}</div>
+        </div>`;
+    }
+    html += '</div>';
+  }
+  box.innerHTML = html;
+}
+
+function setupPLListenersOnce() {
+  plInitState();
+  if (state.pl._wired) return;
+  state.pl._wired = true;
+  $('#btnPlRefresh')?.addEventListener('click', () => fetchPLFixtures(true));
+  $('#plFixtures')?.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('.pl-watch-btn') : null;
+    if (btn && btn.dataset.fixid) toggleWatch(btn.dataset.fixid);
+  });
+  $('#btnPlClear')?.addEventListener('click', () => {
+    state.pl.selectedTeams = []; state.pl.round = ''; state.pl.search = '';
+    const s = $('#plSearch'); if (s) s.value = '';
+    const r = $('#plRoundFilter'); if (r) r.value = '';
+    syncPLTeamLabel(); renderPLList();
+  });
+  $('#plSearch')?.addEventListener('input', (e) => { state.pl.search = e.target.value; renderPLList(); });
+  $('#plRoundFilter')?.addEventListener('change', (e) => { state.pl.round = e.target.value; renderPLList(); });
+  // team multi-select dropdown
+  $('#plTeamToggle')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const p = $('#plTeamPanel'), t = $('#plTeamToggle');
+    if (p.hasAttribute('hidden')) { p.removeAttribute('hidden'); t.setAttribute('aria-expanded', 'true'); }
+    else { p.setAttribute('hidden', ''); t.setAttribute('aria-expanded', 'false'); }
+  });
+  $('#plTeamPanel')?.addEventListener('click', (e) => e.stopPropagation());
+  $('#plTeamPanel')?.addEventListener('change', (e) => {
+    if (!e.target || !e.target.matches('input[type="checkbox"]')) return;
+    state.pl.selectedTeams = [...document.querySelectorAll('#plTeamPanel input[type="checkbox"]:checked')].map(c => c.value);
+    syncPLTeamLabel(); renderPLList();
+  });
+  document.addEventListener('click', () => { const p = $('#plTeamPanel'); if (p && !p.hasAttribute('hidden')) { p.setAttribute('hidden', ''); $('#plTeamToggle')?.setAttribute('aria-expanded', 'false'); } });
+}
+
+// ============ WATCHED MATCHES (Sledované akce) ============
+function getWatched() { if (!state.db.watchedMatches) state.db.watchedMatches = []; return state.db.watchedMatches; }
+
+// Display name: "Home v Away" for matches, or just the title for manual events
+// (e.g. a concert) that have no opponent.
+function watchName(w) {
+  return (w && w.home && w.away) ? `${w.home} v ${w.away}` : (w.title || w.home || w.away || 'Akce');
+}
+
+async function saveWatched() {
+  try { await window.api.saveWatched(getWatched()); }
+  catch (e) { toast('Uložení sledovaných selhalo: ' + e.message, 'error'); }
+}
+
+function toggleWatch(fixId) {
+  const list = getWatched();
+  const idx = list.findIndex(w => w.id === fixId);
+  if (idx >= 0) {
+    list.splice(idx, 1);
+    toast('Odebráno ze sledovaných', 'info');
+  } else {
+    const f = ((state.pl && state.pl.fixtures) || []).find(x => x.id === fixId);
+    if (!f) return;
+    list.push({
+      id: f.id, home: f.home, away: f.away, title: f.title,
+      date: f.date, time: f.time, start: f.start, venue: f.venue, round: f.round,
+      onSaleDate: null, onSaleTime: '', note: '', added: new Date().toISOString()
+    });
+    toast('Přidáno do sledovaných ★', 'success');
+  }
+  saveWatched();
+  updateWatchedBadge();
+  if (state.currentView === 'premierleague') renderPLList();
+  if (state.currentView === 'watched') renderWatchedPage();
+}
+
+function watchedDaysToOnSale(w) {
+  if (!w || !w.onSaleDate) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(w.onSaleDate + 'T00:00:00');
+  if (isNaN(d)) return null;
+  return Math.round((d - today) / 86400000);
+}
+
+function updateWatchedBadge() {
+  const badge = $('#navWatchedBadge');
+  if (!badge) return;
+  const soon = getWatched().filter(w => { const d = watchedDaysToOnSale(w); return d !== null && d >= 0 && d <= 3; }).length;
+  if (soon > 0) { badge.textContent = soon; badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
+}
+
+// On startup: toast if any watched match goes on sale today.
+function notifyWatchedOnSale() {
+  const todayList = getWatched().filter(w => watchedDaysToOnSale(w) === 0);
+  if (todayList.length) {
+    const names = todayList.map(w => watchName(w)).slice(0, 3).join(', ');
+    toast(`🎟️ Dnes jde do prodeje: ${names}${todayList.length > 3 ? ` +${todayList.length - 3}` : ''}`, 'info', 9000);
+  }
+}
+
+function renderWatchedPage() {
+  const box = $('#watchedList');
+  if (!box) return;
+  setupWatchedListenersOnce();
+  const list = getWatched();
+  const countEl = $('#watchedCount'); if (countEl) countEl.textContent = list.length ? `(${list.length})` : '';
+  if (!list.length) {
+    box.innerHTML = '<div class="pl-empty">Zatím nemáš žádné sledované zápasy.<br><small>V sekci Premier League klikni u zápasu na ☆ a přidá se sem.</small></div>';
+    return;
+  }
+  const sorted = [...list].sort((a, b) => {
+    const da = a.onSaleDate || '9999', dbb = b.onSaleDate || '9999';
+    if (da !== dbb) return da.localeCompare(dbb);
+    return (a.start || a.date || '').localeCompare(b.start || b.date || '');
+  });
+  const dayFmt = new Intl.DateTimeFormat('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric' });
+  let html = '';
+  for (const w of sorted) {
+    let when = w.date ? dayFmt.format(new Date(w.start || w.date)) : 'TBD';
+    if (w.time) when += ' · ' + w.time;
+    const d = watchedDaysToOnSale(w);
+    let saleBadge = '';
+    if (d !== null) {
+      const lbl = d < 0 ? 'v prodeji' : d === 0 ? 'dnes!' : d === 1 ? 'zítra' : `za ${d} dní`;
+      saleBadge = `<span class="watch-sale-badge${d >= 0 && d <= 3 ? ' soon' : ''}">${lbl}</span>`;
+    }
+    const teamsHtml = (w.home && w.away)
+      ? `${escapeHtml(w.home)} <span class="pl-vs">v</span> ${escapeHtml(w.away)}`
+      : escapeHtml(w.title || w.home || 'Akce');
+    html += `
+      <div class="watch-card" data-fixid="${escapeHtml(w.id)}">
+        <div class="watch-main">
+          <div class="watch-teams">${teamsHtml}${w.manual ? ' <span class="watch-tag">ručně</span>' : ''}</div>
+          <div class="watch-meta">${escapeHtml(when)}${w.venue ? ' · ' + escapeHtml(w.venue) : ''}${w.round != null ? ' · Kolo ' + w.round : ''}</div>
+        </div>
+        <div class="watch-sale">
+          <label>Jde do prodeje ${saleBadge}</label>
+          <div class="watch-sale-inputs">
+            <input type="date" data-field="onSaleDate" value="${escapeHtml(w.onSaleDate || '')}">
+            <input type="time" data-field="onSaleTime" value="${escapeHtml(w.onSaleTime || '')}">
+          </div>
+          <input type="text" class="watch-note" data-field="note" placeholder="Poznámka (např. členská předprodej)" value="${escapeHtml(w.note || '')}">
+        </div>
+        <button class="watch-remove" data-remove="${escapeHtml(w.id)}" title="Odebrat ze sledovaných">×</button>
+      </div>`;
+  }
+  box.innerHTML = html;
+}
+
+function setupWatchedListenersOnce() {
+  if (state._watchedWired) return;
+  const box = $('#watchedList');
+  if (!box) return;
+  state._watchedWired = true;
+  box.addEventListener('change', (e) => {
+    const card = e.target.closest ? e.target.closest('.watch-card') : null;
+    if (!card) return;
+    const field = e.target.dataset.field;
+    if (!field) return;
+    const w = getWatched().find(x => x.id === card.dataset.fixid);
+    if (!w) return;
+    w[field] = e.target.value;
+    saveWatched();
+    updateWatchedBadge();
+    if (field === 'onSaleDate') renderWatchedPage();
+  });
+  box.addEventListener('click', (e) => {
+    const rm = e.target.closest ? e.target.closest('.watch-remove') : null;
+    if (rm && rm.dataset.remove) toggleWatch(rm.dataset.remove);
+  });
+  $('#btnAddWatchedManual')?.addEventListener('click', openManualWatchedModal);
+  $('#btnSaveWatchedManual')?.addEventListener('click', saveManualWatched);
+  $('#wmName')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveManualWatched(); } });
+}
+
+// Open the "add event manually" modal (e.g. for a concert not in the PL feed).
+function openManualWatchedModal() {
+  ['wmName', 'wmDate', 'wmTime', 'wmVenue', 'wmOnSaleDate', 'wmOnSaleTime', 'wmNote'].forEach(id => {
+    const el = $('#' + id); if (el) el.value = '';
+  });
+  $('#modalWatchedManual')?.classList.add('active');
+  setTimeout(() => $('#wmName')?.focus(), 50);
+}
+
+function saveManualWatched() {
+  const name = ($('#wmName')?.value || '').trim();
+  if (!name) { toast('Zadej název akce', 'error'); return; }
+  const date = $('#wmDate')?.value || null;
+  const time = $('#wmTime')?.value || '';
+  getWatched().push({
+    id: 'man_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    manual: true,
+    title: name, home: null, away: null,
+    date, time,
+    start: date ? `${date}T${time || '00:00'}:00` : null,
+    venue: ($('#wmVenue')?.value || '').trim() || null,
+    round: null,
+    onSaleDate: $('#wmOnSaleDate')?.value || null,
+    onSaleTime: $('#wmOnSaleTime')?.value || '',
+    note: ($('#wmNote')?.value || '').trim(),
+    added: new Date().toISOString()
+  });
+  saveWatched();
+  updateWatchedBadge();
+  closeModal('modalWatchedManual');
+  toast('Akce přidána do sledovaných ★', 'success');
+  renderWatchedPage();
 }
 
 // ============ MARKETPLACES (Stubhub + Viagogo embedded webviews) ============

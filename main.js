@@ -742,6 +742,117 @@ async function fetchExchangeRatesFromApi() {
   return rates;
 }
 
+// ============ PREMIER LEAGUE FIXTURES (official eCal ICS feed) ============
+// Fetched + parsed in the main process (the renderer's CSP blocks external
+// connections). Cached in config with a 12h TTL so it auto-updates without
+// hammering the source. Feed overridable via config.plIcsUrl.
+const PL_DEFAULT_ICS_URL =
+  'https://ics.ecal.com/ecal-sub/6a3519364773ef0002bc3f9b/English%20Premier%20League.ics';
+const PL_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+function plUnescapeIcs(v) {
+  return (v || '').replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\').trim();
+}
+function plParseDateTime(value, isDateOnly) {
+  const m = String(value).match(/(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?/);
+  if (!m) return { iso: null, date: null, time: null };
+  const y = m[1], mo = m[2], d = m[3], hh = m[4], mm = m[5], ss = m[6] || '00', z = m[7];
+  const date = `${y}-${mo}-${d}`;
+  if (isDateOnly || hh == null) return { iso: `${date}T00:00:00`, date, time: null };
+  if (z) return { iso: new Date(Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss)).toISOString(), date, time: `${hh}:${mm}` };
+  return { iso: `${date}T${hh}:${mm}:00`, date, time: `${hh}:${mm}` };
+}
+function plSplitTeams(summary) {
+  let s = (summary || '').trim();
+  s = s.replace(/^(?:Premier League|PL|EPL)\s*[:\-–]\s*/i, '');
+  s = s.replace(/\s*[\(\[][^)\]]*[\)\]]\s*$/, '').trim();
+  let m = s.match(/^(.+?)\s+@\s+(.+)$/);
+  if (m) return { home: m[2].trim(), away: m[1].trim() };
+  m = s.match(/^(.+?)\s+(?:v|vs|vs\.|versus|x|–|-)\s+(.+)$/i);
+  if (m) return { home: m[1].trim(), away: m[2].trim() };
+  return { home: null, away: null };
+}
+function plExtractRound(text) {
+  const m = (text || '').match(/(?:Match\s?week|Match\s?day|Round|Game\s?week|MW|GW|Kolo)\s*\.?\s*:?\s*(\d{1,2})\b/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+function plParseICS(raw) {
+  const text = String(raw).replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '');
+  const lines = text.split('\n');
+  const fixtures = [];
+  let cur = null;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { cur = {}; continue; }
+    if (line === 'END:VEVENT') {
+      if (cur) {
+        const { home, away } = plSplitTeams(cur.SUMMARY);
+        const dt = plParseDateTime(cur._dtval, cur._dateonly);
+        const round = plExtractRound(cur.DESCRIPTION) ?? plExtractRound(cur.SUMMARY);
+        fixtures.push({
+          id: cur.UID || `${dt.iso}-${cur.SUMMARY}`,
+          title: plUnescapeIcs(cur.SUMMARY) || null,
+          home, away, venue: plUnescapeIcs(cur.LOCATION) || null,
+          start: dt.iso, date: dt.date, time: dt.time, round
+        });
+      }
+      cur = null; continue;
+    }
+    if (!cur) continue;
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    const rawName = line.slice(0, idx), value = line.slice(idx + 1);
+    const name = rawName.split(';')[0].toUpperCase();
+    if (name === 'DTSTART') { cur._dtval = value; cur._dateonly = /VALUE=DATE\b/i.test(rawName) && !/T/.test(value); }
+    else if (name === 'SUMMARY' || name === 'LOCATION' || name === 'DESCRIPTION' || name === 'UID') cur[name] = value;
+  }
+  return fixtures;
+}
+function plNormalize(raw) {
+  const all = plParseICS(raw);
+  // Keep only real matches (parsed into Home vs Away); eCal feeds also carry
+  // promo/onboarding events ("Fixture release!", "You're connected") that have
+  // no team split — exclude those from the calendar.
+  const fixtures = all.filter(f => f.home && f.away);
+  const dated = fixtures.filter(f => f.date);
+  if (!(dated.length && dated.every(f => f.round != null))) {
+    for (const f of dated) f.round = null;
+    const sorted = [...dated].sort((a, b) => a.date.localeCompare(b.date));
+    let week = 0, prev = null;
+    for (const f of sorted) {
+      const d = new Date(f.date + 'T00:00:00Z').getTime();
+      if (prev == null || (d - prev) > 3 * 86400000) week++;
+      f.round = week; prev = d;
+    }
+  }
+  fixtures.sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+  const teams = [...new Set(fixtures.flatMap(f => [f.home, f.away]).filter(Boolean))].sort();
+  return { updatedAt: new Date().toISOString(), count: fixtures.length, rawCount: all.length, teams, fixtures };
+}
+
+ipcMain.handle('pl:fixtures', async (event, force) => {
+  const config = loadConfig();
+  const cache = config.plFixturesCache;
+  try {
+    if (!force && cache && cache.updatedAt && cache.data &&
+        (Date.now() - new Date(cache.updatedAt).getTime()) < PL_CACHE_TTL_MS) {
+      return { ...cache.data, cached: true };
+    }
+    let url = config.plIcsUrl || PL_DEFAULT_ICS_URL;
+    if (url.startsWith('webcal://')) url = 'https://' + url.slice('webcal://'.length);
+    const res = await fetch(url, { headers: { 'User-Agent': 'TicketVault-desktop' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const raw = await res.text();
+    const data = plNormalize(raw);
+    if (!data.rawCount) throw new Error('prázdný feed (0 událostí)');
+    config.plFixturesCache = { updatedAt: data.updatedAt, data };
+    saveConfig(config);
+    return { ...data, cached: false };
+  } catch (e) {
+    if (cache && cache.data) return { ...cache.data, cached: true, stale: true, error: e.message };
+    return { error: e.message, fixtures: [], teams: [], count: 0 };
+  }
+});
+
 ipcMain.handle('currency:fetchRates', async () => {
   try {
     const rates = await fetchExchangeRatesFromApi();
@@ -1089,6 +1200,20 @@ ipcMain.handle('db:loadLocal', () => loadDb());
 
 // Save full DB
 ipcMain.handle('db:save', (event, db) => saveDb(db));
+
+// Save the watched Premier League matches list (local + cloud push of whole DB,
+// so the scheduled digest function can read db.watchedMatches).
+ipcMain.handle('db:saveWatched', async (event, list) => {
+  const cloud = getCloudConfig();
+  const db = loadDb();
+  db.watchedMatches = Array.isArray(list) ? list : [];
+  saveDb(db);
+  if (cloud) {
+    try { await cloudPushDb(db); }
+    catch (e) { console.error('Cloud push (watched) failed:', e.message); return { success: false, _cloudError: e.message }; }
+  }
+  return { success: true };
+});
 
 // Add/Update ticket
 ipcMain.handle('db:upsertTicket', async (event, ticket) => {

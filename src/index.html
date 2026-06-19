@@ -311,6 +311,22 @@
           <span class="nav-badge" id="simBadge" style="display:none;"></span>
         </button>
 
+        <div class="nav-section-label">FOTBAL</div>
+        <button class="nav-item" data-view="premierleague">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 7l4.5 3.3-1.7 5.3H9.2L7.5 10.3 12 7z"/>
+          </svg>
+          Premier League
+        </button>
+        <button class="nav-item" data-view="watched">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+          Sledované akce
+          <span class="nav-badge" id="navWatchedBadge" style="display:none;"></span>
+        </button>
+
         <div class="nav-section-label">MARKETPLACES</div>
 
         <button class="nav-item nav-marketplace" data-view="stubhub" title="Stubhub seller portál uvnitř aplikace">
@@ -1200,6 +1216,37 @@
       </div>
 
       <!-- SETTINGS VIEW -->
+      <div class="view" id="view-premierleague">
+        <header class="page-header">
+          <h2 class="page-title">⚽ Premier League <span class="pl-season" id="plSeason"></span></h2>
+          <button class="btn btn-dark" id="btnPlRefresh" title="Aktualizovat rozlosy">🔄 Aktualizovat</button>
+        </header>
+
+        <div class="filters">
+          <input type="text" class="filter-input" id="plSearch" placeholder="Hledat tým nebo stadion...">
+          <div class="filter-multiselect" id="plTeamMS">
+            <button type="button" class="filter-select filter-ms-toggle" id="plTeamToggle" aria-haspopup="true" aria-expanded="false">
+              <span id="plTeamLabel">Všechny týmy</span>
+            </button>
+            <div class="filter-ms-panel" id="plTeamPanel" hidden></div>
+          </div>
+          <select class="filter-select" id="plRoundFilter"><option value="">Všechna kola</option></select>
+          <button class="btn btn-dark" id="btnPlClear">× Reset</button>
+          <span class="pl-updated" id="plUpdated"></span>
+        </div>
+
+        <div id="plFixtures" class="pl-fixtures"></div>
+      </div>
+
+      <div class="view" id="view-watched">
+        <header class="page-header">
+          <h2 class="page-title">⭐ Sledované akce <span class="pl-season" id="watchedCount"></span></h2>
+          <button class="btn btn-dark" id="btnAddWatchedManual">+ Přidat ručně</button>
+        </header>
+        <p class="watch-intro">Vybrané zápasy, které chceš koupit. U každého si zapiš, kdy jdou do prodeje — připomínku pak dostaneš v aplikaci (odznak + upozornění při startu) i v emailovém souhrnu.</p>
+        <div id="watchedList" class="pl-fixtures"></div>
+      </div>
+
       <div class="view" id="view-settings">
         <header class="page-header">
           <h2 class="page-title">Nastavení</h2>
@@ -2439,6 +2486,53 @@
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>
         <button class="btn btn-primary" id="btnSaveMembership">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Add watched event manually (e.g. a concert) -->
+  <div class="modal" id="modalWatchedManual">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Přidat akci ručně</h3>
+        <button class="modal-close" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group form-full">
+            <label>Název akce *</label>
+            <input type="text" id="wmName" placeholder="Coldplay — Music of the Spheres">
+          </div>
+          <div class="form-group">
+            <label>Datum akce</label>
+            <input type="date" id="wmDate">
+          </div>
+          <div class="form-group">
+            <label>Čas akce</label>
+            <input type="time" id="wmTime">
+          </div>
+          <div class="form-group form-full">
+            <label>Místo</label>
+            <input type="text" id="wmVenue" placeholder="O2 Arena, Praha">
+          </div>
+          <div class="form-group">
+            <label>Jde do prodeje — datum</label>
+            <input type="date" id="wmOnSaleDate">
+          </div>
+          <div class="form-group">
+            <label>Jde do prodeje — čas</label>
+            <input type="time" id="wmOnSaleTime">
+          </div>
+          <div class="form-group form-full">
+            <label>Poznámka</label>
+            <input type="text" id="wmNote" placeholder="např. předprodej pro fanklub">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-dark" data-close>Zrušit</button>
+        <button class="btn btn-primary" id="btnSaveWatchedManual">Uložit</button>
       </div>
     </div>
   </div>
