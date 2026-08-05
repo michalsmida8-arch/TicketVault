@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   authUnshareData: (args) => ipcRenderer.invoke('auth:unshareData', args),
   authChangeOwnPassword: (args) => ipcRenderer.invoke('auth:changeOwnPassword', args),
   authUpdateEmailSettings: (args) => ipcRenderer.invoke('auth:updateEmailSettings', args),
+  authUpdateNotificationSettings: (args) => ipcRenderer.invoke('auth:updateNotificationSettings', args),
   authTestDigest: () => ipcRenderer.invoke('auth:testDigest'),
   authRegenerateMailToken: () => ipcRenderer.invoke('auth:regenerateMailToken'),
   authGetAllowedSenders: () => ipcRenderer.invoke('auth:getAllowedSenders'),

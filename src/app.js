@@ -1463,6 +1463,41 @@ function loadEmailSettingsUI() {
   const enabledEl = $('#emailNotifyEnabled');
   if (emailEl) emailEl.value = state.currentUser.email || '';
   if (enabledEl) enabledEl.checked = !!state.currentUser.digestEnabled;
+  // Discord + Pushover channels
+  const dw = $('#discordWebhook'); if (dw) dw.value = state.currentUser.discordWebhook || '';
+  const de = $('#discordEnabled'); if (de) de.checked = !!state.currentUser.discordEnabled;
+  const pu = $('#pushoverUser'); if (pu) pu.value = state.currentUser.pushoverUser || '';
+  const pt = $('#pushoverToken'); if (pt) pt.value = state.currentUser.pushoverToken || '';
+  const pe = $('#pushoverEnabled'); if (pe) pe.checked = !!state.currentUser.pushoverEnabled;
+}
+
+async function saveNotificationSettings() {
+  const discordWebhook = ($('#discordWebhook')?.value || '').trim();
+  const discordEnabled = !!$('#discordEnabled')?.checked;
+  const pushoverUser = ($('#pushoverUser')?.value || '').trim();
+  const pushoverToken = ($('#pushoverToken')?.value || '').trim();
+  const pushoverEnabled = !!$('#pushoverEnabled')?.checked;
+  if (discordEnabled && !discordWebhook) { toast('Pro Discord zadej webhook URL', 'error'); return; }
+  if (discordWebhook && !/^https:\/\/(?:\w+\.)?discord(?:app)?\.com\/api\/webhooks\//i.test(discordWebhook)) {
+    toast('Neplatná Discord webhook URL', 'error'); return;
+  }
+  if (pushoverEnabled && (!pushoverUser || !pushoverToken)) { toast('Pro Pushover zadej User Key i API Token', 'error'); return; }
+  const btn = $('#btnSaveNotifSettings');
+  if (btn) btn.disabled = true;
+  try {
+    const result = await window.api.authUpdateNotificationSettings({
+      discordWebhook, discordEnabled, pushoverUser, pushoverToken, pushoverEnabled
+    });
+    if (!result.success) { toast(result.error || 'Uložení selhalo', 'error'); return; }
+    state.currentUser.discordWebhook = result.discordWebhook;
+    state.currentUser.discordEnabled = result.discordEnabled;
+    state.currentUser.pushoverUser = result.pushoverUser;
+    state.currentUser.pushoverToken = result.pushoverToken;
+    state.currentUser.pushoverEnabled = result.pushoverEnabled;
+    toast('Discord + Pushover uloženo', 'success');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function saveEmailSettings() {
@@ -1495,23 +1530,31 @@ async function saveEmailSettings() {
 }
 
 async function sendTestDigest() {
-  if (!state.currentUser?.email) {
-    toast('Nejdřív ulož svou emailovou adresu', 'error');
+  const u = state.currentUser || {};
+  const hasChannel = u.email || (u.discordEnabled && u.discordWebhook) || (u.pushoverEnabled && u.pushoverUser && u.pushoverToken);
+  if (!hasChannel) {
+    toast('Nejdřív ulož email, Discord webhook nebo Pushover klíče', 'error');
     return;
   }
-  const btn = $('#btnTestDigest');
-  btn.disabled = true;
-  btn.textContent = '📨 Odesílám...';
+  const btns = [$('#btnTestDigest'), $('#btnTestAllDigest')].filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
   try {
     const result = await window.api.authTestDigest();
     if (!result.success) {
       toast(result.error || 'Odeslání selhalo. Zkontroluj backend config.', 'error', 6000);
       return;
     }
-    toast(`Testovací email odeslán (${result.total} položek k vyřešení)`, 'success', 5000);
+    const ch = result.channels || {};
+    const parts = [];
+    if (ch.email) parts.push(ch.email.sent ? 'email ✓' : `email ✗`);
+    if (ch.discord) parts.push(ch.discord.sent ? 'Discord ✓' : `Discord ✗`);
+    if (ch.pushover) parts.push(ch.pushover.sent ? 'Pushover ✓' : `Pushover ✗`);
+    const fails = [ch.email, ch.discord, ch.pushover].filter(c => c && !c.sent && c.error);
+    const detail = parts.length ? ' — ' + parts.join(', ') : '';
+    toast(`Test odeslán (${result.total} položek)${detail}`, fails.length ? 'error' : 'success', 6000);
+    if (fails.length) console.warn('Digest test channel errors:', fails.map(f => f.error));
   } finally {
-    btn.disabled = false;
-    btn.textContent = '📨 Poslat testovací email';
+    btns.forEach(b => { b.disabled = false; });
   }
 }
 
@@ -11480,6 +11523,8 @@ function setupEventListeners() {
   $('#btnChangePassword')?.addEventListener('click', handleChangeOwnPassword);
   $('#btnSaveEmailSettings')?.addEventListener('click', saveEmailSettings);
   $('#btnTestDigest')?.addEventListener('click', sendTestDigest);
+  $('#btnSaveNotifSettings')?.addEventListener('click', saveNotificationSettings);
+  $('#btnTestAllDigest')?.addEventListener('click', sendTestDigest);
   $('#btnCopyMailAddress')?.addEventListener('click', copyMailAddress);
   // v1.3.0 — personal forward address: copy + regenerate
   $('#btnCopyForwardAddr')?.addEventListener('click', copyMailForwardAddress);

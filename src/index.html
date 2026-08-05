@@ -1395,6 +1395,59 @@
           </div>
         </div>
 
+        <!-- Discord digest channel (webhook) -->
+        <div class="settings-section">
+          <div class="section-head"><h3>💬 Discord</h3></div>
+          <p class="settings-desc">
+            Stejný souhrn (K zalistování, Neprodané, Doručit, Jde do prodeje) ti pošleme i na
+            Discord kanál. Ve svém serveru: <strong>Nastavení kanálu → Integrace → Webhooky →
+            Nový webhook → Kopírovat URL</strong>.
+          </p>
+          <div class="form-grid" style="max-width:520px;">
+            <div class="form-group form-full">
+              <label>Discord webhook URL</label>
+              <input type="text" id="discordWebhook" placeholder="https://discord.com/api/webhooks/...">
+              <div class="form-hint">Uloží se jen u tebe a slouží k odeslání zprávy do tvého kanálu.</div>
+            </div>
+            <div class="form-group form-full">
+              <label class="auth-checkbox" style="margin-top:4px;padding:0;">
+                <input type="checkbox" id="discordEnabled">
+                <span>Posílat denní souhrn na Discord</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pushover push notifications -->
+        <div class="settings-section">
+          <div class="section-head"><h3>🔔 Pushover</h3></div>
+          <p class="settings-desc">
+            Push notifikace na mobil i desktop přes <strong>Pushover</strong>. Potřebuješ svůj
+            <strong>User Key</strong> (z pushover.net) a <strong>API Token</strong> aplikace
+            (vytvoříš na pushover.net/apps/build).
+          </p>
+          <div class="form-grid" style="max-width:520px;">
+            <div class="form-group">
+              <label>Pushover User Key</label>
+              <input type="text" id="pushoverUser" placeholder="u...">
+            </div>
+            <div class="form-group">
+              <label>Pushover API Token</label>
+              <input type="text" id="pushoverToken" placeholder="a...">
+            </div>
+            <div class="form-group form-full">
+              <label class="auth-checkbox" style="margin-top:4px;padding:0;">
+                <input type="checkbox" id="pushoverEnabled">
+                <span>Posílat denní souhrn přes Pushover</span>
+              </label>
+            </div>
+            <div class="form-group form-full">
+              <button class="btn btn-primary" id="btnSaveNotifSettings">Uložit Discord + Pushover</button>
+              <button class="btn btn-dark" id="btnTestAllDigest" style="margin-left:8px;">🚀 Poslat test do všech kanálů</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Currency settings — pick primary currency for dashboards/stats,
              default currency for new tickets, and view/refresh exchange rates. -->
         <div class="settings-section">

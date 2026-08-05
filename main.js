@@ -1051,6 +1051,18 @@ ipcMain.handle('auth:updateEmailSettings', async (event, { email, digestEnabled 
   }
 });
 
+ipcMain.handle('auth:updateNotificationSettings', async (event, args) => {
+  try {
+    const data = await authFetchWithToken('/auth/notification-settings', {
+      method: 'POST',
+      body: args
+    });
+    return { success: true, ...data };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('auth:getAllowedSenders', async () => {
   try {
     const data = await authFetchWithToken('/auth/allowed-senders');
@@ -1087,7 +1099,7 @@ ipcMain.handle('auth:removeAllowedSender', async (event, { email }) => {
 ipcMain.handle('auth:testDigest', async () => {
   try {
     const data = await authFetchWithToken('/auth/test-digest', { method: 'POST' });
-    return { success: true, total: data.total, messageId: data.messageId };
+    return { success: true, total: data.total, channels: data.channels, messageId: data.messageId };
   } catch (e) {
     return { success: false, error: e.message };
   }
