@@ -1,6 +1,6 @@
 {
   "name": "ticketvault",
-  "version": "1.15.28",
+  "version": "1.15.42",
   "description": "TicketVault - Ticket Inventory Manager",
   "main": "main.js",
   "author": "TicketVault",
@@ -45,11 +45,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.png",
@@ -71,11 +75,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "assets/icon.png",
@@ -108,6 +118,7 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "electron-updater": "^6.2.1"
+    "electron-updater": "^6.2.1",
+    "pdf-parse": "^1.1.1"
   }
 }

@@ -1211,6 +1211,93 @@ ipcMain.handle('db:load', async () => {
 ipcMain.handle('db:loadLocal', () => loadDb());
 
 // Save full DB
+// ============ PDF TICKET IMPORT ============
+// Extract match/ticket details from a PDF invoice (currently RB Leipzig format)
+// so the user can add a ticket by scanning the PDF instead of typing it.
+function pdfToISO(dmy) { const m = dmy.match(/(\d{2})\.(\d{2})\.(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; }
+
+// Disambiguate a jammed "QTY+UNIT" blob (e.g. "428.00") using total = qty*unit.
+function pdfSplitQtyUnit(blob, total) {
+  const dot = String(blob).replace(',', '.');
+  const intPart = dot.split('.')[0];
+  const decPart = dot.includes('.') ? dot.slice(intPart.length) : '';
+  for (let k = 1; k < intPart.length; k++) {
+    const qty = parseInt(intPart.slice(0, k), 10);
+    const unit = parseFloat(intPart.slice(k) + decPart);
+    if (qty > 0 && total != null && Math.abs(qty * unit - total) < 0.02) return { qty, unit };
+  }
+  return { qty: null, unit: parseFloat(dot) };
+}
+
+function parseLeipzigInvoice(rawText) {
+  const text = String(rawText).replace(/-\n/g, '-');
+  let m;
+  let away = null, event = null, eventDate = null, eventTime = null;
+  m = text.match(/RB Leipzig\s*-\s*([^\/\n]+?)\s*\/\s*(\d{2}\.\d{2}\.\d{4})\s*\/\s*(\d{1,2}:\d{2})/i);
+  if (!m) return null; // not an RB Leipzig invoice
+  away = m[1].trim(); event = `RB Leipzig v ${away}`; eventDate = pdfToISO(m[2]); eventTime = m[3];
+
+  let orderId = null;
+  m = text.match(/Order number\s*:?\s*(\d+)/i); if (m) orderId = m[1];
+
+  let totalAmount = null; const currency = 'EUR';
+  m = text.match(/Total\s*:\s*([\d.,]+)\s*EUR/i); if (m) totalAmount = parseFloat(m[1].replace(',', '.'));
+
+  let section = null;
+  m = text.match(/(\d+\s+[A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\-\. ]*?(?:Fanbereich|bereich|Tribüne|Block|Stand|Kurve))/);
+  if (m) section = m[1].replace(/\s+/g, ' ').trim();
+
+  let row = null, seats = null, quantity = null, pricePerTicket = null, lineTotal = null;
+  m = text.match(/(\d+)\s*[–-]\s*(\d+)\s*([A-Za-zäöüÄÖÜß]+)\s*(\d[\d.,]*)\s*EUR\s*([\d.,]+)\s*EUR/);
+  if (m) {
+    const rowSeatStart = m[1];
+    const seatEnd = parseInt(m[2], 10);
+    lineTotal = parseFloat(m[5].replace(',', '.'));
+    const qu = pdfSplitQtyUnit(m[4], lineTotal);
+    quantity = qu.qty; pricePerTicket = qu.unit;
+    if (quantity) {
+      const seatStart = seatEnd - quantity + 1;
+      seats = `${seatStart}-${seatEnd}`;
+      const ss = String(seatStart);
+      row = rowSeatStart.endsWith(ss) ? rowSeatStart.slice(0, -ss.length) : rowSeatStart;
+    } else { seats = String(seatEnd); row = rowSeatStart; }
+  }
+  if (!totalAmount) totalAmount = lineTotal;
+
+  return {
+    platform: 'RB Leipzig', event, home: 'RB Leipzig', away, venue: 'Red Bull Arena',
+    section, row, seats, quantity, eventDate, eventTime,
+    pricePerTicket, totalAmount, currency, orderId
+  };
+}
+
+// Router: try each known PDF format.
+function parsePdfTicket(text) {
+  return parseLeipzigInvoice(text) || null;
+}
+
+ipcMain.handle('pdf:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Vyber PDF s vstupenkou / fakturou',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths || !result.filePaths[0]) return { canceled: true };
+  try {
+    // Lazy-require so a PDF library problem can never crash app startup.
+    const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+    const buf = fs.readFileSync(result.filePaths[0]);
+    const data = await pdfParse(buf);
+    const ticket = parsePdfTicket(data.text || '');
+    if (!ticket || !ticket.event) {
+      return { success: false, error: 'Z PDF se nepodařilo rozpoznat zápas (zatím podporováno: faktury RB Leipzig).' };
+    }
+    return { success: true, ticket };
+  } catch (e) {
+    return { success: false, error: 'Chyba čtení PDF: ' + e.message };
+  }
+});
+
 ipcMain.handle('db:save', (event, db) => saveDb(db));
 
 // Save the watched Premier League matches list (local + cloud push of whole DB,

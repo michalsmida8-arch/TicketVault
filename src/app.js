@@ -9647,6 +9647,37 @@ function openListModal(ticket) {
   if (focusField) focusField.focus();
 }
 
+// Import a ticket by scanning a PDF invoice — opens the add-ticket modal
+// pre-filled with what was parsed, for the user to review and save.
+async function importTicketFromPdf() {
+  const btn = $('#btnImportPdf');
+  if (btn) { btn.disabled = true; }
+  try {
+    const res = await window.api.importPdf();
+    if (!res || res.canceled) return;
+    if (!res.success) { toast(res.error || 'Načtení PDF selhalo', 'error', 6000); return; }
+    const p = res.ticket;
+    openTicketModal({
+      eventName: p.event || '',
+      category: (p.event && /\sv\s/i.test(p.event)) ? 'football' : 'concert',
+      eventDate: p.eventDate || '',
+      venue: p.venue || '',
+      section: p.section || '',
+      row: p.row || '',
+      seat: p.seats || '',
+      quantity: p.quantity || 1,
+      purchasePlatform: p.platform || '',
+      purchasePrice: p.pricePerTicket || '',
+      currency: p.currency || 'EUR',
+      status: 'available',
+      notes: `Načteno z PDF${p.orderId ? ' · obj. ' + p.orderId : ''}${p.eventTime ? ' · výkop ' + p.eventTime : ''}`
+    });
+    toast('Zápas načten z PDF — zkontroluj údaje a ulož ✅', 'success', 5000);
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
 function openTicketModal(ticket = null) {
   // If ticket has no id, it's a clone template (treat as new ticket)
   const isEditing = ticket && ticket.id;
@@ -10909,6 +10940,7 @@ function setupEventListeners() {
   
   // Add event
   $('#btnAddEvent').addEventListener('click', () => openTicketModal());
+  $('#btnImportPdf')?.addEventListener('click', importTicketFromPdf);
 
   // CATEGORY CHIP TOGGLE — wires up BOTH the Dashboard and Stats toggles.
   // Clicking any chip on either page sets state.dashboardCategory and re-renders

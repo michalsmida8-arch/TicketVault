@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('api', {
   loadLocalDb: () => ipcRenderer.invoke('db:loadLocal'),
   saveDb: (db) => ipcRenderer.invoke('db:save', db),
   saveWatched: (list) => ipcRenderer.invoke('db:saveWatched', list),
+  importPdf: () => ipcRenderer.invoke('pdf:import'),
   syncDb: () => ipcRenderer.invoke('db:sync'),
   upsertTicket: (ticket) => ipcRenderer.invoke('db:upsertTicket', ticket),
   deleteTicket: (id) => ipcRenderer.invoke('db:deleteTicket', id),
