@@ -2110,6 +2110,45 @@ function renderStatTrends() {
   if (stockTrend) stockTrend.innerHTML = '';
 }
 
+const TICKETS_PER_PAGE = 150;
+let _ticketsDelegated = false;
+function setupTicketsDelegation() {
+  if (_ticketsDelegated) return;
+  const tbody = document.getElementById('ticketsBody');
+  if (!tbody) return;
+  _ticketsDelegated = true;
+  tbody.addEventListener('click', function(e) {
+    const mute = e.target.closest('[data-mute-id]');
+    if (mute) { e.stopPropagation(); muteTicket(mute.dataset.muteId); return; }
+    const unmute = e.target.closest('[data-unmute-id]');
+    if (unmute) { e.stopPropagation(); unmuteTicket(unmute.dataset.unmuteId); return; }
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    e.stopPropagation();
+    const id = btn.dataset.id, action = btn.dataset.action;
+    if (action === 'edit') openTicketModal(state.db.tickets.find(t => t.id === id));
+    else if (action === 'delete') deleteTicket(id);
+    else if (action === 'clone') cloneTicket(state.db.tickets.find(t => t.id === id));
+    else if (action === 'sell') openSellModal(state.db.tickets.find(t => t.id === id));
+    else if (action === 'deliver') markDelivered(id);
+    else if (action === 'undeliver') markUndelivered(id);
+    else if (action === 'list') openListModal(state.db.tickets.find(t => t.id === id));
+    else if (action === 'writeoff') writeOffTicket(id);
+    else if (action === 'unwriteoff') unwriteOffTicket(id);
+  });
+  tbody.addEventListener('change', function(e) {
+    const cb = e.target.closest('.row-check');
+    if (!cb) return;
+    const id = cb.dataset.id;
+    if (cb.checked) state.selectedIds.add(id); else state.selectedIds.delete(id);
+    if (state.dashboardCategory === 'selected') { renderStats(); renderTickets(); return; }
+    const list = getFilteredTickets();
+    const sa = document.getElementById('selectAll');
+    if (sa) { const vis = list.filter(t => state.selectedIds.has(t.id)).length; sa.checked = list.length>0 && vis===list.length; sa.indeterminate = vis>0 && vis<list.length; }
+    renderBulkActions();
+  });
+}
+
 function renderTickets() {
   // Refresh dashboard stat cards too — they live above the table and the user
   // expects them to track whatever filters are applied. Without this, totals
@@ -2131,8 +2170,16 @@ function renderTickets() {
     return;
   }
   empty.style.display = 'none';
-  
-  tbody.innerHTML = list.map(t => {
+
+  // PERF: cap how many rows hit the DOM at once — huge inventories (1000s of
+  // tickets) otherwise freeze the UI. The cap resets whenever the filter/sort
+  // signature changes so a new filter always starts from the top.
+  const sig = JSON.stringify([state.dashboardCategory, state.filters, state.sortBy, state.sortDir]);
+  if (sig !== state._lastTicketSig) { state.ticketLimit = TICKETS_PER_PAGE; state._lastTicketSig = sig; }
+  if (!state.ticketLimit) state.ticketLimit = TICKETS_PER_PAGE;
+  const shown = list.slice(0, state.ticketLimit);
+
+  tbody.innerHTML = shown.map(t => {
     // All money displayed in primary currency for consistency across rows.
     // Conversion uses current FX rates from Settings.
     const primary = getPrimaryCurrency();
@@ -2333,50 +2380,7 @@ function renderTickets() {
     `;
   }).join('');
   
-  // Attach action listeners
-  tbody.querySelectorAll('[data-action]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      const action = btn.dataset.action;
-      if (action === 'edit') openTicketModal(state.db.tickets.find(t => t.id === id));
-      if (action === 'delete') deleteTicket(id);
-      if (action === 'clone') cloneTicket(state.db.tickets.find(t => t.id === id));
-      if (action === 'sell') openSellModal(state.db.tickets.find(t => t.id === id));
-      if (action === 'deliver') markDelivered(id);
-      if (action === 'undeliver') markUndelivered(id);
-      if (action === 'list') openListModal(state.db.tickets.find(t => t.id === id));
-      if (action === 'writeoff') writeOffTicket(id);
-      if (action === 'unwriteoff') unwriteOffTicket(id);
-    });
-  });
-  
-  tbody.querySelectorAll('.row-check').forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      const id = cb.dataset.id;
-      if (cb.checked) state.selectedIds.add(id);
-      else state.selectedIds.delete(id);
-      // Keep header checkbox in sync with row state — checked when ALL visible
-      // rows selected, indeterminate when SOME, unchecked when none.
-      const sa = $('#selectAll');
-      if (sa) {
-        const visibleSelected = list.filter(t => state.selectedIds.has(t.id)).length;
-        sa.checked = visibleSelected === list.length;
-        sa.indeterminate = visibleSelected > 0 && visibleSelected < list.length;
-      }
-      // If the "🎯 Vybrané" filter is active, the row we just unchecked must
-      // disappear from view (and the stat cards above must drop its totals).
-      // renderTickets re-runs getFilteredTickets which honors the chip filter;
-      // renderStats does the same for the cards on top.
-      if (state.dashboardCategory === 'selected') {
-        renderStats();
-        renderTickets();
-        return; // renderTickets already calls renderBulkActions at the end
-      }
-      renderBulkActions();
-    });
-  });
-
+  // Row actions & checkboxes handled once via delegation (setupTicketsDelegation).
   // Sync header checkbox state on each render (e.g. after filter changes).
   const saHeader = $('#selectAll');
   if (saHeader) {
@@ -2386,19 +2390,28 @@ function renderTickets() {
   }
   renderBulkActions();
   
-  // Mute/unmute listeners
-  tbody.querySelectorAll('[data-mute-id]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      muteTicket(btn.dataset.muteId);
-    });
-  });
-  tbody.querySelectorAll('[data-unmute-id]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      unmuteTicket(btn.dataset.unmuteId);
-    });
-  });
+  // Pagination "show more" control (perf cap)
+  let pager = document.getElementById('ticketsPagination');
+  if (!pager) {
+    pager = document.createElement('div');
+    pager.id = 'ticketsPagination';
+    pager.style.cssText = 'display:flex;justify-content:center;align-items:center;gap:10px;padding:12px;flex-wrap:wrap;';
+    const tbl = tbody.closest('table');
+    if (tbl) tbl.insertAdjacentElement('afterend', pager);
+  }
+  if (list.length > shown.length) {
+    const remaining = list.length - shown.length;
+    const next = Math.min(TICKETS_PER_PAGE, remaining);
+    pager.style.display = 'flex';
+    pager.innerHTML = '<span style="color:var(--text-tertiary);font-size:13px;">Zobrazeno ' + shown.length + ' z ' + list.length + '</span>'
+      + '<button class="btn btn-dark btn-sm" id="btnShowMoreTickets">Zobrazit dalších ' + next + ' \u25be</button>'
+      + '<button class="btn btn-dark btn-sm" id="btnShowAllTickets">Zobrazit vše (' + list.length + ')</button>';
+    const bm=document.getElementById('btnShowMoreTickets'); if(bm) bm.onclick=function(){ state.ticketLimit=(state.ticketLimit||TICKETS_PER_PAGE)+TICKETS_PER_PAGE; renderTickets(); };
+    const ba=document.getElementById('btnShowAllTickets'); if(ba) ba.onclick=function(){ state.ticketLimit=list.length; renderTickets(); };
+  } else if (pager) {
+    pager.style.display = 'none';
+    pager.innerHTML = '';
+  }
 }
 
 function renderBulkActions() {
@@ -10905,6 +10918,7 @@ async function changeDbPath() {
 
 // ============ EVENT LISTENERS ============
 function setupEventListeners() {
+  setupTicketsDelegation();
   // Navigation
   $$('.nav-item[data-view]').forEach(btn => {
     btn.addEventListener('click', (e) => {
