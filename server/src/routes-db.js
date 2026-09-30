@@ -73,7 +73,13 @@ router.put('/db', async (req, res) => {
     const preserved = (db.inbox || []).filter(i =>
       !knownIds.has(i.id) && new Date(i.createdAt || i.receivedAt || 0).getTime() >= pulledAt);
     const merged = store.ensureSchema({ ...incoming });
-    merged.inbox = [...(incoming.inbox || []), ...preserved];
+    // Inbox items the server changed later than the client's copy (auto-resolved) keep the server version.
+    const serverInbox = new Map((db.inbox || []).map(i => [i.id, i]));
+    const clientInbox = (incoming.inbox || []).map(c => {
+      const s = serverInbox.get(c.id);
+      return s && s._serverAt && String(c._serverAt || '') < String(s._serverAt) ? s : c;
+    });
+    merged.inbox = [...clientInbox, ...preserved];
     merged.tickets = mergeTickets(db.tickets || [], incoming.tickets, pulledAt);
     merged.created = db.created || merged.created;
     Object.assign(db, merged);

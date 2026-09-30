@@ -1,0 +1,149 @@
+/* =====================================================================
+   TicketVault design layer (1.16) — loaded after styles.css.
+   Goals: one type system, tabular numbers, gold only as an accent,
+   compact data tables that fit the window, consistent line icons.
+   ===================================================================== */
+
+:root {
+  /* Type system: Playfair only for page titles; Inter for everything else.
+     Oswald (condensed caps buttons) and mono labels are retired. */
+  --font-ticket: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-code: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --font-mono: var(--font-sans);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --ring: 0 0 0 3px rgba(var(--purple-rgb), 0.18);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+body {
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Every number lines up in columns */
+.tickets-table td, .stat-value, [class*="stat-"] .value, .kpi-value, .col-num,
+.inbox-detail-input, .clock, #clockTime, .status-pill, .roi-pill {
+  font-variant-numeric: tabular-nums;
+}
+
+/* IDs, codes and addresses keep a monospace face */
+code, .mono-input, .country-iso, .listing-id, .order-id { font-family: var(--font-code); }
+
+/* ---------- small caps labels: readable, not letter-spaced mono ---------- */
+.stat-label, .kpi-label, .inbox-detail-label, .section-label, .nav-section-title,
+.tickets-table th, .stat-card .label, [class$="-label"] {
+  font-family: var(--font-label) !important;
+  letter-spacing: 0.06em !important;
+  font-weight: 600;
+}
+
+/* ---------- buttons: sentence case, no condensed caps ---------- */
+.btn, .btn-primary, .btn-dark, .btn-success, .btn-sm, button.btn {
+  font-family: var(--font-sans) !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  font-weight: 600;
+  transition: background .15s var(--ease), border-color .15s var(--ease), transform .15s var(--ease), box-shadow .15s var(--ease);
+}
+.btn:focus-visible, input:focus-visible, select:focus-visible { outline: none; box-shadow: var(--ring); }
+.btn:active { transform: translateY(1px); }
+
+/* ---------- line icons ---------- */
+.ico { display: inline-block; vertical-align: -3px; flex-shrink: 0; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--text-tertiary); cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border); }
+.icon-btn-danger:hover { color: var(--red-bright); border-color: rgba(var(--red-rgb), .35); background: rgba(var(--red-rgb), .08); }
+
+/* =====================================================================
+   Inventory table — fits the window, two-line cells
+   ===================================================================== */
+.table-wrapper { overflow-x: auto; }
+.tickets-table { width: 100%; table-layout: auto; }
+.tickets-table th {
+  font-size: 11px; text-transform: uppercase; color: var(--text-tertiary);
+  white-space: nowrap; padding: 12px 10px;
+}
+.tickets-table td { padding: 12px 10px; vertical-align: middle; }
+.tickets-table .col-num { text-align: right; white-space: nowrap; }
+.tickets-table th.col-num { text-align: right; }
+.tickets-table .col-check { width: 36px; }
+.tickets-table .col-event { min-width: 240px; max-width: 360px; }
+.tickets-table .col-date { white-space: nowrap; width: 1%; }
+.tickets-table .col-section { max-width: 150px; }
+.tickets-table .col-channel { max-width: 210px; }
+.tickets-table .col-actions { width: 1%; white-space: nowrap; text-align: right; }
+
+.cell-main { color: var(--text-primary); font-size: 13px; line-height: 1.35; }
+.cell-sub { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.35; margin-top: 2px; }
+.cell-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.event-name { font-weight: 600; font-size: 13.5px; line-height: 1.3; }
+.event-sub { display: flex; align-items: center; gap: 6px; color: var(--text-tertiary); font-size: 11.5px; margin-top: 3px; }
+.event-sub .country-iso { font-size: 9.5px; padding: 1px 4px; border-radius: 4px; }
+.col-profit.profit-positive .cell-main { color: var(--green-bright); font-weight: 600; }
+.col-profit.profit-negative .cell-main { color: var(--red-bright); font-weight: 600; }
+.cell-sub.roi-positive { color: rgba(var(--green-rgb), .85); }
+.cell-sub.roi-negative { color: rgba(var(--red-rgb), .9); }
+.muted { color: var(--text-tertiary); }
+
+.actions-cell { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.actions-secondary { display: flex; gap: 2px; opacity: .55; transition: opacity .15s var(--ease); }
+.tickets-table tr:hover .actions-secondary { opacity: 1; }
+
+.status-pill { white-space: nowrap; font-weight: 600; font-size: 11.5px; letter-spacing: 0; }
+
+/* pills never wrap ("12 dní" on one line) */
+.days-pill, .zbyva-pill, [class*="days-left"], .payout-days, .remaining-pill { white-space: nowrap; }
+
+/* ---------- login: remember me ---------- */
+.auth-remember { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+.auth-remember input { width: 16px; height: 16px; accent-color: var(--purple); }
+
+/* ---------- inventory: second pass (fit + calmer accents) ---------- */
+.tickets-table .col-event { min-width: 200px; max-width: 300px; }
+.tickets-table .col-section { max-width: 120px; }
+.tickets-table .col-channel { max-width: 190px; }
+.tickets-table .cell-ellipsis { max-width: 180px; }
+.tickets-table td, .tickets-table th { padding-left: 8px; padding-right: 8px; }
+.cell-sub.roi-positive, .cell-sub.roi-negative {
+  background: none !important; border: 0 !important; padding: 0 !important; box-shadow: none !important;
+  display: block; font-weight: 500;
+}
+/* Row actions: one calm style, colour only in the text/border */
+.actions-cell .btn-sm {
+  padding: 5px 10px; font-size: 12px; border-radius: 8px;
+  background: transparent !important; box-shadow: none !important;
+}
+.actions-cell .btn-deliver { color: var(--blue) !important; border: 1px solid rgba(107, 155, 184, .45) !important; }
+.actions-cell .btn-deliver:hover { background: rgba(107, 155, 184, .12) !important; }
+.actions-cell .btn-success { color: var(--green-bright) !important; border: 1px solid rgba(var(--green-rgb), .45) !important; }
+.actions-cell .btn-success:hover { background: rgba(var(--green-rgb), .12) !important; }
+.actions-cell .btn-list { color: var(--purple) !important; border: 1px solid rgba(var(--purple-rgb), .45) !important; }
+.actions-cell .btn-list:hover { background: rgba(var(--purple-rgb), .12) !important; }
+.actions-cell .btn-writeoff { color: var(--red-bright) !important; border: 1px solid rgba(var(--red-rgb), .45) !important; }
+.actions-secondary .icon-btn { width: 28px; height: 28px; }
+
+/* icon placeholders (hydrated by icons.js) sit on the text baseline */
+.ico-slot { display: inline-flex; align-items: center; vertical-align: -3px; margin-right: 2px; line-height: 0; }
+.ico-slot:empty { width: 16px; height: 16px; }
+.empty-icon .ico-slot .ico { width: 40px; height: 40px; opacity: .6; }
+.btn .ico-slot, .nav-item .ico-slot { margin-right: 6px; }
+h3 .ico-slot { color: var(--purple); margin-right: 8px; }
+
+/* ---------- toasts ---------- */
+.toast { display: flex; align-items: center; gap: 10px; cursor: pointer; backdrop-filter: blur(10px); }
+.toast-ico { display: inline-flex; color: var(--blue); }
+.toast.success .toast-ico { color: var(--green-bright); }
+.toast.error .toast-ico, .toast.warn .toast-ico { color: var(--red-bright); }
+.toast-msg { flex: 1; line-height: 1.4; }
+.toast-count { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--text-secondary); }

@@ -455,17 +455,36 @@ function calcCostInPrimary(t) {
   return convertCurrency(calcCost(t), ticketCurrency(t), getPrimaryCurrency());
 }
 
+// Toasts: line icon per type; an identical message already on screen is not
+// stacked again — its counter goes up and its timer restarts.
 function toast(message, type = 'info', duration = 3000) {
   const container = $('#toastContainer');
+  if (!container) return;
+  const key = type + '|' + message;
+  const existing = [...container.children].find(c => c.dataset.key === key && !c.classList.contains('fade-out'));
+  if (existing) {
+    const n = (Number(existing.dataset.count) || 1) + 1;
+    existing.dataset.count = n;
+    const badge = existing.querySelector('.toast-count');
+    if (badge) { badge.textContent = '×' + n; badge.hidden = false; }
+    clearTimeout(existing._timer);
+    existing._timer = setTimeout(() => dismiss(existing), duration);
+    return;
+  }
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
-  el.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+  el.dataset.key = key;
+  const ico = type === 'success' ? 'check' : type === 'error' ? 'alert' : type === 'warn' ? 'alert' : 'info';
+  el.innerHTML = `<span class="toast-ico">${window.icon(ico, 16)}</span><span class="toast-msg">${message}</span><span class="toast-count" hidden></span>`;
+  el.addEventListener('click', () => dismiss(el));
   container.appendChild(el);
-  setTimeout(() => {
-    el.classList.add('fade-out');
-    setTimeout(() => el.remove(), 250);
-  }, duration);
+  // Keep at most 4 on screen
+  while (container.children.length > 4) container.firstElementChild.remove();
+  el._timer = setTimeout(() => dismiss(el), duration);
+  function dismiss(node) {
+    node.classList.add('fade-out');
+    setTimeout(() => node.remove(), 250);
+  }
 }
 
 function escapeHtml(str) {
@@ -679,6 +698,9 @@ async function init() {
   setupAuthUI();
   const authState = await window.api.authGetState();
   prefillAuthApiUrls(authState.apiUrl);
+  // Prefill the last username and the remember choice on the login screen.
+  if (authState.lastUsername && $('#authLoginUsername')) $('#authLoginUsername').value = authState.lastUsername;
+  if ($('#authLoginRemember')) $('#authLoginRemember').checked = authState.rememberLogin !== false;
   if (authState.me) {
     // Already authenticated — token verified by backend.
     state.currentUser = authState.me;
@@ -887,7 +909,8 @@ async function handleLoginSubmit() {
   btn.disabled = true;
   btn.textContent = 'Přihlašuji...';
   try {
-    const result = await window.api.authLogin({ apiUrl, username, password });
+    const remember = $('#authLoginRemember') ? $('#authLoginRemember').checked : true;
+    const result = await window.api.authLogin({ apiUrl, username, password, remember });
     if (!result.success) {
       err.textContent = result.error || 'Přihlášení se nezdařilo.';
       $('#authLoginPassword').value = '';
@@ -1060,8 +1083,8 @@ async function renderUsersList() {
     const bucketBadge = isMe
       ? ''
       : sharesWithMe
-        ? '<span class="user-item-badge shared" title="Tento uživatel vidí stejné vstupenky jako ty">📂 Sdílí tvou DB</span>'
-        : '<span class="user-item-badge own" title="Tento uživatel má vlastní izolovanou databázi">📦 Vlastní DB</span>';
+        ? '<span class="user-item-badge shared" title="Tento uživatel vidí stejné vstupenky jako ty"><span class="ico-slot" data-ico="folder"></span> Sdílí tvou DB</span>'
+        : '<span class="user-item-badge own" title="Tento uživatel má vlastní izolovanou databázi"><span class="ico-slot" data-ico="box"></span> Vlastní DB</span>';
 
     return `
       <div class="user-item" data-uid="${escapeHtml(u.id)}">
@@ -1076,8 +1099,8 @@ async function renderUsersList() {
           <div class="user-item-meta">Poslední přihlášení: ${lastLogin}</div>
         </div>
         <div class="user-item-actions">
-          ${ownBucket ? `<button class="btn btn-primary btn-sm" data-user-action="share" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" title="Propojit tohoto uživatele s tvojí databází">📂 Sdílet DB</button>` : ''}
-          ${sharesWithMe ? `<button class="btn btn-dark btn-sm" data-user-action="unshare" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" title="Odpojit a dát mu vlastní prázdnou DB">📦 Odpojit</button>` : ''}
+          ${ownBucket ? `<button class="btn btn-primary btn-sm" data-user-action="share" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" title="Propojit tohoto uživatele s tvojí databází"><span class="ico-slot" data-ico="folder"></span> Sdílet DB</button>` : ''}
+          ${sharesWithMe ? `<button class="btn btn-dark btn-sm" data-user-action="unshare" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" title="Odpojit a dát mu vlastní prázdnou DB"><span class="ico-slot" data-ico="box"></span> Odpojit</button>` : ''}
           ${!isMe ? `<button class="btn btn-dark btn-sm" data-user-action="reset" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}">Reset hesla</button>` : ''}
           ${!isMe ? `<button class="btn btn-danger btn-sm" data-user-action="delete" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}">Smazat</button>` : ''}
         </div>
@@ -1252,12 +1275,12 @@ async function loadIngestStatusUI() {
   let res;
   try { res = await window.api.ingestStatus(); } catch (e) { res = { success: false, error: e.message }; }
   if (!res || !res.success) {
-    box.innerHTML = `<span class="mail-forward-warn">⚠ Stav schránek se nepodařilo načíst</span> — ${escapeHtml(res?.error || 'server neodpovídá')}`;
+    box.innerHTML = `<span class="mail-forward-warn"><span class="ico-slot" data-ico="alert"></span> Stav schránek se nepodařilo načíst</span> — ${escapeHtml(res?.error || 'server neodpovídá')}`;
     return;
   }
   const list = res.mailboxes || [];
   if (!list.length) {
-    box.innerHTML = '<span class="mail-forward-warn">⚠ Na serveru nejsou nastavené žádné schránky.</span>';
+    box.innerHTML = '<span class="mail-forward-warn"><span class="ico-slot" data-ico="alert"></span> Na serveru nejsou nastavené žádné schránky.</span>';
     return;
   }
   const rows = list.map(m => {
@@ -1287,7 +1310,7 @@ async function loadMailForwardUI() {
     if (mailToken) {
       hint.innerHTML = `<span class="mail-forward-ok">✓ Unikátní pro tebe</span> — emaily z tvého Gmailu (po forwardu sem) dorazí jen do tvé DB.`;
     } else {
-      hint.innerHTML = `<span class="mail-forward-warn">⚠ Starší účet bez vlastního tagu</span> — klikni "Vygenerovat" pro vlastní adresu.`;
+      hint.innerHTML = `<span class="mail-forward-warn"><span class="ico-slot" data-ico="alert"></span> Starší účet bez vlastního tagu</span> — klikni "Vygenerovat" pro vlastní adresu.`;
     }
   }
 }
@@ -1428,7 +1451,7 @@ async function refreshRates() {
   const btn = $('#btnRefreshRates');
   btn.disabled = true;
   const originalText = btn.textContent;
-  btn.textContent = '⏳ Aktualizuji...';
+  btn.textContent = 'Aktualizuji...';
   try {
     const result = await window.api.fetchExchangeRates();
     if (!result.success) {
@@ -1606,13 +1629,13 @@ function checkUpcomingExpenses() {
   if (overdue.length > 0) {
     const names = overdue.slice(0, 3).map(e => e.name).join(', ');
     const suffix = overdue.length > 3 ? ` a dalších ${overdue.length - 3}` : '';
-    toast(`⚠ PO TERMÍNU: ${names}${suffix}`, 'error', 10000);
+    toast(`PO TERMÍNU: ${names}${suffix}`, 'error', 10000);
   }
   if (upcoming.length > 0) {
     upcoming.forEach(e => {
       const days = daysUntil(e.nextPayment);
       const dayLabel = days === 0 ? 'DNES' : (days === 1 ? 'zítra' : `za ${days} dny`);
-      toast(`💳 ${e.name} - platba ${dayLabel} (${formatMoney(e.price, e.currency)})`, 'info', 8000);
+      toast(`${e.name} - platba ${dayLabel} (${formatMoney(e.price, e.currency)})`, 'info', 8000);
     });
   }
 }
@@ -1678,7 +1701,7 @@ function togglePrivacyMode() {
   // important since the keyboard shortcut has no visible button click.
   if (typeof toast === 'function') {
     toast(
-      isPrivacyModeOn() ? '🔒 Soukromý režim zapnutý' : '👁️ Soukromý režim vypnutý',
+      isPrivacyModeOn() ? 'Soukromý režim zapnutý' : 'Soukromý režim vypnutý',
       'info',
       1500
     );
@@ -1730,7 +1753,7 @@ async function refreshDb() {
 
   // Show cloud offline warning if applicable
   if (state.db._offline) {
-    toast('⚠️ Cloud nedostupný, zobrazuji lokální cache: ' + (state.db._cloudError || ''), 'error', 5000);
+    toast('Cloud nedostupný, zobrazuji lokální cache: ' + (state.db._cloudError || ''), 'error', 5000);
     updateCloudBadge(true);
   } else {
     updateCloudBadge(false);
@@ -1739,7 +1762,7 @@ async function refreshDb() {
   // the local data was kept. Tell the user how to move it to the server.
   if (state.db._remoteEmpty && !state._remoteEmptyWarned) {
     state._remoteEmptyWarned = true;
-    toast('Server je zatím prázdný, zobrazuji tvoje lokální data. Nahraj je: Nastavení → Server → ⬆️ Nahrát lokální data na server.', 'info', 12000);
+    toast('Server je zatím prázdný, zobrazuji tvoje lokální data. Nahraj je: Nastavení → Server → Nahrát lokální data na server.', 'info', 12000);
   }
 
   populateYearFilter();
@@ -1758,10 +1781,10 @@ function updateCloudBadge(offline) {
   badge.style.display = 'inline-block';
   if (offline) {
     badge.classList.add('offline');
-    badge.textContent = '☁️ Offline';
+    badge.textContent = 'Offline';
   } else {
     badge.classList.remove('offline');
-    badge.textContent = '☁️ Cloud';
+    badge.textContent = 'Cloud';
   }
 }
 
@@ -1936,14 +1959,14 @@ function checkUpcomingTickets() {
     undelivered.sort((a, b) => a.days - b.days);
     const names = undelivered.slice(0, 3).map(x => `${x.ticket.eventName} (${x.days === 0 ? 'DNES' : 'za ' + x.days + ' dní'})`).join(', ');
     const more = undelivered.length > 3 ? ` + dalších ${undelivered.length - 3}` : '';
-    toast(`🚨 ${undelivered.length} vstupenek potřebuje doručit: ${names}${more}`, 'error', 12000);
+    toast(`${undelivered.length} vstupenek potřebuje doručit: ${names}${more}`, 'error', 12000);
   }
   
   if (unsold.length > 0) {
     unsold.sort((a, b) => a.days - b.days);
     const names = unsold.slice(0, 3).map(x => `${x.ticket.eventName} (${x.days === 0 ? 'DNES' : 'za ' + x.days + ' dní'})`).join(', ');
     const more = unsold.length > 3 ? ` + dalších ${unsold.length - 3}` : '';
-    toast(`⚠️ ${unsold.length} vstupenek neprodaných, event za < ${cfg.unsoldDays} dní: ${names}${more}`, 'error', 10000);
+    toast(`${unsold.length} vstupenek neprodaných, event za < ${cfg.unsoldDays} dní: ${names}${more}`, 'error', 10000);
   }
 }
 
@@ -2245,7 +2268,7 @@ function renderTickets() {
       listed: 'Zalistováno',
       sold: 'Prodáno',
       delivered: '✓ Doručeno',
-      cancelled: '❌ Odepsáno (ztráta)'
+      cancelled: 'Odepsáno (ztráta)'
     };
     const statusLabel = statusLabels[statusNorm] || (t.status || 'available');
     
@@ -2292,8 +2315,8 @@ function renderTickets() {
       const chipAnimClass = cfg.animations && !urgency.muted ? ' animated' : '';
       const chipMutedClass = urgency.muted ? ' muted' : '';
       const muteBtn = urgency.muted
-        ? `<button class="urgent-mute-btn" data-unmute-id="${t.id}" title="Obnovit upozornění">🔔</button>`
-        : `<button class="urgent-mute-btn" data-mute-id="${t.id}" title="Ztlumit upozornění pro tuto vstupenku">🔕</button>`;
+        ? `<button class="urgent-mute-btn" data-unmute-id="${t.id}" title="Obnovit upozornění"><span class="ico-slot" data-ico="bell"></span></button>`
+        : `<button class="urgent-mute-btn" data-mute-id="${t.id}" title="Ztlumit upozornění pro tuto vstupenku"><span class="ico-slot" data-ico="bell-off"></span></button>`;
       urgencyBadge = `
         <span class="urgent-chip ${chipColorClass}${chipAnimClass}${chipMutedClass}"
               title="${action} — ${daysText}${urgency.muted ? ' (ztlumené)' : ''}">
@@ -2309,104 +2332,80 @@ function renderTickets() {
     let listingLinkIcon = '';
     const extIds = t.externalIds || {};
     if (extIds.viagogoListingId) {
-      listingLinkIcon = `<a class="listing-link" href="https://www.viagogo.co.uk/secure/myaccount/Listings/Details/${encodeURIComponent(extIds.viagogoListingId)}" target="_blank" rel="noopener" title="Viagogo Listing ${escapeHtml(extIds.viagogoListingId)}">🔗</a>`;
+      listingLinkIcon = `<a class="listing-link" href="https://www.viagogo.co.uk/secure/myaccount/Listings/Details/${encodeURIComponent(extIds.viagogoListingId)}" target="_blank" rel="noopener" title="Viagogo Listing ${escapeHtml(extIds.viagogoListingId)}"><span class="ico-slot" data-ico="link"></span></a>`;
     } else if (extIds.stubhubListingId) {
-      listingLinkIcon = `<a class="listing-link" href="https://www.stubhub.ie/my/sales" target="_blank" rel="noopener" title="StubHub Listing ${escapeHtml(extIds.stubhubListingId)}">🔗</a>`;
+      listingLinkIcon = `<a class="listing-link" href="https://www.stubhub.ie/my/sales" target="_blank" rel="noopener" title="StubHub Listing ${escapeHtml(extIds.stubhubListingId)}"><span class="ico-slot" data-ico="link"></span></a>`;
     }
     
+    const qty = Number(t.quantity) || 1;
+    const iso = t.country ? getCountryIso(t.country) : '';
+    const venueLine = (t.venue || t.country)
+      ? `<div class="event-sub">${iso ? `<span class="country-iso" title="${escapeHtml(t.country)}">${iso}</span>` : ''}${escapeHtml(t.venue || t.country || '')}</div>`
+      : '';
+    const seatLine = t.seat ? `<div class="cell-sub">${escapeHtml(String(t.seat))}</div>` : '';
+    const channel = (() => {
+      const purchase = t.purchasePlatform, sale = t.platform;
+      const main = purchase && sale && purchase !== sale
+        ? `<span class="platform-pair" title="Nákup → Prodej">${escapeHtml(purchase)} <span class="platform-arrow">→</span> ${escapeHtml(sale)}</span>`
+        : escapeHtml(sale || purchase || '—');
+      return `<div class="cell-main">${main}</div>${t.account ? `<div class="cell-sub cell-ellipsis" title="${escapeHtml(t.account)}">${escapeHtml(t.account)}</div>` : ''}`;
+    })();
+    const holdDays = (() => {
+      if (!isSoldOrDelivered || !t.purchaseDate || !t.saleDate) return null;
+      const p = new Date(t.purchaseDate), s = new Date(t.saleDate);
+      if (isNaN(p) || isNaN(s)) return null;
+      return Math.max(0, Math.round((s - p) / 86400000));
+    })();
+    const primaryAction =
+      t.status === 'available' ? `<button class="btn btn-list btn-sm" data-action="list" data-id="${t.id}" title="Vyplnit Listing ID a převést do stavu Zalistováno">Zalistovat</button>`
+      : t.status === 'listed' ? `<button class="btn btn-success btn-sm" data-action="sell" data-id="${t.id}">Prodat</button>`
+      : isSold ? `<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">Doručit</button>`
+      : '';
+    const eventPassed = t.eventDate && new Date(t.eventDate) < new Date(new Date().toDateString());
+    const canWriteOff = eventPassed && (t.status === 'available' || t.status === 'listed');
     return `
       <tr data-id="${t.id}" data-status="${escapeHtml(String(t.status || ''))}" class="${rowClass}${rowExtraClass}">
         <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" ${checked}></td>
-        <td>
+        <td class="col-event">
           <div class="event-cell">
             <div class="event-logo">${logo}</div>
             <div class="event-name-wrap">
               <div class="event-name">${escapeHtml(t.eventName || '—')}${listingLinkIcon}</div>
+              ${venueLine}
               ${urgencyBadge}
             </div>
           </div>
         </td>
-        <td class="col-date">${t.eventDate || '—'}</td>
-        <td>${escapeHtml(t.venue || '—')}</td>
-        <td class="col-country">${(() => {
-          // Country cell — ISO-code badge (e.g. "GB") + full country name.
-          // Empty/missing country shows a dim em-dash. Badge is golden-tinted
-          // to match the app's accent palette; the name uses muted text so
-          // the badge reads as the primary identifier at a glance.
-          const c = t.country;
-          if (!c) return '<span class="muted">—</span>';
-          const iso = getCountryIso(c);
-          const badge = iso ? `<span class="country-iso" title="${escapeHtml(c)}">${iso}</span>` : '';
-          return `<span class="country-cell" title="${escapeHtml(c)}">${badge}<span class="country-name">${escapeHtml(c)}</span></span>`;
-        })()}</td>
-        <td>${escapeHtml([t.section, t.row].filter(Boolean).join(', ') || '—')}</td>
-        <td>${escapeHtml(t.account || '—')}</td>
-        <td>${(() => {
-          const purchase = t.purchasePlatform;
-          const sale = t.platform;
-          if (purchase && sale && purchase !== sale) {
-            return `<span class="platform-pair" title="Nákup → Prodej">${escapeHtml(purchase)} <span class="platform-arrow">→</span> ${escapeHtml(sale)}</span>`;
-          }
-          return escapeHtml(sale || purchase || '—');
-        })()}</td>
-        <td>${t.quantity || 1}</td>
+        <td class="col-date">${t.eventDate ? `<div class="cell-main">${fmtDateCz(t.eventDate)}</div><div class="cell-sub">${fmtWeekdayCz(t.eventDate)}${t.eventTime ? ' · ' + escapeHtml(t.eventTime) : ''}</div>` : '—'}</td>
+        <td class="col-section"><div class="cell-main">${escapeHtml([t.section, t.row].filter(Boolean).join(', ') || '—')}</div>${seatLine}</td>
+        <td class="col-num">${qty}</td>
+        <td class="col-channel">${channel}</td>
         <td><span class="status-pill status-${t.status || 'available'}">${statusLabel}</span></td>
-        <td class="col-purchase" title="${(() => {
-          // Tooltip shows the original currency price (so user knows what was actually paid in source currency)
+        <td class="col-purchase col-num" title="${(() => {
           const origCcy = ticketCurrency(t);
-          const isMixed = origCcy !== primary;
-          const perKs = (Number(t.quantity) || 1) > 1 ? 'Cena za 1 ks: ' + formatMoney(t.purchasePrice, origCcy) + '\n' : '';
-          const orig = isMixed ? `Původní cena: ${formatMoney(calcCost(t), origCcy)}` : '';
+          const perKs = qty > 1 ? 'Cena za 1 ks: ' + formatMoney(t.purchasePrice, origCcy) + '\n' : '';
+          const orig = origCcy !== primary ? `Původní cena: ${formatMoney(calcCost(t), origCcy)}` : '';
           return (perKs + orig).trim();
-        })()}">${formatMoney(calcCostInPrimary(t), primary)}${(Number(t.quantity) || 1) > 1 ? ` <span class="per-ks">(${formatMoney(calcCostInPrimary(t) / (Number(t.quantity) || 1), primary)}/ks)</span>` : ''}</td>
-        <td class="col-sale" title="${(() => {
+        })()}"><div class="cell-main">${formatMoney(calcCostInPrimary(t), primary)}</div>${qty > 1 ? `<div class="cell-sub">${formatMoney(calcCostInPrimary(t) / qty, primary)} / ks</div>` : ''}</td>
+        <td class="col-sale col-num" title="${(() => {
           if (!isSoldOrDelivered) return '';
           const origCcy = saleCurrency(t);
-          const isMixed = origCcy !== primary;
-          const perKs = (Number(t.quantity) || 1) > 1 ? 'Cena za 1 ks: ' + formatMoney(t.salePrice, origCcy) + '\n' : '';
-          const orig = isMixed ? `Původní cena: ${formatMoney(calcRevenue(t), origCcy)}` : '';
+          const perKs = qty > 1 ? 'Cena za 1 ks: ' + formatMoney(t.salePrice, origCcy) + '\n' : '';
+          const orig = origCcy !== primary ? `Původní cena: ${formatMoney(calcRevenue(t), origCcy)}` : '';
           return (perKs + orig).trim();
-        })()}">${isSoldOrDelivered ? formatMoney(calcRevenueInPrimary(t), primary) + ((Number(t.quantity) || 1) > 1 ? ` <span class="per-ks">(${formatMoney(calcRevenueInPrimary(t) / (Number(t.quantity) || 1), primary)}/ks)</span>` : '') : '—'}</td>
-        <td class="col-hold">${(() => {
-          // HOLD = days between purchase and sale.
-          // Only shown for sold/delivered tickets — for unsold tickets the
-          // "hold" is undefined (we haven't realized the timing yet).
-          if (!isSoldOrDelivered) return '<span class="hold-na">—</span>';
-          if (!t.purchaseDate || !t.saleDate) return '<span class="hold-na">—</span>';
-          const purchaseD = new Date(t.purchaseDate);
-          const saleD = new Date(t.saleDate);
-          if (isNaN(purchaseD) || isNaN(saleD)) return '<span class="hold-na">—</span>';
-          const days = Math.max(0, Math.round((saleD - purchaseD) / 86400000));
-          // 0 d = sold the same day. Show "stejný den" instead of bare "0 d"
-          // which looks like a parsing error at a glance.
-          if (days === 0) return '<span class="hold-final hold-sameday" title="Prodáno stejný den jako koupeno">stejný den</span>';
-          return `<span class="hold-final" title="Prodáno za ${days} dní od nákupu">${days} d</span>`;
-        })()}</td>
-        <td class="col-profit ${profitClass}">${isSoldOrDelivered ? formatMoney(profit, primary) : '—'}</td>
-        <td class="col-roi">${isSoldOrDelivered ? `<span class="roi-pill ${roiClass}">${roi.toFixed(1)}%</span>` : '—'}</td>
+        })()}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(calcRevenueInPrimary(t), primary)}</div>${qty > 1 ? `<div class="cell-sub">${formatMoney(calcRevenueInPrimary(t) / qty, primary)} / ks</div>` : ''}` : '<span class="muted">—</span>'}</td>
+        <td class="col-profit col-num ${isSoldOrDelivered ? profitClass : ''}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(profit, primary)}</div><div class="cell-sub ${roiClass}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)} %</div>` : '<span class="muted">—</span>'}</td>
+        <td class="col-hold col-num">${holdDays === null ? '<span class="hold-na">—</span>' : `<span class="hold-final${holdDays === 0 ? ' hold-sameday' : ''}" title="Prodáno za ${holdDays} dní od nákupu">${holdDays} d</span>`}</td>
         <td class="col-actions">
           <div class="actions-cell">
-            ${t.status === 'available' ? `<button class="btn btn-list btn-sm" data-action="list" data-id="${t.id}" title="Vyplnit Listing ID a převést do stavu Zalistováno">Zalistovat</button>` : ''}
-            ${t.status === 'listed' ? `<button class="btn btn-success btn-sm" data-action="sell" data-id="${t.id}">Prodat</button>` : ''}
-            ${isSold ? `<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">✓ Doručit</button>` : ''}
-            ${isDelivered ? `<button class="btn btn-undeliver btn-sm" data-action="undeliver" data-id="${t.id}" title="Vrátit zpět na prodáno">↶</button>` : ''}
-            ${(() => {
-              // "Odepsat ztrátu" — only show when the event already passed AND the ticket
-              // never sold. This is the realised-loss path: ticket bought, not flipped,
-              // event happened, write off the purchase price as a loss instead of forcing
-              // the user to enter "0" in the sell modal (which the validator rejects).
-              const eventPassed = t.eventDate && new Date(t.eventDate) < new Date(new Date().toDateString());
-              const notResolved = t.status === 'available' || t.status === 'listed';
-              if (eventPassed && notResolved) {
-                return `<button class="btn btn-writeoff btn-sm" data-action="writeoff" data-id="${t.id}" title="Event prošel a vstupenka se neprodala — odepsat jako ztrátu">Odepsat ztrátu</button>`;
-              }
-              return '';
-            })()}
-            ${t.status === 'cancelled' ? `<button class="btn btn-undeliver btn-sm" data-action="unwriteoff" data-id="${t.id}" title="Vrátit zpět z odepsaného stavu">↶</button>` : ''}
+            ${primaryAction}
+            ${canWriteOff ? `<button class="btn btn-writeoff btn-sm" data-action="writeoff" data-id="${t.id}" title="Event prošel a vstupenka se neprodala — odepsat jako ztrátu">Odepsat</button>` : ''}
             <div class="actions-secondary">
-              <button class="btn btn-clone btn-sm" data-action="clone" data-id="${t.id}" title="Klonovat - vytvořit novou vstupenku s předvyplněnými daty">🗐</button>
-              <button class="btn btn-dark btn-sm" data-action="edit" data-id="${t.id}">Edit</button>
-              <button class="btn btn-danger btn-sm" data-action="delete" data-id="${t.id}">Del</button>
+              ${isDelivered ? `<button class="icon-btn" data-action="undeliver" data-id="${t.id}" title="Vrátit zpět na prodáno">${icon('undo')}</button>` : ''}
+              ${t.status === 'cancelled' ? `<button class="icon-btn" data-action="unwriteoff" data-id="${t.id}" title="Vrátit zpět z odepsaného stavu">${icon('undo')}</button>` : ''}
+              <button class="icon-btn" data-action="clone" data-id="${t.id}" title="Klonovat">${icon('copy')}</button>
+              <button class="icon-btn" data-action="edit" data-id="${t.id}" title="Upravit">${icon('edit')}</button>
+              <button class="icon-btn icon-btn-danger" data-action="delete" data-id="${t.id}" title="Smazat">${icon('trash')}</button>
             </div>
           </div>
         </td>
@@ -2721,7 +2720,7 @@ function renderTodoItem(item, kind) {
       <div class="todo-item-actions">
         ${primaryAction}
         <button class="btn btn-dark btn-sm" data-todo-action="edit" data-id="${t.id}">Edit</button>
-        <button class="btn btn-dark btn-sm" data-todo-action="mute" data-id="${t.id}" title="Ztlumit upozornění">🔕</button>
+        <button class="btn btn-dark btn-sm" data-todo-action="mute" data-id="${t.id}" title="Ztlumit upozornění"><span class="ico-slot" data-ico="bell-off"></span></button>
       </div>
     </div>
   `;
@@ -2764,7 +2763,7 @@ function renderTodoPage() {
   const subtitle = $('#todoSubtitle');
   if (subtitle) {
     if (total === 0) {
-      subtitle.textContent = 'Všechno vyřešené. Žádné urgentní akce. 🎉';
+      subtitle.textContent = 'Všechno vyřešené. Žádné urgentní akce. ';
     } else {
       subtitle.textContent = `${total} ${total === 1 ? 'položka vyžaduje' : total < 5 ? 'položky vyžadují' : 'položek vyžaduje'} tvou pozornost.`;
     }
@@ -3196,7 +3195,7 @@ function notifyWatchedOnSale() {
   const todayList = getWatched().filter(w => watchedDaysToOnSale(w) === 0);
   if (todayList.length) {
     const names = todayList.map(w => watchName(w)).slice(0, 3).join(', ');
-    toast(`🎟️ Dnes jde do prodeje: ${names}${todayList.length > 3 ? ` +${todayList.length - 3}` : ''}`, 'info', 9000);
+    toast(`Dnes jde do prodeje: ${names}${todayList.length > 3 ? ` +${todayList.length - 3}` : ''}`, 'info', 9000);
   }
 }
 
@@ -4126,7 +4125,7 @@ async function quickAddFromMarketplace(name) {
   // Disable button during scrape so user can't double-click.
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '⏳ Čtu stránku…';
+    btn.textContent = 'Čtu stránku…';
   }
 
   try {
@@ -4198,7 +4197,7 @@ function openMktItemPicker(data, platform, marketplaceName) {
 
   $('#mktMatchTitle').textContent = `Vyber kterou položku importovat (${data.items.length} nalezeno)`;
   $('#mktMatchSummary').innerHTML = `
-    <div class="mkt-match-summary-title">⚡ Načteno z ${platform}</div>
+    <div class="mkt-match-summary-title"><span class="ico-slot" data-ico="zap"></span> Načteno z ${platform}</div>
     <div class="mkt-match-summary-meta">
       Stránka obsahuje <strong>${data.items.length}</strong> ${data.items.length === 1 ? 'položku' : data.items.length < 5 ? 'položky' : 'položek'}.
       Klikni tu, kterou chceš přidat do TicketVault.
@@ -4222,9 +4221,9 @@ function openMktItemPicker(data, platform, marketplaceName) {
         <div class="mkt-match-row-info">
           <div class="mkt-match-row-title">${escapeHtml(item.eventName || ('Sale #' + (item.saleId || item.listingId || '?')))}</div>
           <div class="mkt-match-row-meta">
-            <span>📅 ${item.eventDate ? formatDate(item.eventDate) : '—'}</span>
-            ${item.venue ? `<span>📍 ${escapeHtml(item.venue)}</span>` : ''}
-            <span>🎫 Sekce ${escapeHtml(item.section || '—')}${item.row ? ' / řada '+escapeHtml(item.row) : ''}</span>
+            <span><span class="ico-slot" data-ico="calendar"></span> ${item.eventDate ? formatDate(item.eventDate) : '—'}</span>
+            ${item.venue ? `<span><span class="ico-slot" data-ico="pin"></span> ${escapeHtml(item.venue)}</span>` : ''}
+            <span><span class="ico-slot" data-ico="ticket"></span> Sekce ${escapeHtml(item.section || '—')}${item.row ? ' / řada '+escapeHtml(item.row) : ''}</span>
             <span>${item.quantity || '?'} ks</span>
             <span style="color:var(--purple)"><strong>${priceLabel}</strong></span>
             ${idLabel ? `<span style="color:var(--text-tertiary)">${idLabel}</span>` : ''}
@@ -4395,7 +4394,7 @@ function openMktMatchPicker(data, platform, matches, marketplaceName) {
     : '—';
   $('#mktMatchSummary').innerHTML = `
     <div class="mkt-match-summary-title">
-      ⚡ Načteno z ${platform}
+      <span class="ico-slot" data-ico="zap"></span> Načteno z ${platform}
     </div>
     <div class="mkt-match-summary-meta">
       <strong>${escapeHtml(fmt(data.eventName))}</strong> · ${fmt(data.eventDate)} · ${escapeHtml(fmt(data.venue))}<br>
@@ -4438,7 +4437,7 @@ function openMktMatchPicker(data, platform, matches, marketplaceName) {
   // Build the search filter input — useful when fallback list is long.
   const filterHtml = `
     <input type="text" id="mktMatchFilter" class="mkt-match-filter"
-           placeholder="🔍 Filtr: event, místo, sekce, účet…"
+           placeholder="Filtr: event, místo, sekce, účet…"
            autocomplete="off">
   `;
 
@@ -4493,10 +4492,10 @@ function renderMktMatchRows(candidates) {
         <div class="mkt-match-row-info">
           <div class="mkt-match-row-title">${escapeHtml(t.eventName || '—')}</div>
           <div class="mkt-match-row-meta">
-            <span>📅 ${t.eventDate ? formatDate(t.eventDate) : '—'}</span>
-            <span>🎫 Sekce ${escapeHtml(t.section || '—')}${t.row ? ' / řada '+escapeHtml(t.row) : ''}</span>
-            <span>👤 ${escapeHtml(t.account || '—')}</span>
-            <span>💰 ${purchaseInfo}</span>
+            <span><span class="ico-slot" data-ico="calendar"></span> ${t.eventDate ? formatDate(t.eventDate) : '—'}</span>
+            <span><span class="ico-slot" data-ico="ticket"></span> Sekce ${escapeHtml(t.section || '—')}${t.row ? ' / řada '+escapeHtml(t.row) : ''}</span>
+            <span><span class="ico-slot" data-ico="user"></span> ${escapeHtml(t.account || '—')}</span>
+            <span><span class="ico-slot" data-ico="euro"></span> ${purchaseInfo}</span>
             ${m.reasons && m.reasons.length ? `<span style="color:var(--purple)">✓ shoda: ${m.reasons.join(', ')}</span>` : ''}
           </div>
         </div>
@@ -4986,7 +4985,7 @@ function openMembershipModal(m = null) {
   $('#mfEmail').value = m?.email || '';
   $('#mfPassword').value = m?.password || '';
   $('#mfPassword').type = 'password';
-  $('#mfTogglePw').textContent = '👁️';
+  $('#mfTogglePw').innerHTML = icon('eye');
   $('#mfCard').value = m?.card || '';
   $('#mfGroup').value = m?.group || '';
   $('#mfOwner').value = m?.owner || '';
@@ -5511,15 +5510,15 @@ function renderSimcardsPage() {
     let rowClass = '';
     let extendBtnClass = 'btn btn-extend btn-sm';
     if (status === 'expired') {
-      statusBadge = `<span class="expiry-status status-expired">❌ Vypršelo (${Math.abs(days)} d)</span>`;
+      statusBadge = `<span class="expiry-status status-expired"><span class="ico-slot" data-ico="x"></span> Vypršelo (${Math.abs(days)} d)</span>`;
       rowClass = 'row-expired';
       extendBtnClass += ' urgent';
     } else if (status === 'urgent') {
-      statusBadge = `<span class="expiry-status status-urgent">🔥 ${days} dní</span>`;
+      statusBadge = `<span class="expiry-status status-urgent"><span class="ico-slot" data-ico="flame"></span> ${days} dní</span>`;
       rowClass = 'row-urgent';
       extendBtnClass += ' urgent';
     } else if (status === 'warn') {
-      statusBadge = `<span class="expiry-status status-warn">⚠ ${days} dní</span>`;
+      statusBadge = `<span class="expiry-status status-warn"><span class="ico-slot" data-ico="alert"></span> ${days} dní</span>`;
       rowClass = 'row-warn';
     } else if (sc.expiry) {
       statusBadge = `<span class="expiry-status status-ok">✓ ${days} dní</span>`;
@@ -5980,25 +5979,25 @@ function renderPayoutsPage() {
       payoutStatusCell = `<span class="status-pill status-sold" title="Přijato ${formatDate(t.paidOutDate)} - ${formatMoney(paidAmount, tc)}">✓ Vyplaceno</span>${diffLabel}`;
       actionCell = `<button class="btn btn-dark btn-sm" data-p-action="unpaid" data-id="${t.id}" title="Vrátit zpět na čekání">↶ Vrátit</button>`;
     } else if (p.isOverdue) {
-      payoutStatusCell = '<span class="status-pill status-cancelled">⚠ Po termínu</span>';
-      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
+      payoutStatusCell = '<span class="status-pill status-cancelled"><span class="ico-slot" data-ico="alert"></span> Po termínu</span>';
+      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}"><span class="ico-slot" data-ico="euro"></span> Přišlo</button>`;
     } else if (p.expectedDate) {
-      payoutStatusCell = '<span class="status-pill" style="background:rgba(167, 139, 250, 0.15);color:#c4b5fd;border:1px solid rgba(167, 139, 250, 0.35)">⏳ Čeká</span>';
-      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
+      payoutStatusCell = '<span class="status-pill" style="background:rgba(167, 139, 250, 0.15);color:#c4b5fd;border:1px solid rgba(167, 139, 250, 0.35)"><span class="ico-slot" data-ico="hourglass"></span> Čeká</span>';
+      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}"><span class="ico-slot" data-ico="euro"></span> Přišlo</button>`;
     } else if (p.rule && p.rule.baseDate === 'deliveryDate' && t.status !== 'delivered') {
       // Pravidlo "po doručení" existuje, ale ticket ještě není doručený zákazníkovi.
       // Jasný hint co s tím má uživatel udělat — nezobrazujeme ani "Po termínu" ani
       // "Neznámé pravidlo" (oboje by bylo zavádějící).
-      payoutStatusCell = '<span class="status-pill" style="background:rgba(251, 191, 36, 0.12);color:#fbbf24;border:1px solid rgba(251, 191, 36, 0.35)" title="Pravidlo se aktivuje až po označení \'Doručeno\'">📦 Čeká na doručení</span>';
-      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
+      payoutStatusCell = '<span class="status-pill" style="background:rgba(251, 191, 36, 0.12);color:#fbbf24;border:1px solid rgba(251, 191, 36, 0.35)" title="Pravidlo se aktivuje až po označení \'Doručeno\'"><span class="ico-slot" data-ico="box"></span> Čeká na doručení</span>';
+      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}"><span class="ico-slot" data-ico="euro"></span> Přišlo</button>`;
     } else {
       payoutStatusCell = '<span class="status-pill status-cancelled">? Neznámé pravidlo</span>';
-      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}">💰 Přišlo</button>`;
+      actionCell = `<button class="btn btn-success btn-sm" data-p-action="paid" data-id="${t.id}"><span class="ico-slot" data-ico="euro"></span> Přišlo</button>`;
     }
     
     const ruleInfo = p.rule
       ? `<small style="color:var(--text-tertiary); font-size:10px; display:block;">${p.rule.baseDate === 'eventDate' ? 'po eventu' : (p.rule.baseDate === 'deliveryDate' ? 'po doručení' : 'po prodeji')} +${p.rule.offsetDays} dní</small>`
-      : `<small style="color:var(--red-bright); font-size:10px; display:block;">⚠ Chybí pravidlo - nastav v ⚙️</small>`;
+      : `<small style="color:var(--red-bright); font-size:10px; display:block;"><span class="ico-slot" data-ico="alert"></span> Chybí pravidlo - nastav v <span class="ico-slot" data-ico="settings"></span></small>`;
     
     return `
       <tr data-id="${t.id}" class="${p.isOverdue && !p.isPaid ? 'row-urgent' : ''} ${p.isPaid ? 'row-paid' : ''}">
@@ -6227,12 +6226,19 @@ function checkUpcomingPayouts() {
     // single meaningful total in the toast.
     const primary = getPrimaryCurrency();
     const sumOverdue = overdue.reduce((s, p) => s + convertCurrency(p.amount, saleCurrency(p.ticket), primary), 0);
-    toast(`💸 ${overdue.length} výplat po termínu (${formatMoney(sumOverdue, primary)}) - zkontroluj účet!`, 'error', 10000);
+    toast(`${overdue.length} výplat po termínu (${formatMoney(sumOverdue, primary)}) - zkontroluj účet!`, 'error', 10000);
   }
   if (incoming.length > 0) {
-    incoming.forEach(p => {
-      const label = p.daysLeft === 0 ? 'DNES' : (p.daysLeft === 1 ? 'zítra' : `za ${p.daysLeft} dny`);
-      toast(`💰 Výplata ${label}: ${p.ticket.eventName} (${formatMoney(p.amount, saleCurrency(p.ticket))})`, 'info', 8000);
+    // One toast per day bucket instead of one per ticket ("Výplaty dnes: 3× England v Spain …").
+    const primary = getPrimaryCurrency();
+    const buckets = new Map();
+    incoming.forEach(p => { const k = p.daysLeft; if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(p); });
+    [...buckets.entries()].sort((a, b) => a[0] - b[0]).forEach(([days, list]) => {
+      const label = days === 0 ? 'dnes' : (days === 1 ? 'zítra' : `za ${days} dny`);
+      const sum = list.reduce((s, p) => s + convertCurrency(p.amount, saleCurrency(p.ticket), primary), 0);
+      const names = {}; list.forEach(p => { names[p.ticket.eventName] = (names[p.ticket.eventName] || 0) + 1; });
+      const what = Object.entries(names).map(([n, c]) => (c > 1 ? c + '× ' : '') + escapeHtml(n)).join(', ');
+      toast(`Výplaty ${label} (${formatMoney(sum, primary)}): ${what}`, 'info', 8000);
     });
   }
 }
@@ -6300,7 +6306,7 @@ function renderInboxPage() {
   if (filtered.length === 0) {
     list.innerHTML = `
       <div class="empty-state" id="inboxEmpty">
-        <div class="empty-icon">📭</div>
+        <div class="empty-icon"><span class="ico-slot" data-ico="inbox"></span></div>
         <div class="empty-title">Žádné příchozí emaily</div>
         <div class="empty-text">
           Server čte tvoje schránky sám. Nové nákupy se tu objeví do minuty,<br>
@@ -6443,7 +6449,7 @@ function renderInboxCard(item) {
     return `
       <div class="inbox-card inbox-card-error" data-id="${item.id}">
         <div class="inbox-card-header">
-          <span class="inbox-kind-badge inbox-kind-error">⚠ Nerozpoznáno</span>
+          <span class="inbox-kind-badge inbox-kind-error"><span class="ico-slot" data-ico="alert"></span> Nerozpoznáno</span>
           <span class="inbox-platform-badge">${escapeHtml(p.platform || 'Neznámá platforma')}</span>
           <span class="inbox-date">${received}</span>
         </div>
@@ -6474,7 +6480,7 @@ function renderInboxCard(item) {
       const t = matches[0];
       matchInfo = `
         <div class="inbox-match-box">
-          ✅ <strong>Spárováno:</strong> "${escapeHtml(t.eventName)}" (${t.eventDate || '?'}, ${t.quantity} ks)
+          <span class="ico-slot" data-ico="check"></span> <strong>Spárováno:</strong> "${escapeHtml(t.eventName)}" (${t.eventDate || '?'}, ${t.quantity} ks)
           ${(t.externalIds?.viagogoListingId || t.externalIds?.stubhubListingId) ? `<br><small>Listing ID: ${escapeHtml(t.externalIds.viagogoListingId || t.externalIds.stubhubListingId)}</small>` : ''}
         </div>
       `;
@@ -6485,7 +6491,7 @@ function renderInboxCard(item) {
     } else if (matches.length > 1) {
       matchInfo = `
         <div class="inbox-match-box multi-match">
-          ⚠️ <strong>${matches.length} možných shod</strong> - vyber ručně
+          <span class="ico-slot" data-ico="alert"></span> <strong>${matches.length} možných shod</strong> - vyber ručně
         </div>
       `;
       actions = `
@@ -6495,8 +6501,8 @@ function renderInboxCard(item) {
     } else {
       matchInfo = `
         <div class="inbox-match-box no-match">
-          ⚠️ Žádná vstupenka s tímto Listing ID v inventáři.<br>
-          <small>Viagogo Order ID: ${escapeHtml(p.orderId || '?')}, Listing ID: ${escapeHtml(p.listingId || '—')}</small>
+          <span class="ico-slot" data-ico="alert"></span> Žádná vstupenka s tímto Listing ID v inventáři.<br>
+          <small>Objednávka ${escapeHtml(p.orderId || '?')} · inzerát ${escapeHtml(p.listingId || '—')}</small>
         </div>
       `;
       actions = `
@@ -6518,7 +6524,7 @@ function renderInboxCard(item) {
     <div class="inbox-card inbox-card-${p.kind || 'error'}" data-id="${item.id}">
       <div class="inbox-card-header">
         <span class="inbox-kind-badge inbox-kind-${p.kind}">
-          ${isPurchase ? '🛒 NÁKUP' : '💰 PRODEJ'}
+          ${isPurchase ? '<span class="ico-slot" data-ico="cart"></span> NÁKUP' : '<span class="ico-slot" data-ico="euro"></span> PRODEJ'}
           ${p.saleType === 'sold_transfer_needed' ? ' · TRANSFER' : ''}
           ${p.saleType === 'sold_upload_needed' ? ' · UPLOAD' : ''}
         </span>
@@ -6555,7 +6561,7 @@ function renderInboxCard(item) {
                  value="${p.quantity || 1}">
         </div>
         <div class="inbox-detail">
-          <span class="inbox-detail-label">${isPurchase ? 'Cena celkem' : 'Proceeds'}</span>
+          <span class="inbox-detail-label">${isPurchase ? 'Cena celkem' : 'Výplata'}</span>
           <div class="inbox-price-row">
             <input class="inbox-detail-input price-input" type="number" step="0.01" data-field="totalAmount" data-id="${item.id}"
                    value="${price ? price.toFixed(2) : ''}"
@@ -6566,7 +6572,7 @@ function renderInboxCard(item) {
           </div>
         </div>
         <div class="inbox-detail">
-          <span class="inbox-detail-label">Order ID</span>
+          <span class="inbox-detail-label">Objednávka</span>
           <input class="inbox-detail-input mono-input" type="text" data-field="orderId" data-id="${item.id}"
                  value="${escapeHtml(p.orderId || '')}"
                  placeholder="číslo objednávky">
@@ -6592,7 +6598,7 @@ function renderInboxCard(item) {
       <div class="inbox-actions">
         ${actions}
         <button class="btn btn-dark btn-sm inbox-advanced-btn" data-inbox-action="advanced-edit" data-inbox-id="${item.id}" title="Upravit všechny detaily">
-          🔧 Pokročilá úprava
+          <span class="ico-slot" data-ico="wrench"></span> Pokročilá úprava
         </button>
       </div>
     </div>
@@ -6628,7 +6634,7 @@ async function approveInboxItem(id) {
   }
 
   if (missing.length > 0) {
-    toast(`Chybí povinné údaje: ${missing.join(', ')}. Doplň je v kartě nebo přes 🔧 Pokročilá úprava.`, 'error', 6000);
+    toast(`Chybí povinné údaje: ${missing.join(', ')}. Doplň je v kartě nebo přes Pokročilá úprava.`, 'error', 6000);
     // Visually highlight the missing inputs so the user sees what's empty
     const card = document.querySelector(`.inbox-card[data-id="${id}"]`);
     if (card) {
@@ -6827,7 +6833,7 @@ function openInboxAdvancedEditModal(id) {
     <div class="modal-backdrop"></div>
     <div class="modal-content modal-large">
       <div class="modal-header">
-        <h3>🔧 Pokročilá úprava emailu</h3>
+        <h3><span class="ico-slot" data-ico="wrench"></span> Pokročilá úprava emailu</h3>
         <button class="modal-close" id="iaeClose">×</button>
       </div>
       <div class="modal-body">
@@ -6906,7 +6912,7 @@ function openInboxAdvancedEditModal(id) {
         </div>
         <div class="form-row">
           <div class="form-group form-full">
-            <label>Order ID / Reference</label>
+            <label>Číslo objednávky</label>
             <input type="text" id="iaeOrderId" value="${escapeHtml(p.orderId || '')}" placeholder="011377758" style="font-family: var(--font-mono);">
           </div>
         </div>
@@ -7077,7 +7083,7 @@ async function applyInboxSale(inboxId, ticketId) {
   // parser data (e.g. quantity field misread), but we mark the whole ticket
   // sold and warn the user.
   if (emailQty > ticketQty) {
-    toast(`⚠ Email tvrdí ${emailQty} ks, ale máš jen ${ticketQty} ks. Označím všechno jako prodané — zkontroluj data.`, 'warn', 6000);
+    toast(`Email tvrdí ${emailQty} ks, ale máš jen ${ticketQty} ks. Označím všechno jako prodané — zkontroluj data.`, 'warn', 6000);
   }
 
   // FULL SALE (emailQty === ticketQty, or the warning fallback above).
@@ -7225,7 +7231,7 @@ async function refreshInbox() {
   // Show busy state so the user knows the button was registered
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '⏳ Obnovuji...';
+    btn.textContent = 'Obnovuji...';
   }
   
   try {
@@ -7243,17 +7249,17 @@ async function refreshInbox() {
       const label = newCount === 1 ? '1 nový email' 
                   : newCount < 5 ? `${newCount} nové emaily`
                   : `${newCount} nových emailů`;
-      toast('📥 ' + label, 'success', 3000);
+      toast('' + label, 'success', 3000);
     } else {
       toast('✓ Žádné nové emaily', 'info', 1500);
     }
   } catch (e) {
     console.error('refreshInbox failed:', e);
-    toast('❌ Chyba: ' + (e?.message || 'neznámá'), 'error', 4000);
+    toast('Chyba: ' + (e?.message || 'neznámá'), 'error', 4000);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = origText || '🔄 Obnovit';
+      btn.textContent = origText || 'Obnovit';
     }
   }
 }
@@ -7289,8 +7295,8 @@ async function silentRefreshInbox() {
     
     if (newItems.length > 0) {
       const msg = newItems.length === 1
-        ? '📥 Nový email v příchozích'
-        : `📥 ${newItems.length} nových emailů v příchozích`;
+        ? 'Nový email v příchozích'
+        : `${newItems.length} nových emailů v příchozích`;
       toast(msg, 'success', 4000);
     }
   } catch (e) {
@@ -9622,7 +9628,7 @@ function setupBuyerSectionUI() {
       toast('Email zkopírován', 'success', 1500);
       setTimeout(() => {
         btn.classList.remove('copied');
-        btn.textContent = '📋';
+        btn.textContent = '';
       }, 1500);
     } catch (err) {
       toast('Chyba kopírování: ' + err.message, 'error');
@@ -9654,14 +9660,14 @@ function updateListingLinks() {
   const vLink = $('#viagogoListingLink');
   if (vLink) {
     vLink.innerHTML = vL
-      ? `<a href="https://www.viagogo.co.uk/secure/myaccount/Listings/Details/${encodeURIComponent(vL)}" target="_blank" rel="noopener">🔗 Otevřít na Viagogo</a>`
+      ? `<a href="https://www.viagogo.co.uk/secure/myaccount/Listings/Details/${encodeURIComponent(vL)}" target="_blank" rel="noopener"><span class="ico-slot" data-ico="link"></span> Otevřít na Viagogo</a>`
       : '';
   }
   const sL = $('#fStubhubListingId')?.value.trim();
   const sLink = $('#stubhubListingLink');
   if (sLink) {
     sLink.innerHTML = sL
-      ? `<a href="https://www.stubhub.ie/my/sales" target="_blank" rel="noopener">🔗 Otevřít na StubHub</a>`
+      ? `<a href="https://www.stubhub.ie/my/sales" target="_blank" rel="noopener"><span class="ico-slot" data-ico="link"></span> Otevřít na StubHub</a>`
       : '';
   }
 }
@@ -9736,7 +9742,7 @@ async function importTicketFromPdf() {
       status: 'available',
       notes: `Načteno z PDF${p.orderId ? ' · obj. ' + p.orderId : ''}${p.eventTime ? ' · výkop ' + p.eventTime : ''}`
     });
-    toast('Zápas načten z PDF — zkontroluj údaje a ulož ✅', 'success', 5000);
+    toast('Zápas načten z PDF — zkontroluj údaje a ulož ', 'success', 5000);
   } finally {
     if (btn) { btn.disabled = false; }
   }
@@ -9867,7 +9873,7 @@ async function prefillFromUrl() {
   btn.disabled = true;
   btn.textContent = 'Stahuji...';
   status.className = 'prefill-status loading';
-  status.textContent = '⏳ Načítám data ze stránky...';
+  status.textContent = 'Načítám data ze stránky...';
   
   try {
     const result = await window.api.fetchEventPage(url);
@@ -9956,7 +9962,7 @@ async function prefillFromUrl() {
         $('#fEventName').value = urlName;
         $('#fPlatform').value = platform;
         status.className = 'prefill-status warn';
-        status.textContent = '⚠ Web blokoval detaily. Vyplněn aspoň název z URL, doplň zbytek.';
+        status.textContent = 'Web blokoval detaily. Vyplněn aspoň název z URL, doplň zbytek.';
       } else {
         $('#fPlatform').value = platform;
         status.className = 'prefill-status err';
@@ -10133,7 +10139,7 @@ function openSellModal(ticket) {
   const eventPassed = ticket.eventDate && new Date(ticket.eventDate) < new Date(new Date().toDateString());
   const pastEventBanner = eventPassed
     ? `<div class="sell-past-banner">
-         ⚠ Event už proběhl. Pokud se vstupenka <strong>neprodala</strong>, použij místo tohoto modalu tlačítko <strong>Odepsat ztrátu</strong> v řádku — nákupní cena se zaeviduje jako realizovaná ztráta.
+         <span class="ico-slot" data-ico="alert"></span> Event už proběhl. Pokud se vstupenka <strong>neprodala</strong>, použij místo tohoto modalu tlačítko <strong>Odepsat ztrátu</strong> v řádku — nákupní cena se zaeviduje jako realizovaná ztráta.
        </div>`
     : '';
   
@@ -10343,7 +10349,7 @@ function updateSellHints() {
     hint.textContent = `Zadej počet (1 až ${totalQty})`;
     hint.className = 'sell-hint err';
   } else if (sellQty > totalQty) {
-    hint.textContent = `⚠ Nemůžeš prodat víc než ${totalQty} ks`;
+    hint.textContent = `Nemůžeš prodat víc než ${totalQty} ks`;
     hint.className = 'sell-hint err';
   } else if (sellQty === totalQty) {
     hint.textContent = `✓ Prodáš všechny (${totalQty} ks)`;
@@ -10641,9 +10647,9 @@ const BULK_EDIT_FIELDS = [
   },
   { key: 'category',        label: 'Kategorie',             type: 'select',
     options: [
-      { value: 'concert',  label: '🎵 Koncerty a ostatní' },
-      { value: 'football', label: '⚽ Fotbal' },
-      { value: 'other',    label: '🎫 Jiné' }
+      { value: 'concert',  label: 'Koncerty a ostatní' },
+      { value: 'football', label: 'Fotbal' },
+      { value: 'other',    label: 'Jiné' }
     ]
   },
   // Identity / location
@@ -10918,11 +10924,11 @@ async function importBackup() {
     let msg = `✓ Importováno ${res.imported} vstupenek (${res.mode === 'overwrite' ? 'přepsáno' : 'sloučeno'})`;
     if (res.cloudActive) {
       if (res.cloudPushed) {
-        msg += ' • nahráno do cloudu ☁️';
+        msg += ' • nahráno do cloudu ';
       } else {
-        msg += ` • ⚠️ NAHRÁNÍ DO CLOUDU SELHALO: ${res.cloudError || 'neznámá chyba'}`;
+        msg += ` • NAHRÁNÍ DO CLOUDU SELHALO: ${res.cloudError || 'neznámá chyba'}`;
         toast(msg, 'error', 12000);
-        toast('Data jsou uložena LOKÁLNĚ. Zkus: Nastavení → ⬆️ Nahrát lokální data do cloudu', 'info', 10000);
+        toast('Data jsou uložena LOKÁLNĚ. Zkus: Nastavení → Nahrát lokální data do cloudu', 'info', 10000);
         return;
       }
     }
@@ -10948,7 +10954,7 @@ async function importCsv() {
     let msg = `✓ Importováno ${res.imported} vstupenek (${formatName})`;
     if (res.skipped) msg += `, přeskočeno ${res.skipped} prázdných`;
     const cfg = await window.api.getConfig();
-    if (cfg?.cloud?.enabled) msg += ' • nahráno do cloudu ☁️';
+    if (cfg?.cloud?.enabled) msg += ' • nahráno do cloudu ';
     toast(msg, 'success', 5000);
   } else if (!res.canceled) {
     toast('Chyba: ' + res.error, 'error', 6000);
@@ -11289,7 +11295,7 @@ function setupEventListeners() {
     const inp = $('#mfPassword');
     const btn = $('#mfTogglePw');
     inp.type = inp.type === 'password' ? 'text' : 'password';
-    btn.textContent = inp.type === 'password' ? '👁️' : '🙈';
+    btn.innerHTML = inp.type === 'password' ? icon('eye') : icon('eye-off');
   });
   $('#mfGroup')?.addEventListener('input', updateGroupColorPreview);
   $('#mFilterSearch')?.addEventListener('input', (e) => {
@@ -11647,7 +11653,7 @@ function setupEventListeners() {
   $('#btnToggleKey').addEventListener('click', () => {
     const inp = $('#cloudApiKey');
     inp.type = inp.type === 'password' ? 'text' : 'password';
-    $('#btnToggleKey').textContent = inp.type === 'password' ? '👁️' : '🙈';
+    $('#btnToggleKey').innerHTML = inp.type === 'password' ? icon('eye') : icon('eye-off');
   });
   $('#cloudEnabled').addEventListener('change', async (e) => {
     // If enabling, require saved credentials
@@ -11776,14 +11782,14 @@ function updateLastSync(isoDate) {
     return;
   }
   const d = new Date(isoDate);
-  $('#lastSync').textContent = '🕒 Poslední sync: ' + d.toLocaleString('cs-CZ');
+  $('#lastSync').textContent = 'Poslední sync: ' + d.toLocaleString('cs-CZ');
 }
 
 function showCloudStatus(message, type = 'loading') {
   const el = $('#cloudStatus');
   el.style.display = 'flex';
   el.className = 'cloud-status ' + type;
-  const icon = type === 'ok' ? '✓' : type === 'error' ? '✕' : '⏳';
+  const icon = type === 'ok' ? '✓' : type === 'error' ? '✕' : '';
   el.innerHTML = `<span>${icon}</span><span>${message}</span>`;
 }
 
@@ -11925,7 +11931,7 @@ function setupAutoUpdater() {
     const btn = $('#btnCheckForUpdates');
     const status = $('#updateCheckStatus');
     btn.disabled = true;
-    btn.textContent = '⏳ Kontroluji...';
+    btn.textContent = 'Kontroluji...';
     if (status) { status.textContent = ''; status.style.color = ''; }
     try {
       const result = await window.api.checkForUpdates();
@@ -11936,7 +11942,7 @@ function setupAutoUpdater() {
       // If successful, the updater:event stream drives the banner.
     } finally {
       btn.disabled = false;
-      btn.textContent = '🔄 Zkontrolovat aktualizace';
+      btn.textContent = 'Zkontrolovat aktualizace';
     }
   });
 
@@ -11992,7 +11998,7 @@ function setupAutoUpdater() {
         // checks we surface the error in Settings.
         const status = $('#updateCheckStatus');
         if (status) {
-          status.textContent = '⚠ ' + ev.message;
+          status.textContent = '' + ev.message;
           status.style.color = 'var(--red-bright, #ef4444)';
         }
         break;

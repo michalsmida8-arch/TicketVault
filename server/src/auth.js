@@ -43,6 +43,7 @@ function requireAuth(req, res, next) {
   const user = store.loadUsers().find(u => u.id === payload.sub);
   if (!user) return res.status(401).json({ error: 'Uživatel neexistuje.' });
   req.user = user;
+  req.tokenIat = payload.iat || 0;
   next();
 }
 function requireAdmin(req, res, next) {
@@ -115,7 +116,14 @@ router.post('/recover', async (req, res) => {
 // ---- self-service ---------------------------------------------------------------
 router.use(requireAuth);
 
-router.get('/me', (req, res) => res.json({ user: publicUser(req.user) }));
+// Sliding session: a token older than a day is replaced on /me, so an app that is
+// opened at least once every JWT_DAYS never gets logged out ("Zapamatovat přihlášení").
+router.get('/me', (req, res) => {
+  const ageSec = Date.now() / 1000 - (req.tokenIat || 0);
+  const out = { user: publicUser(req.user) };
+  if (ageSec > 24 * 3600) out.token = signToken(req.user);
+  res.json(out);
+});
 
 router.post('/change-password', async (req, res) => {
   const { oldPassword, newPassword } = req.body || {};

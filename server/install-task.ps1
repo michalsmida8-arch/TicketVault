@@ -4,11 +4,10 @@
 # Remove with:  Unregister-ScheduledTask -TaskName TicketVaultServer -Confirm:$false
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$node = (Get-Command node).Source
 $log = Join-Path $here 'server.log'
+$runner = Join-Path $here 'run-server.cmd'   # restart loop around node
 
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' `
-  -Argument "/c `"`"$node`" src\index.js >> `"$log`" 2>&1`"" -WorkingDirectory $here
+$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$runner`"" -WorkingDirectory $here
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable

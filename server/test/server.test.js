@@ -277,3 +277,56 @@ test('stale app copy cannot undo a server-side sale (PUT /db and POST /ticket)',
   r = await api('GET', '/db');
   assert.equal(r.data.tickets.find(x => x.id === 't_1').status, 'available');
 });
+
+test('delivered/paid mails match tickets sold by hand; cancellation reverts an auto split', () => {
+  const { applySale } = require('../src/ingest/sales');
+  const { saleStage } = require('../src/ingest/parsers');
+  assert.equal(saleStage('You successfully confirmed transfer for order # 655268025'), 'delivered');
+  assert.equal(saleStage('Your sale 655518574 has been cancelled'), 'cancelled');
+  assert.equal(saleStage('Please send your tickets for sale # 655268025 immediately'), 'sold');
+
+  // England v Spain: three rows delivered by hand, no Stubhub order numbers stored
+  const db = { inbox: [], tickets: [
+    { id: 't_e1', eventName: 'England v Spain', eventDate: '2026-09-26', quantity: 2, status: 'delivered', salePrice: 101.2, externalIds: { otherId: '4430397' } },
+    { id: 't_e2', eventName: 'England v Spain', eventDate: '2026-09-26', quantity: 3, status: 'delivered', salePrice: 101.2, externalIds: { otherId: '4430397' } },
+    { id: 't_e3', eventName: 'England v Spain', eventDate: '2026-09-26', quantity: 3, status: 'delivered', salePrice: 101.2, externalIds: { otherId: '4430397' } }
+  ] };
+  const base = { platform: 'Stubhub', event: 'England vs Spain - Nations League 2026-27', eventDate: '2026-09-26' };
+  let r = applySale(db, { ...base, saleStage: 'delivered', quantity: 2, orderId: '287914078', totalAmount: 202.4 });
+  assert.equal(r.action, 'already-delivered'); assert.equal(r.ticketId, 't_e1');
+  r = applySale(db, { ...base, saleStage: 'delivered', quantity: 3, orderId: '287914303', totalAmount: 303.6 });
+  r = applySale(db, { ...base, saleStage: 'delivered', quantity: 3, orderId: '287914560', totalAmount: 303.6 });
+  const ids = db.tickets.map(t => t.externalIds.stubhubOrderId).sort();
+  assert.deepEqual(ids, ['287914078', '287914303', '287914560'], 'each row got its own order number');
+  // the same delivered mail again is a duplicate
+  r = applySale(db, { ...base, saleStage: 'delivered', quantity: 2, orderId: '287914078' });
+  assert.equal(r.duplicate, true);
+  // payout for one of them now matches by order number
+  r = applySale(db, { ...base, saleStage: 'paid', quantity: 3, orderId: '287914560', totalAmount: 303.6 }, '2026-10-01T09:00:00Z');
+  assert.equal(r.action, 'paid');
+
+  // A$AP Rocky: 4 listed, 1 sold automatically (split), then the sale is cancelled
+  const db2 = { inbox: [], tickets: [{ id: 't_a', eventName: "A$AP ROCKY - DON'T BE DUMB WORLD TOUR", eventDate: '2026-10-11', quantity: 4, status: 'listed', platform: 'Viagogo', currency: 'EUR', externalIds: {} }] };
+  const sale = { platform: 'Viagogo', event: 'A$AP Rocky', eventDate: '2026-10-11', quantity: 1, totalAmount: 105.48, currency: 'EUR', orderId: '655518574' };
+  r = applySale(db2, { ...sale, saleStage: 'sold' });
+  assert.equal(r.action, 'sold');
+  db2.inbox.push({ id: 'in1', autoApplied: { action: 'sold', ticketId: r.ticketId, remainingId: r.remainingId } });
+  assert.equal(db2.tickets.length, 2);
+  r = applySale(db2, { ...sale, saleStage: 'cancelled' });
+  assert.equal(r.action, 'cancelled-merged');
+  assert.equal(db2.tickets.length, 1);
+  assert.equal(db2.tickets[0].quantity, 4); assert.equal(db2.tickets[0].status, 'listed');
+});
+
+test('stale app copy cannot reopen an inbox item the server resolved', async () => {
+  const store = loadStore();
+  const me = store.loadUsers().find(u => u.username === 'michal');
+  await store.updateBucket(me.dataKey, db => { db.inbox.push({ id: 'in_x', state: 'pending_review', createdAt: '2026-01-01T00:00:00Z', _serverAt: '2026-01-01T00:00:00Z', parsed: { success: true } }); });
+  let r = await api('GET', '/db');
+  const stale = r.data;
+  const now = new Date().toISOString();
+  await store.updateBucket(me.dataKey, db => { const i = db.inbox.find(x => x.id === 'in_x'); i.state = 'approved'; i._serverAt = now; });
+  await api('PUT', '/db', stale);
+  r = await api('GET', '/db');
+  assert.equal(r.data.inbox.find(x => x.id === 'in_x').state, 'approved');
+});

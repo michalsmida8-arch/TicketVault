@@ -44,8 +44,9 @@ function canonicalPlatform(name) {
 // Stage of a marketplace sale, from the subject line.
 function saleStage(subject) {
   const s = subject || '';
+  if (/cancel|zrušen|storniert|annul/i.test(s)) return 'cancelled';
   if (/payment processed|payout|paid|výplat|zahlung/i.test(s)) return 'paid';
-  if (/delivered|doručen|zugestellt/i.test(s)) return 'delivered';
+  if (/delivered|doručen|zugestellt|confirmed (?:the )?transfer|transfer (?:was |has been )?(?:confirmed|completed)|successfully transferred/i.test(s)) return 'delivered';
   return 'sold';
 }
 

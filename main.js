@@ -1,4 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+// Czech UI locale for Chromium: date inputs show d. m. rrrr instead of mm/dd/yyyy.
+app.commandLine.appendSwitch('lang', 'cs-CZ');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -138,11 +140,15 @@ async function authFetchWithToken(endpoint, { method = 'GET', body = null } = {}
 // Persist the token returned by login/register into cloud config so the rest
 // of the app (existing cloud sync) picks it up as the Bearer credential.
 // Also caches the public user info so offline startups can skip re-verify.
-function persistAuthToken(token, apiUrl, user = null) {
+function persistAuthToken(token, apiUrl, user = null, remember = true) {
   const config = loadConfig();
   if (!config.cloud) config.cloud = { enabled: true };
   config.cloud.enabled = true;
   config.cloud.apiKey = token;
+  // "Zapamatovat přihlášení": remembered sessions survive app restarts; others are
+  // cleared on quit. The username is always prefilled on the login screen.
+  config.cloud.rememberLogin = remember !== false;
+  if (user && user.username) config.cloud.lastUsername = user.username;
   if (apiUrl) config.cloud.apiUrl = apiUrl.replace(/\/$/, '');
   // Cache public user info (id/username/role only — never hashes) so we can
   // let the user into the app offline without re-verifying via /auth/me.
@@ -654,6 +660,14 @@ app.whenReady().then(() => {
   });
 });
 
+// Not remembered → log out when the app closes.
+app.on('before-quit', () => {
+  try {
+    const cfg = loadConfig();
+    if (cfg.cloud && cfg.cloud.rememberLogin === false && cfg.cloud.apiKey) clearAuthToken();
+  } catch (e) { console.error('before-quit logout failed:', e.message); }
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -929,6 +943,8 @@ ipcMain.handle('auth:getState', async () => {
 
   const state = {
     apiUrl,
+    lastUsername: (config.cloud && config.cloud.lastUsername) || (cachedUser && cachedUser.username) || '',
+    rememberLogin: !(config.cloud && config.cloud.rememberLogin === false),
     hasToken: !!token,
     me: null,
     offline: false,
@@ -939,6 +955,8 @@ ipcMain.handle('auth:getState', async () => {
   try {
     const data = await authFetchWithToken('/auth/me');
     state.me = data.user;
+    // Server renews older tokens (sliding session) — keep the fresh one.
+    if (data.token) { config.cloud.apiKey = data.token; saveConfig(config); }
     // Refresh the cached user so next offline startup has up-to-date role/username.
     if (data.user) {
       config.cloud.cachedUser = {
@@ -986,10 +1004,10 @@ ipcMain.handle('auth:register', async (event, { username, password, inviteCode, 
   }
 });
 
-ipcMain.handle('auth:login', async (event, { username, password, apiUrl }) => {
+ipcMain.handle('auth:login', async (event, { username, password, apiUrl, remember }) => {
   try {
     const data = await authFetch('/auth/login', { username, password }, apiUrl);
-    persistAuthToken(data.token, apiUrl, data.user);
+    persistAuthToken(data.token, apiUrl, data.user, remember);
     return {
       success: true,
       user: data.user

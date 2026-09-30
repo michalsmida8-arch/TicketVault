@@ -59,8 +59,12 @@ function toParsed(x, mail) {
   // Hard rule: mail from a marketplace where we sell (Stubhub, Viagogo, SyncSeats)
   // is always a sale, whatever the model said. Cancellations/refunds stay as they are.
   const fromMarketplace = parsers.isSalePlatform(platform) || parsers.isSalePlatform(parsers.detectPlatform(mail.from, ''));
-  if (fromMarketplace && ['purchase', 'delivery', 'sale', 'other'].includes(x.kind) && x.relevant !== false) {
+  if (fromMarketplace && ['purchase', 'delivery', 'sale', 'other', 'transfer'].includes(x.kind) && x.relevant !== false) {
     x = { ...x, kind: 'sale' };
+  }
+  // A marketplace cancellation of OUR sale: handled as a sale stage so it can be reverted.
+  if (fromMarketplace && x.kind === 'cancellation' && x.relevant !== false) {
+    x = { ...x, kind: 'sale', _cancel: true };
   }
   const purchaseKinds = ['purchase', 'delivery'];
   const kind = x.kind === 'sale' ? 'sale' : (purchaseKinds.includes(x.kind) ? 'purchase' : x.kind);
@@ -68,7 +72,7 @@ function toParsed(x, mail) {
     success: true,
     kind,
     eventKind: x.kind,
-    saleStage: kind === 'sale' ? parsers.saleStage(mail.subject) : null,
+    saleStage: kind === 'sale' ? (x._cancel ? 'cancelled' : parsers.saleStage(mail.subject)) : null,
     listingId: x.listingId || null,
     platform: fromMarketplace ? (parsers.canonicalPlatform(platform) || parsers.detectPlatform(mail.from, '')) : platform,
     event: x.event || null,
@@ -139,7 +143,7 @@ async function ingestParsedMail(mail, ctx) {
       extraction = { relevant: true, kind: 'other', confidence: 0, notes: 'Extrakce selhala: ' + e.message };
     }
   }
-  if (extraction.relevant === false) { log({ result: 'irrelevant', platform: pre.platform }); return { result: 'irrelevant' }; }
+  if (extraction.relevant === false) { log({ result: 'irrelevant', platform: pre.platform, usage }); return { result: 'irrelevant' }; }
 
   const parsed = toParsed(extraction, mail);
 
@@ -197,8 +201,11 @@ async function ingestParsedMail(mail, ctx) {
 const STAGE_TITLE = { sold: '💰 Prodáno', delivered: '📦 Doručeno kupci', paid: '💶 Výplata' };
 const ACTION_TEXT = {
   sold: 'označeno jako prodané', delivered: 'označeno jako doručené', paid: 'výplata označena jako přijatá',
-  'sold+delivered': 'označeno jako prodané a doručené', 'sold+paid': 'označeno jako prodané a vyplacené'
+  'sold+delivered': 'označeno jako prodané a doručené', 'sold+paid': 'označeno jako prodané a vyplacené',
+  'already-delivered': 'už bylo doručené, doplněno číslo objednávky',
+  cancelled: 'prodej zrušen, vstupenka vrácena do prodeje', 'cancelled-merged': 'prodej zrušen, kusy vráceny do původního řádku'
 };
+STAGE_TITLE.cancelled = '↩️ Prodej zrušen';
 
 async function ingestSale(mail, parsed, ctx, usage, log) {
   const item = {
@@ -208,7 +215,8 @@ async function ingestSale(mail, parsed, ctx, usage, log) {
     createdAt: new Date().toISOString(),
     from: mail.from, to: mail.to, subject: mail.subject, messageId: mail.messageId || null,
     parsed,
-    source: { mailbox: ctx.mailboxName, uid: ctx.uid || null, rawPath: ctx.rawPath || null, model: usage ? cfg.CLAUDE_MODEL : null, usage }
+    source: { mailbox: ctx.mailboxName, uid: ctx.uid || null, rawPath: ctx.rawPath || null, model: usage ? cfg.CLAUDE_MODEL : null, usage },
+    _serverAt: new Date().toISOString()
   };
   const outcome = await store.updateBucket(ctx.dataKey, db => {
     // Same order + same stage already recorded -> duplicate mail.

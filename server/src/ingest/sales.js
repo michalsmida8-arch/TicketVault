@@ -136,9 +136,25 @@ function applySale(db, p, mailDate) {
     return { applied: true, action: 'sold', by: r.by, ...s };
   }
 
+  if (stage === 'cancelled') return cancelSale(db, p, byOrder);
+
   // delivered / paid: the ticket should already be sold with this order number.
   let target = byOrder.length === 1 ? byOrder[0] : null;
   let soldNow = null;
+  let attachedOrder = false;
+  if (!target && byOrder.length === 0) {
+    // Sold by hand (no order number stored): find it among sold/delivered tickets.
+    const done = findDoneTicket(db, p, stage);
+    if (done) {
+      target = done;
+      if (p.orderId && !(done.externalIds || {})[orderKey(p.platform)]) {
+        const i = db.tickets.findIndex(t => t.id === done.id);
+        db.tickets[i] = { ...done, externalIds: { ...(done.externalIds || {}), [orderKey(p.platform)]: p.orderId } };
+        target = db.tickets[i];
+        attachedOrder = true;
+      }
+    }
+  }
   if (!target && byOrder.length === 0) {
     // The "sold" mail was missed or not applied: sell it now, then continue.
     const r = findOpenTicket(db, p);
@@ -151,7 +167,12 @@ function applySale(db, p, mailDate) {
   const now = new Date().toISOString();
 
   if (stage === 'delivered') {
-    if (target.status === 'delivered') return { applied: false, reason: 'already-delivered', duplicate: true, ticketId: target.id };
+    if (target.status === 'delivered') {
+      // Already delivered by hand. Nothing to change except the order number we just stored.
+      return attachedOrder
+        ? { applied: true, action: 'already-delivered', ticketId: target.id }
+        : { applied: false, reason: 'already-delivered', duplicate: true, ticketId: target.id };
+    }
     db.tickets[idx] = { ...target, status: 'delivered', deliveredAt: mailDate ? new Date(mailDate).toISOString() : now, updated: now, _serverAt: now };
     return { applied: true, action: soldNow ? 'sold+delivered' : 'delivered', ticketId: target.id };
   }
@@ -169,4 +190,48 @@ function applySale(db, p, mailDate) {
   return { applied: false, reason: 'unknown-stage' };
 }
 
-module.exports = { applySale, findOpenTicket, words };
+// Sold/delivered tickets for the same event that a "delivered"/"paid" mail can refer to
+// when the order number was never stored (sold by hand in the app).
+function findDoneTicket(db, p, stage) {
+  if (!p.eventDate || !p.event) return null;
+  const w = words(p.event);
+  const key = orderKey(p.platform);
+  let c = db.tickets.filter(t => (t.status === 'sold' || t.status === 'delivered')
+    && t.eventDate === p.eventDate && [...words(t.eventName)].some(x => w.has(x))
+    && !(t.externalIds || {})[key]);                       // not already tied to another order
+  if (p.quantity) { const q = c.filter(t => Number(t.quantity) === Number(p.quantity)); if (q.length) c = q; }
+  if (stage === 'delivered') { const s = c.filter(t => t.status === 'sold'); if (s.length) c = s; }
+  if (stage === 'paid') { const s = c.filter(t => !t.paidOut); c = s; }
+  if (!c.length) return null;
+  if (c.length === 1) return c[0];
+  // Several identical rows (same qty and sale price): any of them is equivalent.
+  const same = c.every(t => Number(t.quantity) === Number(c[0].quantity) && Number(t.salePrice) === Number(c[0].salePrice));
+  return same ? [...c].sort((a, b) => a.id.localeCompare(b.id))[0] : null;
+}
+
+// Buyer or marketplace cancelled OUR sale: put the tickets back on sale. If the sale
+// split a row automatically, merge the sold part back into the remaining row.
+function cancelSale(db, p, byOrder) {
+  const t = byOrder.find(x => x.status === 'sold' || x.status === 'delivered');
+  if (!t) return { applied: false, reason: byOrder.length ? 'order-not-sold' : 'no-ticket-for-order' };
+  const now = new Date().toISOString();
+  const note = `Prodej ${p.orderId || ''} zrušen (z e-mailu ${new Date().toISOString().slice(0, 10)})`;
+  const split = (db.inbox || []).find(i => i.autoApplied && i.autoApplied.ticketId === t.id && i.autoApplied.remainingId);
+  const rest = split && db.tickets.find(x => x.id === split.autoApplied.remainingId && OPEN.has(x.status));
+  if (rest) {
+    const ri = db.tickets.findIndex(x => x.id === rest.id);
+    db.tickets[ri] = { ...rest, quantity: (Number(rest.quantity) || 0) + (Number(t.quantity) || 0),
+      notes: [rest.notes, note + `, vráceno ${t.quantity} ks`].filter(Boolean).join(' | '), updated: now, _serverAt: now };
+    db.tickets = db.tickets.filter(x => x.id !== t.id);
+    return { applied: true, action: 'cancelled-merged', ticketId: rest.id, removedId: t.id };
+  }
+  const ext = { ...(t.externalIds || {}) };
+  delete ext[orderKey(p.platform)];
+  const i = db.tickets.findIndex(x => x.id === t.id);
+  db.tickets[i] = { ...t, status: 'listed', salePrice: 0, saleDate: null, saleCurrency: undefined,
+    buyerName: undefined, buyerEmail: undefined, deliveredAt: undefined, externalIds: ext,
+    notes: [t.notes, note].filter(Boolean).join(' | '), updated: now, _serverAt: now };
+  return { applied: true, action: 'cancelled', ticketId: t.id };
+}
+
+module.exports = { applySale, findOpenTicket, findDoneTicket, cancelSale, words };
