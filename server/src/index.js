@@ -35,7 +35,7 @@ function sendIndex(req, res) {
 }
 if (fsx.existsSync(APP_DIR)) {
   app.get(['/app', '/app/', '/app/index.html'], sendIndex);
-  app.use('/app', express.static(APP_DIR, { index: false, maxAge: '1h' }));
+  app.use('/app', express.static(APP_DIR, { index: false, maxAge: 0 }));
   app.get('/', (req, res) => res.redirect('/app/'));
 }
 

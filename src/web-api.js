@@ -78,6 +78,34 @@
       try { await pushAll(); return true; } catch (e) { return { success: true, _cloudError: e.message }; }
     };
   }
+// Merge a backup into the current DB without losing anything: every id-based
+// collection gets the records it doesn't have yet; lists are unioned. Returns counts.
+function mergeBackupInto(currentDb, data) {
+  const added = {};
+  const byId = ['tickets', 'accounts', 'events', 'memberships', 'mailboxes', 'simcards', 'expenses', 'watchedMatches'];
+  for (const key of byId) {
+    if (!Array.isArray(data[key])) continue;
+    if (!Array.isArray(currentDb[key])) currentDb[key] = [];
+    const have = new Set(currentDb[key].map(x => x && (x.id || JSON.stringify(x))));
+    const fresh = data[key].filter(x => x && !have.has(x.id || JSON.stringify(x)));
+    currentDb[key] = [...currentDb[key], ...fresh];
+    added[key] = fresh.length;
+  }
+  if (Array.isArray(data.simOperators)) {
+    const cur = Array.isArray(currentDb.simOperators) ? currentDb.simOperators : [];
+    const lower = new Set(cur.map(o => String(o).toLowerCase()));
+    currentDb.simOperators = [...cur, ...data.simOperators.filter(o => !lower.has(String(o).toLowerCase()))];
+  }
+  if (Array.isArray(data.payoutRules)) {
+    const cur = Array.isArray(currentDb.payoutRules) ? currentDb.payoutRules : [];
+    const plats = new Set(cur.map(r => String(r.platform || '').toLowerCase().trim()));
+    const fresh = data.payoutRules.filter(r => r && r.platform && !plats.has(String(r.platform).toLowerCase().trim()));
+    currentDb.payoutRules = [...cur, ...fresh];
+    added.payoutRules = fresh.length;
+  }
+  return added;
+}
+
   function download(name, text, type) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type }));
@@ -236,11 +264,19 @@
       try {
         const data = JSON.parse(await file.text());
         if (!Array.isArray(data.tickets)) throw new Error('Soubor neobsahuje vstupenky.');
-        const overwrite = window.confirm('Přepsat data na serveru obsahem zálohy?\n\nOK = přepsat, Zrušit = sloučit (přidat jen nové vstupenky).');
+        // Web import only merges: the server may hold newer changes (sales applied from e-mails).
+        if (!window.confirm('Sloučit zálohu se serverem?\n\nPřidají se vstupenky, membershipy, schránky, SIM karty, výdaje a další záznamy, které na serveru chybí. Nic se nepřepíše ani nesmaže.')) return { success: false, canceled: true };
+        const overwrite = false;
         await ensure();
+        let added = null;
         if (overwrite) db = data;
-        else { const have = new Set(db.tickets.map(t => t.id)); data.tickets.forEach(t => { if (!have.has(t.id)) db.tickets.push(t); }); }
+        else added = mergeBackupInto(db, data);
         await pushAll();
+        if (added) {
+          const names = { tickets: 'vstupenek', memberships: 'membershipů', mailboxes: 'schránek', simcards: 'SIM karet', expenses: 'výdajů', watchedMatches: 'sledovaných akcí', payoutRules: 'pravidel výplat', accounts: 'účtů', events: 'akcí' };
+          const parts = Object.entries(added).filter(([, n]) => n > 0).map(([k, n]) => n + ' ' + (names[k] || k));
+          window.alert('Sloučeno. Přidáno: ' + (parts.join(', ') || 'nic nového, vše už na serveru bylo') + '.');
+        }
         return ok({ imported: data.tickets.length, mode: overwrite ? 'overwrite' : 'merge', cloudActive: true, cloudPushed: true });
       } catch (e) { return fail(e); }
     },

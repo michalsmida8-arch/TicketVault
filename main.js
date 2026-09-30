@@ -1993,6 +1993,34 @@ ipcMain.handle('db:exportJson', async (event) => {
 });
 
 // Import database
+// Merge a backup into the current DB without losing anything: every id-based
+// collection gets the records it doesn't have yet; lists are unioned. Returns counts.
+function mergeBackupInto(currentDb, data) {
+  const added = {};
+  const byId = ['tickets', 'accounts', 'events', 'memberships', 'mailboxes', 'simcards', 'expenses', 'watchedMatches'];
+  for (const key of byId) {
+    if (!Array.isArray(data[key])) continue;
+    if (!Array.isArray(currentDb[key])) currentDb[key] = [];
+    const have = new Set(currentDb[key].map(x => x && (x.id || JSON.stringify(x))));
+    const fresh = data[key].filter(x => x && !have.has(x.id || JSON.stringify(x)));
+    currentDb[key] = [...currentDb[key], ...fresh];
+    added[key] = fresh.length;
+  }
+  if (Array.isArray(data.simOperators)) {
+    const cur = Array.isArray(currentDb.simOperators) ? currentDb.simOperators : [];
+    const lower = new Set(cur.map(o => String(o).toLowerCase()));
+    currentDb.simOperators = [...cur, ...data.simOperators.filter(o => !lower.has(String(o).toLowerCase()))];
+  }
+  if (Array.isArray(data.payoutRules)) {
+    const cur = Array.isArray(currentDb.payoutRules) ? currentDb.payoutRules : [];
+    const plats = new Set(cur.map(r => String(r.platform || '').toLowerCase().trim()));
+    const fresh = data.payoutRules.filter(r => r && r.platform && !plats.has(String(r.platform).toLowerCase().trim()));
+    currentDb.payoutRules = [...cur, ...fresh];
+    added.payoutRules = fresh.length;
+  }
+  return added;
+}
+
 ipcMain.handle('db:importJson', async (event) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Importovat databázi',
@@ -2043,17 +2071,8 @@ ipcMain.handle('db:importJson', async (event) => {
         currentDb = loadDb();
       }
       
-      const existingIds = new Set(currentDb.tickets.map(t => t.id));
-      const newTickets = data.tickets.filter(t => !existingIds.has(t.id));
-      currentDb.tickets = [...currentDb.tickets, ...newTickets];
-      
-      // Merge accounts
-      if (data.accounts) {
-        if (!currentDb.accounts) currentDb.accounts = [];
-        const existingAccIds = new Set(currentDb.accounts.map(a => a.id));
-        const newAccounts = data.accounts.filter(a => !existingAccIds.has(a.id));
-        currentDb.accounts = [...currentDb.accounts, ...newAccounts];
-      }
+      if (!Array.isArray(currentDb.tickets)) currentDb.tickets = [];
+      mergeBackupInto(currentDb, data);
       finalDb = currentDb;
       saveDb(finalDb);
     }
