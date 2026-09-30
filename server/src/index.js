@@ -30,12 +30,21 @@ function sendIndex(req, res) {
   try {
     let html = fsx.readFileSync(path.join(APP_DIR, 'index.html'), 'utf8');
     html = html.replace('<script src="icons.js"></script>', '<script src="web-api.js"></script>\n  <script src="icons.js"></script>');
+    // All relative asset URLs (styles.css, app.js, assets/…) resolve under /app/
+    // even when the page is opened as /app without the trailing slash.
+    html = html.replace(/<head>/i, '<head>\n  <base href="/app/">');
     res.set('Cache-Control', 'no-cache').type('html').send(html);
   } catch (e) { res.status(500).send('TicketVault web není k dispozici: ' + e.message); }
 }
 if (fsx.existsSync(APP_DIR)) {
-  app.get(['/app', '/app/', '/app/index.html'], sendIndex);
+  // Express treats /app and /app/ as the same route, so check the raw URL.
+  app.get(['/app', '/app/', '/app/index.html'], (req, res) => {
+    if (req.originalUrl === '/app' || req.originalUrl.startsWith('/app?')) return res.redirect(301, '/app/' + req.originalUrl.slice(4));
+    sendIndex(req, res);
+  });
   app.use('/app', express.static(APP_DIR, { index: false, maxAge: 0 }));
+  // index.html references the app icons as ../assets/… (relative to src/)
+  app.use('/assets', express.static(path.join(APP_DIR, '..', 'assets'), { maxAge: '1d' }));
   app.get('/', (req, res) => res.redirect('/app/'));
 }
 
