@@ -8,6 +8,7 @@ const cfg = require('../config');
 const store = require('../store');
 const { ingestRaw } = require('./pipeline');
 const { prefilter } = require('./parsers');
+const { triage } = require('./llm');
 
 const workers = new Map();   // name -> worker state
 
@@ -19,6 +20,14 @@ function resolveOwner(mb) {
     console.error(`[imap:${mb.name}] owner "${mb.owner}" not found among users; falling back to first admin`);
   }
   return users.find(u => u.role === 'admin') || users[0] || null;
+}
+
+// Does the MIME tree contain a PDF part (attachment or inline)?
+function structureHasPdf(node) {
+  if (!node) return false;
+  const name = (node.dispositionParameters && node.dispositionParameters.filename) || (node.parameters && node.parameters.name) || '';
+  if (/pdf/i.test(node.type || '') || /\.pdf$/i.test(name)) return true;
+  return (node.childNodes || []).some(structureHasPdf);
 }
 
 async function resolveFolder(client, wanted) {
@@ -145,16 +154,25 @@ class MailboxWorker {
         if (this.stopped) break;
         let source = null;
         let fromAddr = '', subject = '';
-        for await (const msg of client.fetch({ uid: String(uid) }, { uid: true, envelope: true }, { uid: true })) {
+        let hasPdf = false;
+        for await (const msg of client.fetch({ uid: String(uid) }, { uid: true, envelope: true, bodyStructure: true }, { uid: true })) {
           fromAddr = (msg.envelope?.from || []).map(x => x.address || '').join(',').toLowerCase();
           subject = msg.envelope?.subject || '';
+          hasPdf = structureHasPdf(msg.bodyStructure);
         }
         // Our own sent mail shows up in Gmail "All Mail"; never ingest it.
         if (fromAddr && fromAddr.includes(this.mb.email.toLowerCase())) { this.advance(uid); continue; }
         // Cheap prefilter on the envelope before downloading the full message.
         if (cfg.INGEST_PREFILTER) {
           const pre = prefilter({ from: fromAddr, subject });
-          if (!pre.pass) {
+          // A PDF attachment (tickets, receipts, invoices) always goes through, whatever the language.
+          let triaged = null;
+          if (!pre.pass && !hasPdf && pre.reason === 'no-keyword' && cfg.TRIAGE_ENABLED && cfg.LLM_ENABLED) {
+            triaged = await triage(fromAddr, subject);
+            if (triaged.relevant) pre.pass = true;
+          }
+          if (triaged) store.appendIngestLog({ mailbox: this.mb.name, uid, from: fromAddr, subject, result: 'triage', answer: triaged.answer, error: triaged.error, usage: triaged.usage });
+          if (!pre.pass && !(hasPdf && pre.reason !== 'junk-subject')) {
             store.appendIngestLog({ mailbox: this.mb.name, uid, from: fromAddr, subject, result: 'skipped', reason: pre.reason });
             this.advance(uid);
             continue;
@@ -166,7 +184,8 @@ class MailboxWorker {
         if (!source) { this.log(`uid ${uid}: no source returned, skipping`); this.advance(uid); continue; }
         const rawPath = store.saveRawMail(this.mb.name, uid, source);
         try {
-          const r = await ingestRaw(source, { mailboxName: this.mb.name, owner, dataKey: owner.dataKey, uid, rawPath });
+          // The envelope-level screening above already decided: don't filter again.
+          const r = await ingestRaw(source, { mailboxName: this.mb.name, owner, dataKey: owner.dataKey, uid, rawPath, prefilterPassed: true });
           this.status.processed++;
           if (r.result === 'created') this.log(`uid ${uid}: inbox item ${r.item.id} (${r.item.parsed.kind}, ${r.item.parsed.platform || '?'})`);
         } catch (e) {

@@ -58,7 +58,19 @@ function detectPlatform(from, subject) {
 
 // Subject/sender keywords in the languages the reseller deals with. A mail must
 // hit one of these (or come from a known platform) to be processed at all.
-const KEYWORDS = /order|ticket|booking|confirm|receipt|invoice|purchase|payment|sold|sale|payout|listing|transfer|deliver|cancel|refund|vstupenk|objedn|potvrz|faktur|prodej|nákup|platb|zaplacen|bestell|rechnung|karten|entrada|pedido|compra|biglietti|ordine|billet|commande|reserv|thank you for your|danke für|gracias por/i;
+// Transactional words in the languages clubs and federations write in
+// (en, cs/sk, de, es/pt, it, fr, da/no/sv, pl, hu, nl, fi).
+const KEYWORDS = new RegExp([
+  'order', 'ticket', 'booking', 'confirm', 'receipt', 'invoice', 'purchase', 'payment', 'sold', 'sale', 'payout', 'listing',
+  'transfer', 'deliver', 'cancel', 'refund', 'thank you for your',
+  'vstupenk', 'objedn', 'potvrz', 'faktur', 'prodej', 'nákup', 'platb', 'zaplacen', 'lístk', 'vstupn',
+  'bestell', 'rechnung', 'karten', 'danke für', 'quittung', 'buchung',
+  'entrada', 'pedido', 'compra', 'gracias por', 'bilhete', 'ingresso', 'recibo', 'fatura', 'factura',
+  'biglietti', 'biglietto', 'ordine', 'ricevuta', 'fattura',
+  'billet', 'commande', 'reçu', 'reserv',
+  'kvittering', 'kvitto', 'ordre', 'bestilling', 'biljett', 'faktura', 'köp', 'kjøp',
+  'bilet', 'zamówien', 'potwierdzen', 'jegy', 'rendelés', 'nyugta', 'kaartje', 'bestelling', 'lipu', 'kuitti', 'tilaus'
+].join('|'), 'i');
 // Obvious junk even if a keyword appears.
 // Account creation / security mails (all languages the account generators hit),
 // marketing and our own digests. These never contain an order.
@@ -84,7 +96,8 @@ function prefilter(mail) {
   // subject must also look transactional.
   if (KEYWORDS.test(subject)) return { pass: true, reason: platform ? 'platform+keyword' : 'keyword', platform };
   const hasPdf = (mail.attachments || []).some(a => /pdf/i.test(a.contentType || '') || /\.pdf$/i.test(a.filename || ''));
-  if (hasPdf && KEYWORDS.test(`${(mail.text || '').slice(0, 2000)}`)) return { pass: true, reason: 'pdf+keyword', platform };
+  // Tickets, receipts and invoices come as PDFs in any language: let them through.
+  if (hasPdf) return { pass: true, reason: 'pdf-attachment', platform };
   return { pass: false, reason: 'no-keyword', platform };
 }
 

@@ -128,4 +128,25 @@ function htmlToText(html) {
     .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 }
 
-module.exports = { extractFromMail, htmlToText, ExtractionSchema };
+// ---- Triage: is this e-mail worth a full extraction? --------------------------------
+// Used for mails the keyword prefilter could not classify (any language). Looks only at
+// sender + subject, answers with one word. Cheap model; on any error we let the mail
+// through (better one extra extraction than a missed purchase).
+const TRIAGE_SYSTEM = `You screen e-mails for a ticket reseller. Answer YES if the e-mail could be about a concrete ticket order or purchase, a receipt or invoice for tickets or a membership, e-tickets / mobile tickets / ticket delivery or transfer, a ticket sale, payout or cancellation, or a ballot / lottery result for tickets. Answer NO for newsletters, marketing ("tickets on sale now", "buy tickets"), match-day info without tickets, news, surveys, account/security notices and anything else. The subject can be in any language. Reply with exactly YES or NO.`;
+
+async function triage(from, subject) {
+  try {
+    const r = await getClient().messages.create({
+      model: cfg.TRIAGE_MODEL,
+      max_tokens: 5,
+      system: [{ type: 'text', text: TRIAGE_SYSTEM, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: `From: ${String(from || '').slice(0, 200)}\nSubject: ${String(subject || '').slice(0, 300)}` }]
+    });
+    const text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim().toUpperCase();
+    return { relevant: !text.startsWith('NO'), answer: text, usage: r.usage };
+  } catch (e) {
+    return { relevant: true, answer: 'ERROR', error: e.message };
+  }
+}
+
+module.exports = { extractFromMail, htmlToText, ExtractionSchema, triage };

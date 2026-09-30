@@ -51,7 +51,9 @@ function orderKey(platform) {
 function buildTicket(p, mail, receivedAt) {
   const now = new Date().toISOString();
   const qty = Number(p.quantity) || 1;
-  const perKs = p.pricePerTicket || (p.totalAmount ? p.totalAmount / qty : 0);
+  // Cost per ticket = what was actually paid (total incl. fees) / quantity;
+  // the listed ticket price only when no total is known.
+  const perKs = p.totalAmount ? p.totalAmount / qty : (p.pricePerTicket || 0);
   const t = {
     id: newTicketId(),
     eventName: p.event,

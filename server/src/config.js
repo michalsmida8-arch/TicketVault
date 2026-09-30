@@ -86,6 +86,9 @@ module.exports = {
   INVITE_CODE: process.env.INVITE_CODE || '',
   CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-opus-5',
   LLM_ENABLED: process.env.LLM_ENABLED !== 'false',
+  // Mails the keyword prefilter can't classify are screened by a cheap model (sender + subject).
+  TRIAGE_ENABLED: process.env.TRIAGE_ENABLED !== 'false',
+  TRIAGE_MODEL: process.env.TRIAGE_MODEL || 'claude-haiku-4-5',
   INGEST_ENABLED: process.env.INGEST_ENABLED !== 'false',
   INGEST_POLL_MINUTES: Number(process.env.INGEST_POLL_MINUTES || 5),
   INGEST_BACKFILL_DAYS: Number(process.env.INGEST_BACKFILL_DAYS || 30),

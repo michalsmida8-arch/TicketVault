@@ -397,3 +397,13 @@ test('a ticket deleted on the server is not resurrected by a stale app copy', as
   r = await api('GET', '/db');
   assert.ok(!r.data.tickets.some(t => t.id === 't_zombie'), 'not back after POST');
 });
+
+test('prefilter: Danish receipt and any PDF attachment go through', () => {
+  const { prefilter } = require('../src/ingest/parsers');
+  assert.equal(prefilter({ from: 'noreply@fordanmark.dbu.dk', subject: 'Din kvittering - DBU' }).pass, true);
+  assert.equal(prefilter({ from: 'x@club.pt', subject: 'Os seus bilhetes' }).pass, true);
+  assert.equal(prefilter({ from: 'x@x.pl', subject: 'Potwierdzenie zamówienia' }).pass, true);
+  assert.equal(prefilter({ from: 'noreply@info-dbu.dk', subject: 'Info til din kampdag: Danmark - Portugal',
+    attachments: [{ filename: 'tickets.pdf', contentType: 'application/pdf' }] }).pass, true);
+  assert.equal(prefilter({ from: 'noreply@info-dbu.dk', subject: 'Storskærm i Fælledparken' }).pass, false);
+});

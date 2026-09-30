@@ -131,7 +131,12 @@ async function ingestParsedMail(mail, ctx) {
 
   // 2) Prefilter
   const pre = parsers.prefilter(mail);
-  if (cfg.INGEST_PREFILTER && !pre.pass) { log({ result: 'skipped', reason: pre.reason }); return { result: 'skipped', reason: pre.reason }; }
+  if (cfg.INGEST_PREFILTER && !pre.pass && !ctx.prefilterPassed) {
+    // Unknown language / wording: let the cheap triage model decide before giving up.
+    let t = null;
+    if (pre.reason === 'no-keyword' && cfg.TRIAGE_ENABLED && cfg.LLM_ENABLED) t = await llm.triage(mail.from, mail.subject);
+    if (!t || !t.relevant) { log({ result: 'skipped', reason: pre.reason, triage: t && t.answer }); return { result: 'skipped', reason: pre.reason }; }
+  }
 
   // 3) Deterministic parsers, then Claude
   let extraction = await parsers.runDeterministicParsers(mail);
