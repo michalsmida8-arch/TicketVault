@@ -1,0 +1,26 @@
+{
+  "name": "ticketvault-server",
+  "version": "1.0.0",
+  "description": "Self-hosted TicketVault backend: auth, DB sync, IMAP e-mail ingest with Claude extraction, digests",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/server.test.js",
+    "ingest:once": "node src/cli.js ingest-once",
+    "ingest:file": "node src/cli.js ingest-file"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "imapflow": "^1.0.171",
+    "jsonwebtoken": "^9.0.2",
+    "mailparser": "^3.7.1",
+    "nodemailer": "^6.9.16",
+    "pdf-parse": "^1.1.1",
+    "zod": "^4.6.5"
+  }
+}

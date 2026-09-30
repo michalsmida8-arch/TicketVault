@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('api', {
   authUpdateNotificationSettings: (args) => ipcRenderer.invoke('auth:updateNotificationSettings', args),
   authTestDigest: () => ipcRenderer.invoke('auth:testDigest'),
   authRegenerateMailToken: () => ipcRenderer.invoke('auth:regenerateMailToken'),
+  // Mailboxes the self-hosted server reads (status for Settings → Příchozí emaily)
+  ingestStatus: () => ipcRenderer.invoke('ingest:status'),
   authGetAllowedSenders: () => ipcRenderer.invoke('auth:getAllowedSenders'),
   authAddAllowedSender: (args) => ipcRenderer.invoke('auth:addAllowedSender', args),
   authRemoveAllowedSender: (args) => ipcRenderer.invoke('auth:removeAllowedSender', args),

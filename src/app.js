@@ -762,7 +762,7 @@ async function proceedAfterLogin() {
 
 // Pre-fill backend URL fields from saved config so user doesn't re-type it.
 // Falls back to the known Michal-hosted backend so new installs Just Work.
-const DEFAULT_API_URL = 'https://super-faun-e1d664.netlify.app/api';
+const DEFAULT_API_URL = 'http://100.87.47.36:8787/api';
 
 function prefillAuthApiUrls(savedUrl) {
   const url = savedUrl || DEFAULT_API_URL;
@@ -1244,6 +1244,34 @@ function buildPersonalForwardAddress(mailToken) {
   return CLOUDMAILIN_BASE.slice(0, at) + '+' + mailToken + CLOUDMAILIN_BASE.slice(at);
 }
 
+// Status of the mailboxes the server reads (replaces the old CloudMailin forward address).
+async function loadIngestStatusUI() {
+  const box = $('#ingestStatusBox');
+  if (!box) return;
+  box.textContent = 'Načítání…';
+  let res;
+  try { res = await window.api.ingestStatus(); } catch (e) { res = { success: false, error: e.message }; }
+  if (!res || !res.success) {
+    box.innerHTML = `<span class="mail-forward-warn">⚠ Stav schránek se nepodařilo načíst</span> — ${escapeHtml(res?.error || 'server neodpovídá')}`;
+    return;
+  }
+  const list = res.mailboxes || [];
+  if (!list.length) {
+    box.innerHTML = '<span class="mail-forward-warn">⚠ Na serveru nejsou nastavené žádné schránky.</span>';
+    return;
+  }
+  const rows = list.map(m => {
+    const ok = m.connected && !m.lastError;
+    const when = m.lastCheck ? new Date(m.lastCheck).toLocaleString('cs-CZ') : '—';
+    const st = ok ? '<span class="mail-forward-ok">● připojeno</span>'
+      : `<span class="mail-forward-warn">● ${m.connected ? 'chyba' : 'odpojeno'}</span>`;
+    const err = m.lastError ? `<div style="font-size:11px;opacity:.8">${escapeHtml(m.lastError)}</div>` : '';
+    return `<tr><td style="padding:4px 12px 4px 0">${escapeHtml(m.email || m.name)}</td><td style="padding:4px 12px 4px 0">${st}${err}</td><td style="padding:4px 0;opacity:.8">kontrola ${when}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<table style="border-collapse:collapse;font-size:13px">${rows}</table>`;
+}
+
+// Legacy (CloudMailin) — kept so old call sites are harmless; the card no longer exists.
 async function loadMailForwardUI() {
   const el = $('#mailForwardAddress');
   if (!el) return;
@@ -1706,6 +1734,12 @@ async function refreshDb() {
     updateCloudBadge(true);
   } else {
     updateCloudBadge(false);
+  }
+  // Server is empty but the local copy is not (first login to a new server):
+  // the local data was kept. Tell the user how to move it to the server.
+  if (state.db._remoteEmpty && !state._remoteEmptyWarned) {
+    state._remoteEmptyWarned = true;
+    toast('Server je zatím prázdný, zobrazuji tvoje lokální data. Nahraj je: Nastavení → Server → ⬆️ Nahrát lokální data na server.', 'info', 12000);
   }
 
   populateYearFilter();
@@ -2933,7 +2967,7 @@ function switchView(name) {
     renderUsersList();
     loadEmailSettingsUI();
     loadCurrencySettingsUI();
-    loadMailForwardUI();
+    loadIngestStatusUI();
   }
 }
 
@@ -6269,8 +6303,8 @@ function renderInboxPage() {
         <div class="empty-icon">📭</div>
         <div class="empty-title">Žádné příchozí emaily</div>
         <div class="empty-text">
-          Nastav si v Gmailu filter pro automatický forward emailů o nákupech/prodejích.<br>
-          <a href="#" id="btnInboxHelp" style="color: var(--purple);">Zobrazit návod</a>
+          Server čte tvoje schránky sám. Nové nákupy se tu objeví do minuty,<br>
+          prodeje ze StubHubu, Viagoga a SyncSeats se zapisují rovnou do inventáře.
         </div>
       </div>
     `;
@@ -11591,6 +11625,7 @@ function setupEventListeners() {
   $('#btnCopyMailAddress')?.addEventListener('click', copyMailAddress);
   // v1.3.0 — personal forward address: copy + regenerate
   $('#btnCopyForwardAddr')?.addEventListener('click', copyMailForwardAddress);
+  $('#btnIngestRefresh')?.addEventListener('click', loadIngestStatusUI);
   $('#btnRegenMailToken')?.addEventListener('click', regenerateMailToken);
   $('#btnSaveCurrencySettings')?.addEventListener('click', saveCurrencySettings);
   $('#btnRefreshRates')?.addEventListener('click', refreshRates);

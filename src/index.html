@@ -1317,30 +1317,14 @@
         <div class="settings-section">
           <div class="section-head">
             <h3>📥 Příchozí emaily</h3>
+            <button class="btn btn-dark btn-sm" id="btnIngestRefresh" type="button">🔄 Obnovit</button>
           </div>
           <p class="settings-desc">
-            Máš svoji <strong>unikátní forward adresu</strong>. V Gmailu nastav filter pro emaily od Viagogo / StubHub / atd.
-            a forwarduj je na tuto adresu — přistanou <strong>jen tobě</strong>, ne ostatním uživatelům.
+            Server sám čte tvoje e-mailové schránky a nové e-maily zpracuje do minuty.
+            <strong>Nákupy</strong> se objeví v Příchozích ke schválení. <strong>Prodeje</strong> ze StubHubu, Viagoga
+            a SyncSeats se rovnou promítnou do inventáře (prodáno, doručeno, výplata). Žádné přeposílání není potřeba.
           </p>
-
-          <div class="form-grid" style="max-width:640px;">
-            <div class="form-group form-full">
-              <label>Tvoje osobní forward adresa</label>
-              <div class="mail-address-box">
-                <code id="mailForwardAddress">—</code>
-                <button class="btn btn-dark btn-sm" id="btnCopyForwardAddr" title="Kopírovat">📋 Kopírovat</button>
-              </div>
-              <div class="form-hint" id="mailForwardHint">Načítání…</div>
-            </div>
-
-            <div class="form-group form-full">
-              <label>Vygenerovat novou adresu</label>
-              <div class="form-hint" style="margin-bottom:8px;">
-                Vygeneruje ti nový +tag. Stará adresa okamžitě přestane fungovat — budeš muset aktualizovat filter v Gmailu.
-              </div>
-              <button class="btn btn-dark" id="btnRegenMailToken">🔄 Vygenerovat novou adresu</button>
-            </div>
-          </div>
+          <div id="ingestStatusBox" class="form-hint">Načítání…</div>
         </div>
 
         <!-- App version + manual update check. Runs silently on startup but
@@ -1381,7 +1365,7 @@
             <div class="form-group form-full">
               <label>Email pro notifikace</label>
               <input type="email" id="emailNotifyAddr" placeholder="tvoje.jmeno@example.com" autocomplete="email">
-              <div class="form-hint">Na tuhle adresu budeš dostávat denní souhrn.</div>
+              <div class="form-hint">Na tuhle adresu budeš dostávat denní souhrn. Souhrn chodí i na Discord a Pushover, pokud je máš níže zapnuté.</div>
             </div>
             <div class="form-group form-full">
               <label class="auth-checkbox" style="margin-top:4px;padding:0;">
@@ -1582,23 +1566,20 @@
 
         <div class="settings-section">
           <div class="section-head">
-            <h3>☁️ Online režim (Netlify)</h3>
+            <h3>🖥️ Server (online režim)</h3>
             <label class="switch">
               <input type="checkbox" id="cloudEnabled">
               <span class="slider"></span>
             </label>
           </div>
           <p class="settings-desc">
-            Ukládej data do online databáze (Netlify Functions + Blobs). Kdokoliv s URL a API klíčem
-            uvidí stejná data odkudkoliv — ideální pro sdílení s kamarádem bez nutnosti OneDrive.
-            <br><br>
-            <strong>Postup:</strong> Nejdřív si rozjeď backend podle návodu v archivu
-            <code>ticketvault-backend</code>. Pak sem zadej URL a API klíč.
+            Data jsou uložená na tvém TicketVault serveru a vidíš je ze všech zařízení připojených přes Tailscale.
+            Adresa serveru a přihlašovací klíč se nastaví samy při přihlášení, tady je obvykle neměníš.
           </p>
           
           <div class="settings-row">
             <label>API URL:</label>
-            <input type="text" class="form-input" id="cloudApiUrl" placeholder="https://tvuj-site.netlify.app/api">
+            <input type="text" class="form-input" id="cloudApiUrl" placeholder="http://100.87.47.36:8787/api">
           </div>
           
           <div class="settings-row">
@@ -1622,8 +1603,8 @@
             <strong>Migrace dat:</strong>
           </p>
           <div class="settings-actions">
-            <button class="btn btn-dark" id="btnCloudPush">⬆️ Nahrát lokální data do cloudu</button>
-            <button class="btn btn-dark" id="btnCloudPull">⬇️ Stáhnout cloud data do lokálu</button>
+            <button class="btn btn-dark" id="btnCloudPush">⬆️ Nahrát lokální data na server</button>
+            <button class="btn btn-dark" id="btnCloudPull">⬇️ Stáhnout data ze serveru</button>
           </div>
           <div class="last-sync" id="lastSync"></div>
         </div>

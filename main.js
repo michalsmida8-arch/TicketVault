@@ -397,6 +397,15 @@ async function cloudTestConnection(apiUrl, apiKey) {
   }
 }
 
+// True when the server has no tickets but the local cache does — typically the
+// first login to a new, empty server. Overwriting the local cache then would
+// silently wipe the user's data, so callers keep the local copy instead.
+function isEmptyRemoteOverLocal(remoteDb) {
+  const remoteCount = (remoteDb && Array.isArray(remoteDb.tickets)) ? remoteDb.tickets.length : 0;
+  if (remoteCount > 0) return false;
+  try { return (loadDb().tickets || []).length > 0; } catch { return false; }
+}
+
 async function cloudPullDb() {
   const data = await cloudFetch('/db', { method: 'GET' });
   if (!data.tickets) data.tickets = [];
@@ -1118,6 +1127,16 @@ ipcMain.handle('auth:regenerateMailToken', async () => {
   }
 });
 
+// Status of the mailboxes the self-hosted server reads.
+ipcMain.handle('ingest:status', async () => {
+  try {
+    const data = await authFetchWithToken('/ingest/status');
+    return { success: true, mailboxes: data.mailboxes || [], model: data.model };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // ---- Admin user management (all backend-side permission-checked) ----
 
 ipcMain.handle('auth:listUsers', async () => {
@@ -1193,6 +1212,11 @@ ipcMain.handle('db:load', async () => {
   if (cloud) {
     try {
       const remoteDb = await cloudPullDb();
+      if (isEmptyRemoteOverLocal(remoteDb)) {
+        const local = loadDb();
+        local._remoteEmpty = true;
+        return local;
+      }
       // Cache locally for offline fallback
       saveDb(remoteDb);
       return remoteDb;
@@ -2300,6 +2324,11 @@ ipcMain.handle('db:sync', async () => {
   if (cloud) {
     try {
       const remoteDb = await cloudPullDb();
+      if (isEmptyRemoteOverLocal(remoteDb)) {
+        const local = loadDb();
+        local._remoteEmpty = true;
+        return local;
+      }
       saveDb(remoteDb); // cache locally
       // Update last sync time
       const cfg = loadConfig();
