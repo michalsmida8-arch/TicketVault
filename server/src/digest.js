@@ -83,19 +83,25 @@ async function runDeadlineAlerts(now = new Date()) {
   for (const k of Object.keys(sent)) if (sent[k] < day) delete sent[k];   // keep only today
   for (const u of store.loadUsers()) {
     const wantsPush = (u.discordEnabled && u.discordWebhook) || (u.pushoverEnabled && u.pushoverUser && u.pushoverToken);
-    if (!wantsPush) continue;
+    // No Discord/Pushover: fall back to the digest e-mail address.
+    const canEmail = !wantsPush && cfg.SMTP && u.email && u.digestEnabled;
+    if (!wantsPush && !canEmail) continue;
     const fresh = dueAlerts(u, now).filter(a => sent[u.id + '|' + a.key] !== day);
     if (!fresh.length) continue;
     const when = d => d < 0 ? 'akce byla včera' : d === 0 ? 'akce je DNES' : d === 1 ? 'akce je zítra' : 'za ' + d + ' dny';
     const deliver = fresh.filter(a => a.level === 'deliver');
     const list = fresh.filter(a => a.level === 'list');
-    if (deliver.length) {
-      await notify.pushToUser(u, '🚚 Doruč vstupenky (' + deliver.length + ')',
-        deliver.map(a => '• ' + a.t.eventName + ' · ' + (a.t.quantity || 1) + ' ks · ' + when(a.d) + (a.t.platform ? ' · ' + a.t.platform : '')).join('\n'));
-    }
-    if (list.length) {
-      await notify.pushToUser(u, '🏷️ Nezalistované vstupenky (' + list.length + ')',
-        list.map(a => '• ' + a.t.eventName + ' · ' + (a.t.quantity || 1) + ' ks · ' + when(a.d)).join('\n'));
+    const lines = [];
+    if (deliver.length) lines.push(['🚚 Doruč vstupenky (' + deliver.length + ')',
+      deliver.map(a => '• ' + a.t.eventName + ' · ' + (a.t.quantity || 1) + ' ks · ' + when(a.d) + (a.t.platform ? ' · ' + a.t.platform : '')).join('\n')]);
+    if (list.length) lines.push(['🏷️ Nezalistované vstupenky (' + list.length + ')',
+      list.map(a => '• ' + a.t.eventName + ' · ' + (a.t.quantity || 1) + ' ks · ' + when(a.d)).join('\n')]);
+    if (wantsPush) {
+      for (const [title, text] of lines) await notify.pushToUser(u, title, text);
+    } else {
+      const subject = 'TicketVault – ' + lines.map(l => l[0].replace(/^\S+\s/, '')).join(', ');
+      const r = await notify.email(u.email, subject, lines.map(l => l[0] + '\n' + l[1]).join('\n\n'));
+      if (!r.sent) { console.error('[alerts] e-mail failed:', r.error); continue; }
     }
     for (const a of fresh) sent[u.id + '|' + a.key] = day;
     console.log('[alerts] ' + u.username + ': deliver ' + deliver.length + ', list ' + list.length);
