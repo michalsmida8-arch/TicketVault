@@ -147,3 +147,13 @@ h3 .ico-slot { color: var(--purple); margin-right: 8px; }
 .toast.error .toast-ico, .toast.warn .toast-ico { color: var(--red-bright); }
 .toast-msg { flex: 1; line-height: 1.4; }
 .toast-count { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--text-secondary); }
+
+/* ---------- inbox: duplicate warning + attachments ---------- */
+.inbox-dup-warning {
+  display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 4px; padding: 10px 12px;
+  border-radius: 10px; border: 1px solid rgba(var(--red-rgb), .35); background: rgba(var(--red-rgb), .07);
+  color: var(--text-secondary); font-size: 13px; line-height: 1.45;
+}
+.inbox-dup-warning .ico-slot { color: var(--red-bright); margin-top: 2px; }
+.inbox-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.icon-btn-pdf { color: var(--purple) !important; opacity: 1; }

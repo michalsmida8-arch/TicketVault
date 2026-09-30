@@ -330,3 +330,53 @@ test('stale app copy cannot reopen an inbox item the server resolved', async () 
   r = await api('GET', '/db');
   assert.equal(r.data.inbox.find(x => x.id === 'in_x').state, 'approved');
 });
+
+test('purchases: complete high-confidence order is added, duplicates are held back', () => {
+  const { blocker, findDuplicates, buildTicket } = require('../src/ingest/purchases');
+  const p = { success: true, kind: 'purchase', eventKind: 'purchase', platform: 'RB Leipzig', event: 'RB Leipzig v Manchester City',
+    eventDate: '2026-11-04', quantity: 6, totalAmount: 336, currency: 'EUR', orderId: '9899575', confidence: 0.95, category: 'football' };
+  assert.equal(blocker(p, 0.9), null);
+  assert.equal(blocker({ ...p, confidence: 0.6 }, 0.9), 'low-confidence');
+  assert.equal(blocker({ ...p, totalAmount: null }, 0.9), 'missing-price');
+  assert.equal(blocker({ ...p, eventKind: 'delivery' }, 0.9), 'not-a-purchase');
+  const t = buildTicket(p, { subject: 'Your booking confirmation 9899575' }, '2026-09-28T10:00:00Z');
+  assert.equal(t.purchasePrice, 56); assert.equal(t.quantity, 6); assert.equal(t.status, 'available');
+  assert.equal(t.category, 'football'); assert.equal(t.externalIds.otherId, '9899575'); assert.equal(t.purchaseDate, '2026-09-28');
+  // certain duplicate: order number stored under any key
+  let d = findDuplicates({ tickets: [{ id: 'x', eventName: 'Leipzig City', eventDate: '2026-11-04', externalIds: { otherId: '9899575' } }] }, p);
+  assert.equal(d.certain.length, 1);
+  // possible duplicate: same event split into rows 1 + 3 = 4 ks (A$AP Rocky case)
+  const asap = { ...p, platform: 'High Priority Promotions', event: "A$AP ROCKY - DON'T BE DUMB WORLD TOUR", eventDate: '2026-10-11', quantity: 4, totalAmount: 346, orderId: 'HPP1' };
+  d = findDuplicates({ tickets: [
+    { id: 'a', eventName: "A$AP ROCKY - DON'T BE DUMB WORLD TOUR", eventDate: '2026-10-11', quantity: 1, purchasePrice: 86.5 },
+    { id: 'b', eventName: "A$AP ROCKY - DON'T BE DUMB WORLD TOUR", eventDate: '2026-10-11', quantity: 3, purchasePrice: 86.5 }] }, asap);
+  assert.equal(d.possible.length, 2);
+});
+
+test('deadline alerts pick undelivered sales and unlisted tickets near the event', () => {
+  const store = loadStore();
+  delete require.cache[require.resolve('../src/digest')];
+  const { dueAlerts } = require('../src/digest');
+  const me = store.loadUsers().find(u => u.username === 'michal');
+  const now = new Date('2026-10-01T10:00:00');
+  return store.updateBucket(me.dataKey, db => {
+    db.tickets.push({ id: 'al1', eventName: 'Sold soon', eventDate: '2026-10-02', status: 'sold', quantity: 2 });
+    db.tickets.push({ id: 'al2', eventName: 'Unlisted', eventDate: '2026-10-06', status: 'available', quantity: 1 });
+    db.tickets.push({ id: 'al3', eventName: 'Far away', eventDate: '2026-12-01', status: 'sold', quantity: 1 });
+  }).then(() => {
+    const a = dueAlerts(me, now).map(x => x.key).sort();
+    assert.ok(a.includes('deliver:al1')); assert.ok(a.includes('list:al2')); assert.ok(!a.some(k => k.endsWith('al3')));
+  });
+});
+
+test('auth: /me renews tokens older than a day (remember login)', async () => {
+  const jwt = require('jsonwebtoken');
+  const secret = require('fs').readFileSync(require('path').join(dataDir, 'jwt-secret.txt'), 'utf8').trim();
+  const store = loadStore();
+  const me = store.loadUsers().find(u => u.username === 'michal');
+  const old = jwt.sign({ sub: me.id, username: me.username, iat: Math.floor(Date.now() / 1000) - 3 * 86400 }, secret, { expiresIn: '90d' });
+  let r = await fetch(BASE + '/auth/me', { headers: { Authorization: 'Bearer ' + old } }).then(x => x.json());
+  assert.ok(r.token && r.token !== old, 'renewed token returned');
+  r = await fetch(BASE + '/auth/me', { headers: { Authorization: 'Bearer ' + r.token } }).then(x => x.json());
+  assert.equal(r.token, undefined, 'fresh token is not renewed again');
+});

@@ -56,4 +56,61 @@ function startScheduler() {
   console.log(`[digest] scheduled daily at ${cfg.DIGEST_HOURS.map(h => h + ':00').join(', ')}`);
 }
 
-module.exports = { buildDigest, sendDigestForUser, startScheduler };
+// ---- deadline alerts: undelivered sales and unlisted tickets close to the event ----
+const path = require('path');
+const fs = require('fs');
+const ALERTS_FILE = path.join(cfg.DATA_DIR, 'state', 'alerts-sent.json');
+function loadSent() { try { return JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8')); } catch { return {}; } }
+function saveSent(x) { try { fs.writeFileSync(ALERTS_FILE, JSON.stringify(x)); } catch (e) { console.error('[alerts] save failed', e.message); } }
+
+function dueAlerts(user, today = new Date()) {
+  const db = store.loadBucket(user.dataKey);
+  const t0 = new Date(today); t0.setHours(0, 0, 0, 0);
+  const days = d => { const x = new Date(d); if (isNaN(x)) return null; x.setHours(0, 0, 0, 0); return Math.round((x - t0) / 86400000); };
+  const out = [];
+  for (const t of db.tickets) {
+    const d = days(t.eventDate);
+    if (d === null || d < -1) continue;
+    if (t.status === 'sold' && d <= 2) out.push({ key: 'deliver:' + t.id, level: 'deliver', t, d });
+    else if (t.status === 'available' && d <= 7) out.push({ key: 'list:' + t.id, level: 'list', t, d });
+  }
+  return out;
+}
+
+async function runDeadlineAlerts(now = new Date()) {
+  const day = now.toLocaleDateString('sv-SE');
+  const sent = loadSent();
+  for (const k of Object.keys(sent)) if (sent[k] < day) delete sent[k];   // keep only today
+  for (const u of store.loadUsers()) {
+    const wantsPush = (u.discordEnabled && u.discordWebhook) || (u.pushoverEnabled && u.pushoverUser && u.pushoverToken);
+    if (!wantsPush) continue;
+    const fresh = dueAlerts(u, now).filter(a => sent[u.id + '|' + a.key] !== day);
+    if (!fresh.length) continue;
+    const when = d => d < 0 ? 'akce byla včera' : d === 0 ? 'akce je DNES' : d === 1 ? 'akce je zítra' : 'za ' + d + ' dny';
+    const deliver = fresh.filter(a => a.level === 'deliver');
+    const list = fresh.filter(a => a.level === 'list');
+    if (deliver.length) {
+      await notify.pushToUser(u, '🚚 Doruč vstupenky (' + deliver.length + ')',
+        deliver.map(a => '• ' + a.t.eventName + ' · ' + (a.t.quantity || 1) + ' ks · ' + when(a.d) + (a.t.platform ? ' · ' + a.t.platform : '')).join('\n'));
+    }
+    if (list.length) {
+      await notify.pushToUser(u, '🏷️ Nezalistované vstupenky (' + list.length + ')',
+        list.map(a => '• ' + a.t.eventName + ' · ' + (a.t.quantity || 1) + ' ks · ' + when(a.d)).join('\n'));
+    }
+    for (const a of fresh) sent[u.id + '|' + a.key] = day;
+    console.log('[alerts] ' + u.username + ': deliver ' + deliver.length + ', list ' + list.length);
+  }
+  saveSent(sent);
+}
+
+function startAlertScheduler() {
+  setInterval(() => {
+    const h = new Date().getHours();
+    if (h < 8 || h > 22) return;
+    runDeadlineAlerts().catch(e => console.error('[alerts]', e.message));
+  }, 60 * 60 * 1000).unref();
+  // first check shortly after start (inside the allowed hours)
+  setTimeout(() => { const h = new Date().getHours(); if (h >= 8 && h <= 22) runDeadlineAlerts().catch(e => console.error('[alerts]', e.message)); }, 2 * 60 * 1000).unref();
+}
+
+module.exports = { buildDigest, sendDigestForUser, startScheduler, startAlertScheduler, dueAlerts, runDeadlineAlerts };

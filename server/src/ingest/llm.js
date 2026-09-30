@@ -14,6 +14,7 @@ const ExtractionSchema = z.object({
   relevant: z.boolean().describe('true only if this e-mail is about a ticket purchase, ticket sale, ticket delivery, cancellation or refund'),
   kind: z.enum(['purchase', 'sale', 'delivery', 'cancellation', 'refund', 'transfer', 'other'])
     .describe('purchase = we bought tickets; sale = we sold tickets on a marketplace (buyer paid us); delivery = tickets/e-tickets for an existing order arrived; transfer = ticket transfer request/confirmation'),
+  category: z.enum(['football', 'concert', 'other']).describe('football = football/soccer match; concert = music, comedy, shows; other = other sports and events'),
   platform: z.string().describe('Seller/marketplace/club name, e.g. Ticketmaster, Stubhub, Viagogo, Eventim, Chelsea FC, RB Leipzig'),
   event: z.string().describe('Event name as written, e.g. "Arsenal v Chelsea" or "Coldplay"'),
   eventDate: z.string().describe('YYYY-MM-DD'),

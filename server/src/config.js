@@ -93,6 +93,9 @@ module.exports = {
   // Apply marketplace sale mails (sold / delivered / paid) directly to the inventory
   // when exactly one ticket matches. false = always leave a card in "Příchozí".
   AUTO_APPLY_SALES: process.env.AUTO_APPLY_SALES !== 'false',
+  // Complete, high-confidence purchase confirmations go straight into the inventory.
+  AUTO_ADD_PURCHASES: process.env.AUTO_ADD_PURCHASES !== 'false',
+  AUTO_ADD_MIN_CONFIDENCE: Number(process.env.AUTO_ADD_MIN_CONFIDENCE || 0.9),
   // Digest times (server local hours). The app's settings text promises 8:00 and 18:00.
   DIGEST_HOURS: String(process.env.DIGEST_HOURS || process.env.DIGEST_HOUR || '8,18').split(',').map(h => Number(h.trim())).filter(h => h >= 0 && h < 24),
   SMTP: process.env.SMTP_HOST ? {

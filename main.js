@@ -1145,6 +1145,29 @@ ipcMain.handle('auth:regenerateMailToken', async () => {
   }
 });
 
+// Open an attachment stored on the server (ticket PDF) in the system viewer.
+ipcMain.handle('files:open', async (event, { inboxId, name }) => {
+  try {
+    const config = loadConfig();
+    const apiUrl = (config.cloud && config.cloud.apiUrl || '').replace(/\/$/, '');
+    const token = config.cloud && config.cloud.apiKey;
+    if (!apiUrl || !token) throw new Error('Nejsi přihlášen k serveru.');
+    const res = await fetch(apiUrl + '/files/' + encodeURIComponent(inboxId) + '/' + encodeURIComponent(name), {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!res.ok) throw new Error('Server vrátil ' + res.status);
+    const dir = path.join(app.getPath('temp'), 'TicketVault');
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, String(name).replace(/[^\w. -]+/g, '_'));
+    fs.writeFileSync(target, Buffer.from(await res.arrayBuffer()));
+    const err = await shell.openPath(target);
+    if (err) throw new Error(err);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // Status of the mailboxes the self-hosted server reads.
 ipcMain.handle('ingest:status', async () => {
   try {

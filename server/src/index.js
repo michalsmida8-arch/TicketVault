@@ -44,6 +44,7 @@ const server = app.listen(cfg.PORT, cfg.HOST, () => {
   if (cfg.INGEST_ENABLED) require('./ingest/imap').startAll();
   else console.log('[ingest] disabled (INGEST_ENABLED=false)');
   require('./digest').startScheduler();
+  require('./digest').startAlertScheduler();
 });
 
 function shutdown() {

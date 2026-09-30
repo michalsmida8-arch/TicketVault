@@ -123,6 +123,14 @@ router.post('/tickets/bulk-delete', async (req, res) => {
 });
 
 // ---- ingest helpers ------------------------------------------------------------
+// Attachments kept from e-mails (ticket PDFs). Paths are always inside the
+// caller's own bucket folder, so users can never read each other's files.
+router.get('/files/:inboxId/:name', (req, res) => {
+  const p = store.filePath(req.user.dataKey, req.params.inboxId, req.params.name);
+  if (!fs.existsSync(p)) return res.status(404).json({ error: 'Soubor nenalezen.' });
+  res.type(/\.pdf$/i.test(p) ? 'application/pdf' : 'application/octet-stream').send(fs.readFileSync(p));
+});
+
 router.get('/inbox/raw/:id', (req, res) => {
   const db = store.loadBucket(req.user.dataKey);
   const item = db.inbox.find(i => i.id === req.params.id);

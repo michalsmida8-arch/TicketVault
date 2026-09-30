@@ -2168,6 +2168,16 @@ function renderStatTrends() {
 }
 
 const TICKETS_PER_PAGE = 150;
+// Open the ticket PDFs the server kept from e-mails (first file; all if several).
+async function openTicketFiles(t) {
+  const files = (t && t.files) || [];
+  if (!files.length) return;
+  for (const f of files) {
+    const r = await window.api.openServerFile({ inboxId: f.inboxId, name: f.name });
+    if (!r.success) { toast('PDF se nepodařilo otevřít: ' + escapeHtml(r.error || ''), 'error', 5000); return; }
+  }
+}
+
 let _ticketsDelegated = false;
 function setupTicketsDelegation() {
   if (_ticketsDelegated) return;
@@ -2192,6 +2202,7 @@ function setupTicketsDelegation() {
     else if (action === 'list') openListModal(state.db.tickets.find(t => t.id === id));
     else if (action === 'writeoff') writeOffTicket(id);
     else if (action === 'unwriteoff') unwriteOffTicket(id);
+    else if (action === 'open-pdf') openTicketFiles(state.db.tickets.find(t => t.id === id));
   });
   tbody.addEventListener('change', function(e) {
     const cb = e.target.closest('.row-check');
@@ -2403,6 +2414,7 @@ function renderTickets() {
             <div class="actions-secondary">
               ${isDelivered ? `<button class="icon-btn" data-action="undeliver" data-id="${t.id}" title="Vrátit zpět na prodáno">${icon('undo')}</button>` : ''}
               ${t.status === 'cancelled' ? `<button class="icon-btn" data-action="unwriteoff" data-id="${t.id}" title="Vrátit zpět z odepsaného stavu">${icon('undo')}</button>` : ''}
+              ${(t.files || []).length ? `<button class="icon-btn icon-btn-pdf" data-action="open-pdf" data-id="${t.id}" title="Otevřít vstupenky (PDF z e-mailu)">${icon('pdf')}</button>` : ''}
               <button class="icon-btn" data-action="clone" data-id="${t.id}" title="Klonovat">${icon('copy')}</button>
               <button class="icon-btn" data-action="edit" data-id="${t.id}" title="Upravit">${icon('edit')}</button>
               <button class="icon-btn icon-btn-danger" data-action="delete" data-id="${t.id}" title="Smazat">${icon('trash')}</button>
@@ -6325,6 +6337,12 @@ function renderInboxPage() {
   list.innerHTML = filtered.map(item => renderInboxCard(item)).join('');
   
   // Bind action listeners
+  list.querySelectorAll('[data-inbox-file]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const r = await window.api.openServerFile({ inboxId: btn.dataset.inboxId, name: btn.dataset.inboxFile });
+      if (!r.success) toast('PDF se nepodařilo otevřít: ' + escapeHtml(r.error || ''), 'error', 5000);
+    });
+  });
   list.querySelectorAll('[data-inbox-action]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -6535,6 +6553,13 @@ function renderInboxCard(item) {
            contenteditable="true" spellcheck="false"
            data-placeholder="(klikni pro zadání eventu)">${escapeHtml(p.event || '')}</div>
       <div class="inbox-subject">${escapeHtml(item.subject || '')}</div>
+      ${(item.possibleDuplicate || []).length ? (() => {
+        const dups = item.possibleDuplicate.map(id => (state.db.tickets || []).find(x => x.id === id)).filter(Boolean);
+        if (!dups.length) return '';
+        const list = dups.map(d => `${escapeHtml(d.eventName)} · ${fmtDateCz(d.eventDate)} · ${d.quantity} ks · ${escapeHtml(d.status || '')}`).join('<br>');
+        return `<div class="inbox-dup-warning"><span class="ico-slot" data-ico="alert"></span><div><strong>Možná duplicita.</strong> Tenhle nákup už v inventáři nejspíš máš:<br><small>${list}</small></div></div>`;
+      })() : ''}
+      ${(item.files || []).length ? `<div class="inbox-files">${item.files.map(f => `<button class="btn btn-dark btn-sm" data-inbox-file="${escapeHtml(f.name)}" data-inbox-id="${item.id}"><span class="ico-slot" data-ico="pdf"></span>${escapeHtml(f.name)}</button>`).join('')}</div>` : ''}
       <div class="inbox-details-grid">
         <div class="inbox-detail">
           <span class="inbox-detail-label">Datum</span>
@@ -6712,7 +6737,8 @@ async function approveInboxItem(id) {
     // ticket would be stored as if it were 60 CZK, causing wildly wrong dashboard totals.
     currency: p.currency || getDefaultTicketCurrency(),
     logo: '',
-    notes: `Přidáno z emailu (${item.subject})`
+    notes: `Přidáno z emailu (${item.subject})`,
+    files: item.files || []
   };
   
   // Add order ID from email

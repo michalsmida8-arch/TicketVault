@@ -12,6 +12,7 @@ const parsers = require('./parsers');
 const llm = require('./llm');
 const notify = require('../notify');
 const sales = require('./sales');
+const purchases = require('./purchases');
 
 const Anthropic = require('@anthropic-ai/sdk');
 function isRetryable(e) {
@@ -33,6 +34,11 @@ function findSameEvent(db, parsed) {
   const i = db.inbox.find(x => x.parsed?.eventDate === parsed.eventDate && shares(x.parsed?.event));
   if (i) return { type: 'inbox', id: i.id, by: 'event+date' };
   return null;
+}
+
+function pdfAttachments(mail) {
+  return (mail.attachments || []).filter(a => a.content && (/pdf/i.test(a.contentType || '') || /\.pdf$/i.test(a.filename || '')))
+    .map(a => ({ ...a, filename: a.filename || 'vstupenka.pdf' }));
 }
 
 function newInboxId() { return 'in_' + Date.now().toString(36) + '_' + crypto.randomBytes(4).toString('hex'); }
@@ -74,6 +80,7 @@ function toParsed(x, mail) {
     eventKind: x.kind,
     saleStage: kind === 'sale' ? (x._cancel ? 'cancelled' : parsers.saleStage(mail.subject)) : null,
     listingId: x.listingId || null,
+    category: x.category || null,
     platform: fromMarketplace ? (parsers.canonicalPlatform(platform) || parsers.detectPlatform(mail.from, '')) : platform,
     event: x.event || null,
     eventDate: x.eventDate || null,
@@ -167,30 +174,75 @@ async function ingestParsedMail(mail, ctx) {
   if (!dupOf && parsed.eventKind === 'delivery' && parsed.eventDate && parsed.event) {
     dupOf = findSameEvent(store.loadBucket(ctx.dataKey), parsed);
   }
+  const pdfs = pdfAttachments(mail);
   if (dupOf && ['delivery', 'purchase', 'sale'].includes(parsed.eventKind)) {
+    // A later mail for a ticket we already have (e.g. the e-tickets themselves):
+    // keep its PDFs on that ticket so delivery to the buyer is one click away.
+    if (pdfs.length && dupOf.type === 'ticket') {
+      const files = pdfs.map(a => store.saveFile(ctx.dataKey, 'att_' + dupOf.id, a.filename, a.content));
+      await store.updateBucket(ctx.dataKey, db => {
+        const i = db.tickets.findIndex(t => t.id === dupOf.id);
+        if (i < 0) return;
+        const now = new Date().toISOString();
+        const have = new Set((db.tickets[i].files || []).map(x => x.name));
+        db.tickets[i] = { ...db.tickets[i], files: [...(db.tickets[i].files || []), ...files.filter(x => !have.has(x.name))], updated: now, _serverAt: now };
+      });
+      log({ result: 'attached-pdf', ticketId: dupOf.id, files: files.map(x => x.name) });
+      return { result: 'attached-pdf', dupOf };
+    }
     log({ result: 'duplicate-order', kind: parsed.eventKind, dupOf });
     return { result: 'duplicate-order', dupOf };
   }
 
   // 5) Write the inbox item
+  const itemId = newInboxId();
+  const files = pdfs.map(a => store.saveFile(ctx.dataKey, itemId, a.filename, a.content));
   const item = {
-    id: newInboxId(),
+    id: itemId,
+    files,
     state: 'pending_review',
     receivedAt: (mail.date ? new Date(mail.date) : new Date()).toISOString(),
     createdAt: new Date().toISOString(),
     from: mail.from, to: mail.to, subject: mail.subject, messageId: mail.messageId || null,
     parsed,
     source: { mailbox: ctx.mailboxName, uid: ctx.uid || null, rawPath: ctx.rawPath || null, model: usage ? cfg.CLAUDE_MODEL : null, usage },
-    relatedTo: dupOf
+    relatedTo: dupOf,
+    _serverAt: new Date().toISOString()
   };
-  await store.updateBucket(ctx.dataKey, db => { db.inbox.push(item); });
-  log({ result: 'created', inboxId: item.id, kind: parsed.kind, platform: parsed.platform, orderId: parsed.orderId, confidence: parsed.confidence, parser: parsed.parser, usage });
+  const outcome = await store.updateBucket(ctx.dataKey, db => {
+    if (parsed.kind !== 'purchase' || !parsed.success) { db.inbox.push(item); return { applied: false }; }
+    const dups = purchases.findDuplicates(db, parsed);
+    if (dups.certain.length) return { duplicate: true, ticketId: dups.certain[0].id };
+    if (dups.possible.length) item.possibleDuplicate = dups.possible.map(t => t.id);
+    const why = !cfg.AUTO_ADD_PURCHASES ? 'auto-add-off'
+      : dups.possible.length ? 'possible-duplicate'
+      : purchases.blocker(parsed, cfg.AUTO_ADD_MIN_CONFIDENCE);
+    if (!why) {
+      const ticket = purchases.buildTicket(parsed, mail, item.receivedAt);
+      if (files.length) ticket.files = files;
+      db.tickets.push(ticket);
+      item.state = 'approved';
+      item.resolvedAt = new Date().toISOString();
+      item.autoApplied = { action: 'purchase-added', ticketId: ticket.id };
+      db.inbox.push(item);
+      return { applied: true, ticketId: ticket.id };
+    }
+    item.autoApplyReason = why;
+    db.inbox.push(item);
+    return { applied: false, reason: why };
+  });
+  if (outcome.duplicate) {
+    log({ result: 'duplicate-order', kind: 'purchase', ticketId: outcome.ticketId });
+    return { result: 'duplicate-order', ticketId: outcome.ticketId };
+  }
+  log({ result: outcome.applied ? 'applied' : 'created', inboxId: item.id, kind: parsed.kind, platform: parsed.platform, orderId: parsed.orderId,
+    confidence: parsed.confidence, parser: parsed.parser, action: outcome.applied ? 'purchase-added' : undefined, reason: outcome.reason, usage });
 
   // 6) Notify the owner (instant, one line)
   if (ctx.owner) {
     const price = parsed.totalAmount ? ` ${parsed.totalAmount} ${parsed.currency || ''}` : '';
     const title = parsed.success
-      ? `${parsed.kind === 'sale' ? ({ sold: '💰 Prodáno', delivered: '📦 Doručeno kupci', paid: '💶 Výplata' }[parsed.saleStage] || '💰 Prodej') : '🛒 Nákup'}: ${parsed.event || mail.subject}${price}`
+      ? `${parsed.kind === 'sale' ? ({ sold: '💰 Prodáno', delivered: '📦 Doručeno kupci', paid: '💶 Výplata' }[parsed.saleStage] || '💰 Prodej') : (outcome.applied ? '🛒 Nákup přidán' : '🛒 Nákup ke schválení')}: ${parsed.event || mail.subject}${price}`
       : `⚠ Ke kontrole: ${mail.subject}`;
     notify.pushToUser(ctx.owner, title, `${parsed.platform || '—'} · ${parsed.quantity || '?'} ks · ${parsed.eventDate || '?'}\nSchránka: ${ctx.mailboxName}`)
       .catch(e => console.warn('[notify]', e.message));

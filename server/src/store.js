@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { DATA_DIR } = require('./config');
 
-for (const d of ['buckets', 'mail', 'state', 'backups']) {
+for (const d of ['buckets', 'mail', 'state', 'backups', 'files']) {
   fs.mkdirSync(path.join(DATA_DIR, d), { recursive: true });
 }
 
@@ -140,7 +140,21 @@ function appendIngestLog(entry) {
   } catch (e) { console.error('[store] ingest log failed:', e.message); }
 }
 
+// Ticket PDFs and other attachments kept from e-mails:
+//   files/<dataKey>/<inboxId>/<name>
+function safeName(n) { return String(n || 'file').replace(/[^\w. -]+/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file'; }
+function fileDir(dataKey, inboxId) { return path.join(DATA_DIR, 'files', String(dataKey).replace(/[^\w.-]/g, '_'), String(inboxId).replace(/[^\w-]/g, '_')); }
+function saveFile(dataKey, inboxId, name, buffer) {
+  const dir = fileDir(dataKey, inboxId);
+  fs.mkdirSync(dir, { recursive: true });
+  const n = safeName(name);
+  fs.writeFileSync(path.join(dir, n), buffer);
+  return { inboxId, name: n, size: buffer.length };
+}
+function filePath(dataKey, inboxId, name) { return path.join(fileDir(dataKey, inboxId), safeName(name)); }
+
 module.exports = {
+  saveFile, filePath,
   withLock, readJson, writeJson,
   loadUsers, saveUsers, updateUsers,
   defaultDb, ensureSchema, loadBucket, saveBucket, updateBucket,

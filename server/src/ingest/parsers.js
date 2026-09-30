@@ -149,7 +149,7 @@ async function runDeterministicParsers(mail) {
   for (const t of texts) {
     const r = parseLeipzigInvoice(t);
     if (r && r.event && r.eventDate && r.quantity && r.totalAmount) {
-      return { kind: 'purchase', relevant: true, confidence: 0.95, parser: 'rb-leipzig-pdf', ...r };
+      return { kind: 'purchase', relevant: true, confidence: 0.95, parser: 'rb-leipzig-pdf', category: 'football', accountEmail: mail.to || '', ...r };
     }
   }
   return null;
