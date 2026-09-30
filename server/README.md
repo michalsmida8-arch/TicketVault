@@ -134,6 +134,18 @@ V `DIGEST_HOUR` (výchozí 8:00) pošle každému uživateli se zapnutým kanál
 souhrn: počet položek ke kontrole, akce do 7 dnů, prodané neodeslané, neprodané.
 E-mail vyžaduje `SMTP_*` v `.env`; Discord a Pushover se berou z nastavení v appce.
 
+## Webová verze
+
+Stejná appka běží v prohlížeči na `http://<adresa-serveru>:8787/app` (přes Tailscale
+i z mobilu). Přihlášení stejným účtem. Jen v desktopové appce zůstává zabudovaný
+StubHub/Viagogo, import PDF/CSV a načítání stránek akcí.
+
+## Trvalý běh a restart
+
+`install-task.ps1` registruje úlohu `TicketVaultServer`, která při startu Windows
+spustí `run-server.cmd`. Ten server po pádu do 5 s znovu spustí. Ruční restart:
+ukonči proces `node.exe` se `src\index.js` — smyčka ho nahodí.
+
 ## Testy
 
 ```bash

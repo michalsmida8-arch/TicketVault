@@ -413,3 +413,17 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
   .tickets-table td, .tickets-table th { padding-left: 6px; padding-right: 6px; }
   .tickets-table .event-logo { display: none; }
 }
+
+/* ---------- web edition: desktop-only sections are hidden ---------- */
+.web-mode .nav-item[data-view="stubhub"], .web-mode .nav-item[data-view="viagogo"],
+.web-mode .nav-item[data-view="salespro"], .web-mode .nav-item[data-view="invviagogo"],
+.web-mode #btnImportPdf { display: none !important; }
+.web-mode .nav-section-label:has(+ .nav-item[data-view="stubhub"]),
+.web-mode .nav-section-label:has(+ .nav-item[data-view="salespro"]) { display: none !important; }
+
+/* Statistics: serif stays for the hero number only; supporting values use the UI face */
+.insight-value, .capital-value {
+  font-family: var(--font-sans) !important; font-weight: 700 !important; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.hero-value { letter-spacing: -0.02em; }

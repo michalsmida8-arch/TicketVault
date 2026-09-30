@@ -20,6 +20,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// ---- Web edition: the same UI served from the repo's src/ folder -----------------
+// /app loads index.html with web-api.js injected (it replaces the Electron preload),
+// everything else under /app is served as static files.
+const path = require('path');
+const fsx = require('fs');
+const APP_DIR = path.join(__dirname, '..', '..', 'src');
+function sendIndex(req, res) {
+  try {
+    let html = fsx.readFileSync(path.join(APP_DIR, 'index.html'), 'utf8');
+    html = html.replace('<script src="icons.js"></script>', '<script src="web-api.js"></script>\n  <script src="icons.js"></script>');
+    res.set('Cache-Control', 'no-cache').type('html').send(html);
+  } catch (e) { res.status(500).send('TicketVault web není k dispozici: ' + e.message); }
+}
+if (fsx.existsSync(APP_DIR)) {
+  app.get(['/app', '/app/', '/app/index.html'], sendIndex);
+  app.use('/app', express.static(APP_DIR, { index: false, maxAge: '1h' }));
+  app.get('/', (req, res) => res.redirect('/app/'));
+}
+
 // The desktop app is configured with ".../api" as base URL, so everything
 // lives under /api. Same handlers are also mounted at root for convenience.
 const api = express.Router();
@@ -29,6 +48,19 @@ api.get('/ping', (req, res) => res.json({
   hasInviteCode: !!cfg.INVITE_CODE,
   hasApiKey: true   // legacy field the app's "Testovat připojení" checks
 }));
+// Exchange rates for the web edition (the page may only talk to its own origin).
+let ratesCache = null;
+api.get('/rates', async (req, res) => {
+  try {
+    if (!ratesCache || Date.now() - ratesCache.at > 6 * 3600 * 1000) {
+      const r = await fetch('https://open.er-api.com/v6/latest/EUR');
+      const d = await r.json();
+      if (d.result !== 'success') throw new Error('rate API error');
+      ratesCache = { at: Date.now(), rates: { ...d.rates, EUR: 1, _updated: new Date().toISOString() } };
+    }
+    res.json({ rates: ratesCache.rates });
+  } catch (e) { res.status(502).json({ error: 'Kurzy se nepodařilo načíst: ' + e.message }); }
+});
 api.use('/auth', authRouter);
 api.use('/', dbRouter);
 app.use('/api', api);
