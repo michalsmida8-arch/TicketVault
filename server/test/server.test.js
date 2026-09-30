@@ -380,3 +380,20 @@ test('auth: /me renews tokens older than a day (remember login)', async () => {
   r = await fetch(BASE + '/auth/me', { headers: { Authorization: 'Bearer ' + r.token } }).then(x => x.json());
   assert.equal(r.token, undefined, 'fresh token is not renewed again');
 });
+
+test('a ticket deleted on the server is not resurrected by a stale app copy', async () => {
+  const store = loadStore();
+  const { markDeleted } = require('../src/ingest/sales');
+  const me = store.loadUsers().find(u => u.username === 'michal');
+  await store.updateBucket(me.dataKey, db => { db.tickets.push({ id: 't_zombie', eventName: 'Zombie', updated: '2026-01-01T00:00:00Z' }); });
+  let r = await api('GET', '/db');
+  const stale = r.data;
+  await store.updateBucket(me.dataKey, db => { db.tickets = db.tickets.filter(t => t.id !== 't_zombie'); markDeleted(db, 't_zombie'); });
+  await api('PUT', '/db', stale);
+  r = await api('GET', '/db');
+  assert.ok(!r.data.tickets.some(t => t.id === 't_zombie'), 'not back after PUT');
+  assert.ok(r.data._deletedTickets && r.data._deletedTickets.t_zombie, 'tombstone kept');
+  await api('POST', '/ticket', stale.tickets.find(t => t.id === 't_zombie'));
+  r = await api('GET', '/db');
+  assert.ok(!r.data.tickets.some(t => t.id === 't_zombie'), 'not back after POST');
+});

@@ -223,6 +223,7 @@ function cancelSale(db, p, byOrder) {
     db.tickets[ri] = { ...rest, quantity: (Number(rest.quantity) || 0) + (Number(t.quantity) || 0),
       notes: [rest.notes, note + `, vráceno ${t.quantity} ks`].filter(Boolean).join(' | '), updated: now, _serverAt: now };
     db.tickets = db.tickets.filter(x => x.id !== t.id);
+    markDeleted(db, t.id);
     return { applied: true, action: 'cancelled-merged', ticketId: rest.id, removedId: t.id };
   }
   const ext = { ...(t.externalIds || {}) };
@@ -234,4 +235,12 @@ function cancelSale(db, p, byOrder) {
   return { applied: true, action: 'cancelled', ticketId: t.id };
 }
 
-module.exports = { applySale, findOpenTicket, findDoneTicket, cancelSale, words };
+// Remember server-side deletions for 60 days (see routes-db mergeTickets).
+function markDeleted(db, id) {
+  if (!db._deletedTickets || typeof db._deletedTickets !== 'object') db._deletedTickets = {};
+  db._deletedTickets[id] = new Date().toISOString();
+  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString();
+  for (const [k, v] of Object.entries(db._deletedTickets)) if (v < cutoff) delete db._deletedTickets[k];
+}
+
+module.exports = { markDeleted, applySale, findOpenTicket, findDoneTicket, cancelSale, words };

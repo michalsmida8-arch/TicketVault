@@ -33,10 +33,12 @@ function keepServerFields(client, server) {
   for (const f of SERVER_FIELDS) { if (f in server) out[f] = server[f]; else delete out[f]; }
   return out;
 }
-function mergeTickets(serverTickets, clientTickets, pulledAt) {
+function mergeTickets(serverTickets, clientTickets, pulledAt, deleted = {}) {
   const byId = new Map(serverTickets.map(t => [t.id, t]));
   const seen = new Set();
-  const out = clientTickets.map(c => {
+  // A row the server deleted after the client's copy was made stays deleted.
+  const alive = clientTickets.filter(c => !(deleted[c.id] && String(c.updated || c.created || '') < String(deleted[c.id])));
+  const out = alive.map(c => {
     seen.add(c.id);
     const s = byId.get(c.id);
     return s && isStale(c, s) ? { ...c, ...keepServerFields(c, s) } : c;
@@ -80,7 +82,8 @@ router.put('/db', async (req, res) => {
       return s && s._serverAt && String(c._serverAt || '') < String(s._serverAt) ? s : c;
     });
     merged.inbox = [...clientInbox, ...preserved];
-    merged.tickets = mergeTickets(db.tickets || [], incoming.tickets, pulledAt);
+    merged.tickets = mergeTickets(db.tickets || [], incoming.tickets, pulledAt, db._deletedTickets || {});
+    if (db._deletedTickets) merged._deletedTickets = db._deletedTickets;   // server-only field survives the replace
     merged.created = db.created || merged.created;
     Object.assign(db, merged);
     for (const k of Object.keys(db)) if (!(k in merged)) delete db[k];
@@ -94,6 +97,8 @@ router.post('/ticket', async (req, res) => {
   if (!ticket || typeof ticket !== 'object') return res.status(400).json({ error: 'Neplatná vstupenka.' });
   const saved = await store.updateBucket(req.user.dataKey, db => {
     const now = new Date().toISOString();
+    const tomb = (db._deletedTickets || {})[ticket.id];
+    if (tomb && String(ticket.updated || ticket.created || '') < String(tomb)) return { ...ticket, _ignored: 'deleted-on-server' };
     if (ticket.id) {
       const idx = db.tickets.findIndex(t => t.id === ticket.id);
       if (idx >= 0) {

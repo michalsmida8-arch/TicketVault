@@ -495,7 +495,8 @@
 
         <!-- FILTERS -->
         <div class="filters">
-          <input type="text" class="filter-input" id="filterSearch" placeholder="Hledat event nebo místo...">
+          <button type="button" class="btn btn-dark group-switch active" id="btnGroupByEvent" title="Seskupit vstupenky podle akce"><span class="ico-slot" data-ico="layers"></span>Seskupit</button>
+            <input type="text" class="filter-input" id="filterSearch" placeholder="Hledat event nebo místo...">
           <div class="filter-multiselect" id="filterStatusMS">
             <button type="button" class="filter-select filter-ms-toggle" id="filterStatusToggle" aria-haspopup="true" aria-expanded="false">
               <span id="filterStatusLabel">Všechny statusy</span>
@@ -2834,5 +2835,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="icons.js"></script>
   <script src="app.js"></script>
+  <script src="cmdk.js"></script>
 </body>
 </html>

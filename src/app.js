@@ -2167,6 +2167,62 @@ function renderStatTrends() {
   if (stockTrend) stockTrend.innerHTML = '';
 }
 
+
+// ---- Inventory grouped by event -------------------------------------------------
+// Tickets for the same event (normalised name + date) collapse into one summary row
+// with totals and a status breakdown; single-ticket events render as plain rows.
+function eventGroupKey(t) {
+  return (t.eventDate || '') + '|' + String(t.eventName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function renderGroupedRows(list, rowHtml) {
+  if (!state.expandedGroups) state.expandedGroups = new Set();
+  const groups = new Map();
+  for (const t of list) { const k = eventGroupKey(t); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+  const primary = getPrimaryCurrency();
+  const labels = { available: 'koupeno', listed: 'zalistováno', sold: 'prodáno', delivered: 'doručeno', cancelled: 'odepsáno' };
+  let html = '';
+  for (const [key, items] of groups) {
+    if (items.length === 1) { html += rowHtml(items[0]); continue; }
+    const first = items[0];
+    const qty = items.reduce((n, t) => n + (Number(t.quantity) || 1), 0);
+    const done = items.filter(t => ['sold', 'delivered', 'cancelled'].includes(String(t.status || '').trim().toLowerCase()));
+    const cost = items.reduce((n, t) => n + calcCostInPrimary(t), 0);
+    const revenue = done.reduce((n, t) => n + calcRevenueInPrimary(t), 0);
+    const profit = done.reduce((n, t) => n + calcProfitInPrimary(t), 0);
+    const byStatus = {};
+    items.forEach(t => { const st = String(t.status || 'available').trim().toLowerCase(); byStatus[st] = (byStatus[st] || 0) + (Number(t.quantity) || 1); });
+    const chips = Object.entries(byStatus).map(([st, n]) => `<span class="group-chip status-${st}">${n}× ${labels[st] || st}</span>`).join('');
+    const open = state.expandedGroups.has(key);
+    const allChecked = items.every(t => state.selectedIds.has(t.id));
+    const iso = first.country ? getCountryIso(first.country) : '';
+    html += `
+      <tr class="group-row${open ? ' open' : ''}" data-group="${escapeHtml(key)}">
+        <td class="col-check"><input type="checkbox" class="group-check" data-group="${escapeHtml(key)}" ${allChecked ? 'checked' : ''}></td>
+        <td class="col-event">
+          <div class="event-cell">
+            <button class="group-toggle" data-group-toggle="${escapeHtml(key)}" title="${open ? 'Sbalit' : 'Rozbalit'}">${icon(open ? 'chevron-down' : 'chevron')}</button>
+            <div class="event-name-wrap">
+              <div class="event-name">${escapeHtml(first.eventName || '—')} <span class="group-count">${items.length} řádky</span></div>
+              ${(first.venue || first.country) ? `<div class="event-sub">${iso ? `<span class="country-iso">${iso}</span>` : ''}${escapeHtml(first.venue || first.country || '')}</div>` : ''}
+            </div>
+          </div>
+        </td>
+        <td class="col-date">${first.eventDate ? `<div class="cell-main">${fmtDateCz(first.eventDate)}</div><div class="cell-sub">${fmtWeekdayCz(first.eventDate)}</div>` : '—'}</td>
+        <td class="col-section"><div class="cell-sub">${[...new Set(items.map(t => t.section).filter(Boolean))].slice(0, 3).map(escapeHtml).join(', ') || '—'}</div></td>
+        <td class="col-num">${qty}</td>
+        <td class="col-channel"><div class="cell-sub">${[...new Set(items.map(t => t.platform).filter(Boolean))].map(escapeHtml).join(', ') || '—'}</div></td>
+        <td><div class="group-chips">${chips}</div></td>
+        <td class="col-purchase col-num"><div class="cell-main">${formatMoney(cost, primary)}</div></td>
+        <td class="col-sale col-num">${done.length ? `<div class="cell-main">${formatMoney(revenue, primary)}</div>` : '<span class="muted">—</span>'}</td>
+        <td class="col-profit col-num ${done.length ? (profit >= 0 ? 'profit-positive' : 'profit-negative') : ''}">${done.length ? `<div class="cell-main">${formatMoney(profit, primary)}</div>` : '<span class="muted">—</span>'}</td>
+        <td class="col-hold col-num"></td>
+        <td class="col-actions"></td>
+      </tr>`;
+    if (open) html += items.map(t => rowHtml(t).replace('<tr data-id=', '<tr data-child-of="' + escapeHtml(key) + '" data-id=')).join('');
+  }
+  return html;
+}
+
 const TICKETS_PER_PAGE = 150;
 // Open the ticket PDFs the server kept from e-mails (first file; all if several).
 async function openTicketFiles(t) {
@@ -2185,6 +2241,14 @@ function setupTicketsDelegation() {
   if (!tbody) return;
   _ticketsDelegated = true;
   tbody.addEventListener('click', function(e) {
+    const gt = e.target.closest('[data-group-toggle]') || (e.target.closest('.group-row') && !e.target.closest('.group-check') ? e.target.closest('.group-row') : null);
+    if (gt) {
+      const key = gt.dataset.groupToggle || gt.dataset.group;
+      if (!state.expandedGroups) state.expandedGroups = new Set();
+      if (state.expandedGroups.has(key)) state.expandedGroups.delete(key); else state.expandedGroups.add(key);
+      renderTickets();
+      return;
+    }
     const mute = e.target.closest('[data-mute-id]');
     if (mute) { e.stopPropagation(); muteTicket(mute.dataset.muteId); return; }
     const unmute = e.target.closest('[data-unmute-id]');
@@ -2205,6 +2269,14 @@ function setupTicketsDelegation() {
     else if (action === 'open-pdf') openTicketFiles(state.db.tickets.find(t => t.id === id));
   });
   tbody.addEventListener('change', function(e) {
+    const gc = e.target.closest('.group-check');
+    if (gc) {
+      const key = gc.dataset.group;
+      getFilteredTickets().filter(t => eventGroupKey(t) === key).forEach(t => { if (gc.checked) state.selectedIds.add(t.id); else state.selectedIds.delete(t.id); });
+      renderTickets();
+      if (typeof renderBulkActions === 'function') renderBulkActions();
+      return;
+    }
     const cb = e.target.closest('.row-check');
     if (!cb) return;
     const id = cb.dataset.id;
@@ -2247,7 +2319,7 @@ function renderTickets() {
   if (!state.ticketLimit) state.ticketLimit = TICKETS_PER_PAGE;
   const shown = list.slice(0, state.ticketLimit);
 
-  tbody.innerHTML = shown.map(t => {
+  const rowHtml = (t) => {
     // All money displayed in primary currency for consistency across rows.
     // Conversion uses current FX rates from Settings.
     const primary = getPrimaryCurrency();
@@ -2423,7 +2495,8 @@ function renderTickets() {
         </td>
       </tr>
     `;
-  }).join('');
+  };
+  tbody.innerHTML = state.groupByEvent === false ? shown.map(rowHtml).join('') : renderGroupedRows(shown, rowHtml);
   
   // Row actions & checkboxes handled once via delegation (setupTicketsDelegation).
   // Sync header checkbox state on each render (e.g. after filter changes).
@@ -11658,6 +11731,15 @@ function setupEventListeners() {
   // v1.3.0 — personal forward address: copy + regenerate
   $('#btnCopyForwardAddr')?.addEventListener('click', copyMailForwardAddress);
   $('#btnIngestRefresh')?.addEventListener('click', loadIngestStatusUI);
+  // Group-by-event switch (remembered per device)
+  try { state.groupByEvent = localStorage.getItem('tv.groupByEvent') !== '0'; } catch { state.groupByEvent = true; }
+  $('#btnGroupByEvent')?.classList.toggle('active', state.groupByEvent !== false);
+  $('#btnGroupByEvent')?.addEventListener('click', () => {
+    state.groupByEvent = state.groupByEvent === false;
+    try { localStorage.setItem('tv.groupByEvent', state.groupByEvent ? '1' : '0'); } catch {}
+    $('#btnGroupByEvent').classList.toggle('active', state.groupByEvent);
+    renderTickets();
+  });
   $('#btnRegenMailToken')?.addEventListener('click', regenerateMailToken);
   $('#btnSaveCurrencySettings')?.addEventListener('click', saveCurrencySettings);
   $('#btnRefreshRates')?.addEventListener('click', refreshRates);
