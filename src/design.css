@@ -332,3 +332,84 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 
 .cmdk-input:focus, .cmdk-input:hover { box-shadow: none !important; border: 0 !important; }
 #modalTicket .modal-backdrop { background: rgba(0, 0, 0, .28) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+/* =====================================================================
+   "Dnes" panel — actions, 30-day calendar, cash forecast
+   ===================================================================== */
+.today-panel { margin-bottom: 22px; }
+.today-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 14px; flex-wrap: wrap; }
+.today-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--text-primary); }
+.today-date { color: var(--text-tertiary); font-size: 13px; margin-top: 2px; text-transform: capitalize; }
+.today-cash { display: flex; gap: 22px; }
+.today-cash div { display: flex; flex-direction: column; align-items: flex-end; }
+.today-cash span { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+.today-cash b { font-size: 18px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.today-cash div:first-child b { color: var(--green-bright); }
+
+.today-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.today-tile {
+  position: relative; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px;
+  text-align: left; padding: 14px 16px; border-radius: 14px; cursor: pointer;
+  background: var(--surface-1); border: 1px solid var(--line); color: var(--text-primary);
+  transition: border-color .15s var(--ease), transform .15s var(--ease), background .15s var(--ease);
+}
+.today-tile:hover { transform: translateY(-1px); border-color: var(--line-strong); background: var(--surface-2); }
+.today-ico { grid-row: span 2; width: 38px; height: 38px; border-radius: 11px; display: flex; align-items: center; justify-content: center; }
+.today-n { font-size: 24px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; align-self: end; }
+.today-label { position: absolute; top: 14px; right: 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-tertiary); }
+.today-sub { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.today-deliver .today-ico { background: rgba(var(--red-rgb), .12); color: var(--red-bright); }
+.today-list .today-ico { background: rgba(var(--purple-rgb), .12); color: var(--purple); }
+.today-pay .today-ico { background: rgba(var(--green-rgb), .12); color: var(--green-bright); }
+.today-inbox .today-ico { background: rgba(107, 155, 184, .14); color: #9cc2da; }
+.today-tile:not(.calm).today-deliver { border-color: rgba(var(--red-rgb), .35); }
+.today-tile.calm .today-n { color: var(--text-tertiary); }
+.today-tile.calm .today-ico { filter: grayscale(.6); opacity: .6; }
+
+.cal-strip { display: grid; grid-template-columns: repeat(30, minmax(0, 1fr)); gap: 4px; margin-top: 12px; }
+.cal-day {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0 6px; border-radius: 10px;
+  background: var(--surface-1); border: 1px solid var(--line); font-variant-numeric: tabular-nums; min-width: 0;
+}
+.cal-day.weekend { background: rgba(255,255,255,.015); }
+.cal-day.today { border-color: rgba(var(--purple-rgb), .6); box-shadow: inset 0 0 0 1px rgba(var(--purple-rgb), .25); }
+.cal-day.has { cursor: pointer; }
+.cal-day.has:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.cal-wd { font-size: 9.5px; text-transform: uppercase; color: var(--text-tertiary); letter-spacing: .04em; }
+.cal-d { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.cal-day.has .cal-d { color: var(--text-primary); }
+.cal-dots { display: flex; gap: 2px; height: 5px; }
+.cal-dots .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-tertiary); }
+.cal-dots .dot.sold { background: var(--red-bright); }
+.cal-dots .dot.available, .cal-dots .dot.listed { background: var(--purple); }
+.cal-dots .dot.delivered { background: var(--green); }
+.cal-dots .dot.more { background: transparent; box-shadow: inset 0 0 0 1px var(--text-tertiary); }
+.cal-day.has.deliver { border-color: rgba(var(--red-rgb), .35); }
+@media (max-width: 1300px) { .today-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* keep the table inside the window: secondary row actions collapse into a hover tray */
+.tickets-table .col-event { max-width: 250px; }
+.tickets-table .event-name { overflow-wrap: anywhere; }
+.actions-cell { position: relative; }
+.actions-secondary { width: 30px; overflow: hidden; justify-content: flex-end; transition: width .18s var(--ease), opacity .15s var(--ease); }
+.actions-secondary .icon-btn:not([data-action="edit"]) { display: none; }
+.tickets-table tr:hover .actions-secondary { width: auto; }
+.tickets-table tr:hover .actions-secondary .icon-btn { display: inline-flex; }
+
+/* narrower windows: drop the least important columns (still in the detail drawer) */
+@media (max-width: 1500px) {
+  .tickets-table th:nth-child(11), .tickets-table td:nth-child(11) { display: none; }   /* Držení */
+}
+@media (max-width: 1420px) {
+  .tickets-table th:nth-child(4), .tickets-table td:nth-child(4) { display: none; }     /* Sekce */
+  .tickets-table .col-channel .cell-sub { max-width: 150px; }
+  .tickets-table .col-event { max-width: 220px; }
+}
+@media (max-width: 1300px) {
+  .today-cash { gap: 14px; }
+  .cal-strip { grid-template-columns: repeat(15, minmax(0, 1fr)); }
+}
+@media (max-width: 1420px) {
+  .tickets-table td, .tickets-table th { padding-left: 6px; padding-right: 6px; }
+  .tickets-table .event-logo { display: none; }
+}

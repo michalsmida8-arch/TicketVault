@@ -2294,6 +2294,7 @@ function renderTickets() {
   // expects them to track whatever filters are applied. Without this, totals
   // stay stale at "all tickets ever" while the table shows only this month.
   renderStats();
+  if (typeof renderTodayPanel === 'function') { try { renderTodayPanel(); } catch (e) { console.error('today panel', e); } }
   const list = getFilteredTickets();
   const tbody = $('#ticketsBody');
   const empty = $('#emptyState');
