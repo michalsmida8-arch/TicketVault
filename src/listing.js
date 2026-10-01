@@ -252,13 +252,22 @@
       };
     }
     window.__tvPending = { ticketId: p.ticketId, eventId: p.event.id };
-    if (!/\/Listings/i.test(location.pathname)) return { error: 'V panelu inv.viagogo otevři stránku Listings' };
-    const before = document.querySelector('#Listing_WebsitePrice');
-    if (before) { try { $.modal.hide(); } catch (_) {} await sleep(500); }
+    // inv.viagogo keeps earlier modal contents in the DOM (hidden, same element ids), so
+    // drop old listing forms first or the fill below could land in a stale hidden copy.
+    try { $.modal.hide(); } catch (_) {}
+    document.querySelectorAll('.js-modal-size').forEach(m => { if (m.querySelector('#Listing_WebsitePrice') || /session has expired/i.test(m.innerText)) m.remove(); });
+    await sleep(300);
     $.modal.post('/Listings/NewListing', { eventlink: p.event.id, ticketType: p.ticketType || 'TicketMasterMobile', pcid: '' });
     let price = null;
-    for (let i = 0; i < 40 && !(price = document.querySelector('#Listing_WebsitePrice')); i++) await sleep(250);
-    if (!price) return { error: 'Formulář Viagogo se neotevřel' };
+    for (let i = 0; i < 60; i++) {
+      price = [...document.querySelectorAll('#Listing_WebsitePrice')].find(e => e.offsetParent);
+      if (price) break;
+      if ([...document.querySelectorAll('.js-modal-size')].some(m => m.offsetParent && /session has expired|sign in again/i.test(m.innerText))) {
+        return { error: 'inv.viagogo chce znovu přihlásit — přihlas se v panelu inv.viagogo a zkus to znovu' };
+      }
+      await sleep(250);
+    }
+    if (!price) return { error: 'Formulář Viagogo se neotevřel (zkus znovu, případně obnov panel inv.viagogo)' };
     await sleep(400);
     const notes = [];
     const set = (sel, v) => { if (v !== undefined && v !== null && v !== '') $(sel).val(String(v)).trigger('input').trigger('change').trigger('keyup'); };
