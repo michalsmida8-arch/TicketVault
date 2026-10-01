@@ -296,6 +296,61 @@
     return { ok: true, notes, proceeds: $('#Listing_Proceeds').val(), currency: $('#Listing_CurrencyCode').val() };
   }
 
+  // ---- save as INACTIVE (only on Michal's explicit "zalistuj za doporučenou cenu") ----
+  // Both functions refuse to save unless the form verifiably says "not published".
+  async function pageViagogoSaveInactive() {
+    const sleep = ms => new Promise(res => { const end = Date.now() + ms, ch = new MessageChannel(); ch.port1.onmessage = () => (Date.now() >= end ? res() : ch.port2.postMessage(0)); ch.port2.postMessage(0); });
+    const vis = e => !!(e && e.offsetParent);
+    const price = [...document.querySelectorAll('#Listing_WebsitePrice')].find(vis);
+    if (!price) return { error: 'Formulář Viagogo nenalezen' };
+    const form = $(price).closest('form');
+    const cb = form.find('#IsPublishToViagogo')[0];
+    if (cb && cb.checked) { cb.click(); await sleep(200); }
+    if (cb && cb.checked) { cb.checked = false; $(cb).trigger('change'); await sleep(200); }
+    if (form.serializeArray().some(x => x.name === 'Listing.IsPublishToViagogo' && x.value === 'true')) return { error: 'Nepodařilo se vypnout Publish — neukládám' };
+    window.__tvSaved = null;
+    const btn = form.find('#btnSaveDetails').filter(':visible')[0] || [...document.querySelectorAll('#btnSaveDetails')].find(vis);
+    if (!btn) return { error: 'Tlačítko Save nenalezeno' };
+    btn.click();
+    for (let i = 0; i < 60; i++) {
+      await sleep(500);
+      if (window.__tvSaved) { const s = window.__tvSaved; window.__tvSaved = null; window.__tvPending = null; return { ok: true, listingId: s.listingId }; }
+      const errs = form.find('.field-validation-error:visible, .input-validation-error:visible').map((_, e) => (e.innerText || e.name || '').trim()).get().filter(Boolean);
+      if (errs.length && i > 2) return { error: 'Viagogo nepřijal formulář: ' + errs.slice(0, 3).join('; ') };
+      const other = [...document.querySelectorAll('.js-modal-size')].find(m => vis(m) && !m.querySelector('#Listing_WebsitePrice'));
+      if (other && i > 1) return { error: 'Viagogo chce potvrzení: ' + other.innerText.replace(/\s+/g, ' ').slice(0, 160) };
+    }
+    return { error: 'Uložení na Viagogu se nepotvrdilo' };
+  }
+  async function pageStubhubSaveInactive() {
+    const sleep = ms => new Promise(res => { const end = Date.now() + ms, ch = new MessageChannel(); ch.port1.onmessage = () => (Date.now() >= end ? res() : ch.port2.postMessage(0)); ch.port2.postMessage(0); });
+    const tag = vm => vm.$options.name || vm.$options._componentTag;
+    const dlg = [...document.querySelectorAll('.dialog--active')].find(x => /Přidat nabídku/.test(x.innerText) && x.querySelector('input'));
+    if (!dlg) return { error: 'Formulář SalesPro nenalezen' };
+    const vms = {};
+    dlg.querySelectorAll('*').forEach(e => { let el = e; while (el && !el.__vue__) el = el.parentElement; let vm = el && el.__vue__; while (vm) { const t = tag(vm); if (t && !vms[t]) vms[t] = vm; vm = vm.$parent; } });
+    const form = vms.ListingDetailForm, ed = vms.EditListingDialog;
+    if (!form || !ed || !ed.listing) return { error: 'Formulář SalesPro nenalezen' };
+    ed.listing.publish = false;
+    await sleep(400);
+    // The "Publikovat" checkbox must show unticked before anything is saved.
+    const label = [...dlg.querySelectorAll('*')].find(e => e.children.length === 0 && /^\s*Publikovat\s*$/.test(e.textContent || ''));
+    const box = label && label.closest('.input-group, .checkbox, label, div');
+    const boxText = box ? (box.closest('.input-group') || box).innerText : '';
+    if (ed.listing.publish !== false || /\bcheck_box\b(?!_outline)/.test(boxText)) return { error: 'Nepodařilo se vypnout „Publikovat“ — neukládám' };
+    window.__tvSaved = null; window.__tvSaveError = null;
+    form.$bus.$once('listingDetailOperationFailed', code => { window.__tvSaveError = String(code || 'chyba'); });
+    form.submitForm();
+    for (let i = 0; i < 60; i++) {
+      await sleep(500);
+      if (window.__tvSaved) { const s = window.__tvSaved; window.__tvSaved = null; window.__tvPending = null; return { ok: true, listingId: s.listingId }; }
+      if (window.__tvSaveError) return { error: 'SalesPro odmítl uložení (' + window.__tvSaveError + ')' };
+      const bad = [...dlg.querySelectorAll('.input-group--error')].map(e => e.innerText.split('\n')[0].trim()).filter(Boolean);
+      if (bad.length && i > 2) return { error: 'SalesPro: vyplň ' + bad.slice(0, 3).join(', ') };
+    }
+    return { error: 'Uložení v SalesPro se nepotvrdilo' };
+  }
+
   function pageTakeSaved() { const s = window.__tvSaved || null; if (s) { window.__tvSaved = null; window.__tvPending = null; } return s; }
 
   // ---------- event matching ---------------------------------------------------------
@@ -426,13 +481,15 @@
     return { lowSeat: Math.min(...v), seatFrom: Math.min(...v), seatTo: Math.max(...v) };
   }
 
-  async function prefill(t) {
+  // opts.price: use this price instead of the row's input; opts.auto: called from
+  // autoList — no success toast, no save watcher, returns { ok } / { error }.
+  async function prefill(t, opts = {}) {
     const L = t.listing || {};
     const platform = platformOf(t);
     const row = document.querySelector(`.lst-row[data-id="${t.id}"]`);
-    const price = parseFloat(row && row.querySelector('.lst-price') ? row.querySelector('.lst-price').value : L.price);
+    const price = opts.price || parseFloat(row && row.querySelector('.lst-price') ? row.querySelector('.lst-price').value : L.price);
     const ticketType = (row && row.querySelector('.lst-type') && row.querySelector('.lst-type').value) || L.ticketType;
-    if (!price || price <= 0) { toast('Zadej cenu za kus', 'error'); row && row.querySelector('.lst-price') && row.querySelector('.lst-price').focus(); return; }
+    if (!price || price <= 0) { if (opts.auto) return { error: 'bez ceny' }; toast('Zadej cenu za kus', 'error'); row && row.querySelector('.lst-price') && row.querySelector('.lst-price').focus(); return; }
     let ev = null;
     const found = ui.search[t.id] && (platform === 'Stubhub' ? ui.search[t.id].sh : ui.search[t.id].vg);
     if (found && found.events) ev = found.events.find(e => e.id === L.eventId) || null;
@@ -441,9 +498,9 @@
       const r = await findEvent(t, platform).catch(e => ({ error: e.message }));
       delete ui.busy[t.id];
       ui.search[t.id] = { ...(ui.search[t.id] || {}), [platform === 'Stubhub' ? 'sh' : 'vg']: r };
-      if (r.error) { render(); toast(r.error, 'error', 5000); return; }
+      if (r.error) { render(); if (opts.auto) return { error: r.error }; toast(r.error, 'error', 5000); return; }
       ev = (r.events || []).find(e => e.id === L.eventId) || r.best;
-      if (!ev) { render(); toast('Vyber akci ze seznamu (nenašel jsem jednoznačnou shodu)', 'info', 5000); return; }
+      if (!ev) { render(); if (opts.auto) return { error: 'akce nenalezena jednoznačně' }; toast('Vyber akci ze seznamu (nenašel jsem jednoznačnou shodu)', 'info', 5000); return; }
     }
     ui.busy[t.id] = 'prefill'; render();
     // StubHub convention (Michal): Row = home team's name, seat numbers stay empty,
@@ -477,18 +534,51 @@
         }
       }
       const res = await inPanel(PANEL[platform], platform === 'Stubhub' ? pageStubhubPrefill : pageViagogoPrefill, payload);
-      if (!res || res.error) { switchView('listing'); toast((res && res.error) || 'Předvyplnění selhalo', 'error', 6000); await patchTicket(t, { listing: { status: 'draft' } }); return; }
+      if (!res || res.error) { await patchTicket(t, { listing: { status: 'draft' } }); if (opts.auto) return { error: (res && res.error) || 'předvyplnění selhalo' }; switchView('listing'); toast((res && res.error) || 'Předvyplnění selhalo', 'error', 6000); return; }
       await patchTicket(t, { listing: { status: 'prefilled', prefilledAt: new Date().toISOString() } });
+      if (opts.auto) return { ok: true, res };
       const extra = res.notes && res.notes.length ? ' Pozor: ' + res.notes.join(', ') + '.' : '';
       const net = res.payout || res.proceeds;
       toast(`Formulář ${PLATFORM_LABEL[platform]} je předvyplněný${net ? ` (výplata ${net} ${res.currency || ''})` : ''}. Zkontroluj ho a ulož sám.${extra}`, 'success', 9000);
       startWatch();
     } catch (e) {
+      if (opts.auto) return { error: e.message };
       switchView('listing');
       toast('Předvyplnění selhalo: ' + e.message, 'error', 6000);
     } finally {
       delete ui.busy[t.id]; render();
     }
+  }
+
+  // Recommended price: Viagogo = cheapest competitor in the ticket's own section, else
+  // cheapest on the event; StubHub = cheapest list price on SalesPro.
+  function recommendedPrice(t) {
+    const L = t.listing || {};
+    if (platformOf(t) === 'Viagogo') { const v = L.vgMarket; return v ? (v.sectionPrice || v.price || null) : null; }
+    const m = L.market; return m ? (m.listPrice || m.price || null) : null;
+  }
+
+  // "Zalistuj za doporučenou cenu" (Michal's standing agreement): save each listing
+  // UNPUBLISHED at 2× the recommended price; he reviews prices and publishes himself.
+  async function autoList(list) {
+    const done = [], failed = [];
+    for (const t of list) {
+      const rec = recommendedPrice(t);
+      if (!rec) { failed.push(`${t.eventName}: chybí doporučená cena (dej Najít)`); continue; }
+      const price = Math.round(rec * 2);
+      const pre = await prefill(t, { price, auto: true });
+      if (!pre || pre.error) { failed.push(`${t.eventName}: ${(pre && pre.error) || 'předvyplnění selhalo'}`); continue; }
+      const platform = platformOf(t);
+      const r = await inPanel(PANEL[platform], platform === 'Stubhub' ? pageStubhubSaveInactive : pageViagogoSaveInactive).catch(e => ({ error: e.message }));
+      if (!r || r.error) { failed.push(`${t.eventName}: ${(r && r.error) || 'uložení selhalo'}`); await patchTicket(t, { listing: { status: 'draft' } }); continue; }
+      await markListed(t, r.listingId, true, { inactive: true, price });
+      done.push(`${t.eventName} · ${Number(t.quantity) || 1} ks · ${price} €/ks (${PLATFORM_LABEL[platform]})`);
+      await sleep(800);
+    }
+    ui.autoResult = { done, failed, at: new Date() };
+    switchView('listing');
+    render();
+    toast(`Neaktivně zalistováno: ${done.length}${failed.length ? `, nepovedlo se: ${failed.length}` : ''}. Ceny jsou 2× doporučené — zkontroluj je a zveřejni.`, failed.length ? 'info' : 'success', 12000);
   }
 
   // ---------- after the user saves: pick up the listing id ---------------------------
@@ -508,13 +598,15 @@
       if (t) await markListed(t, saved.listingId, true);
     }
   }
-  async function markListed(t, listingId, auto) {
+  async function markListed(t, listingId, auto, extra = {}) {
     const platform = platformOf(t);
     const key = platform === 'Stubhub' ? 'stubhubListingId' : 'viagogoListingId';
     const externalIds = { ...(t.externalIds || {}) };
     if (listingId) externalIds[key] = String(listingId);
-    await patchTicket(t, { status: 'listed', platform, externalIds, listing: { status: 'listed', listingId: listingId || '', listedAt: new Date().toISOString() } });
+    await patchTicket(t, { status: 'listed', platform, externalIds, listing: { status: 'listed', listingId: listingId || '', listedAt: new Date().toISOString(),
+      ...(extra.inactive ? { inactive: true, price: extra.price } : {}) } });
     await refreshDb();
+    if (extra.inactive) return;
     toast(`${t.eventName}: zalistováno na ${PLATFORM_LABEL[platform]}${listingId ? ' (ID ' + listingId + ')' : ''}`, 'success', 6000);
     if (auto && state.currentView !== 'listing') return;
     render();
@@ -615,6 +707,15 @@
       </div>
     </div>`;
   }
+  function autoResultHtml() {
+    const r = ui.autoResult;
+    if (!r) return '';
+    return `<div class="lst-compare">
+      <div class="lst-compare-head">${icon('zap', 15)} Neaktivně zalistováno ${r.done.length}${r.failed.length ? `, nepovedlo se ${r.failed.length}` : ''} — ceny jsou 2× doporučené, zkontroluj je a zveřejni na tržišti</div>
+      ${r.done.map(x => `<div class="lst-cmp-row"><span class="lst-cmp-ev">${escapeHtml(x)}</span><span></span><span class="lst-cmp-issue">${icon('check', 13)} uloženo, nezveřejněno</span></div>`).join('')}
+      ${r.failed.map(x => `<div class="lst-cmp-row bad"><span class="lst-cmp-ev">${escapeHtml(x)}</span><span></span><span class="lst-cmp-issue">${icon('alert', 13)} nezalistováno</span></div>`).join('')}
+    </div>`;
+  }
   function compareHtml() {
     const c = ui.compare;
     if (!c) return '';
@@ -648,8 +749,10 @@
         <div class="lst-tools">
           <button class="btn btn-sm" id="lstLookupAll">${icon('refresh', 13)} Načíst tržní ceny</button>
           <button class="btn btn-sm" id="lstCompare">${icon('layers', 13)} Porovnat s Viagogem</button>
+          <button class="btn btn-sm" id="lstAutoList" title="Uloží inzeráty jako NEAKTIVNÍ za 2× doporučenou cenu (vše v aktuálním filtru); zveřejníš je sám">${icon('zap', 13)} Zalistovat neaktivně (2× doporučená)</button>
         </div>
       </div>
+      ${autoResultHtml()}
       ${compareHtml()}
       ${shown.length ? `<div class="lst-list">${shown.map(rowHtml).join('')}</div>`
         : `<div class="pl-empty">${list.length ? 'V tomhle filtru nic není.' : 'Všechny budoucí vstupenky jsou zalistované nebo prodané.'}</div>`}
@@ -673,6 +776,15 @@
       const chipEl = e.target.closest('.lst-chip');
       if (chipEl) { ui.filter = chipEl.dataset.filter; render(); return; }
       if (e.target.closest('#lstCompare')) { compareViagogo(); return; }
+      if (e.target.closest('#lstAutoList')) {
+        const list = candidates().filter(t => ui.filter === 'all' || platformOf(t) === ui.filter);
+        const ready = list.filter(t => recommendedPrice(t));
+        if (!list.length) return;
+        const skipped = list.length - ready.length;
+        if (!confirm(`Uložit ${ready.length} inzerátů jako NEAKTIVNÍ za 2× doporučenou cenu?` + (skipped ? `\n${skipped} nemá doporučenou cenu — přeskočí se.` : '') + '\nNic se nezveřejní.')) return;
+        autoList(ready);
+        return;
+      }
       if (e.target.closest('#lstLookupAll')) {
         const list = candidates().filter(t => ui.filter === 'all' || platformOf(t) === ui.filter);
         for (const t of list) await lookup(t, platformOf(t), true);
@@ -722,5 +834,5 @@
   };
   window.updateListingBadge = function () { try { updateBadge(); } catch (_) { /* db not ready */ } };
   // Exposed for tests / console debugging.
-  window.__listing = { isPremierLeague, platformOf, searchTerms, score, teamKeys };
+  window.__listing = { isPremierLeague, platformOf, searchTerms, score, teamKeys, recommendedPrice, autoList, candidates };
 })();
