@@ -117,6 +117,20 @@
         .fail(x => res({ error: x.status === 401 || x.status === 302 ? 'login' : 'HTTP ' + x.status }));
     });
   }
+  // Competitor listings for one Viagogo event (the "Market data" dialog of inv.viagogo).
+  // The dialog HTML carries them as `var marketGridData = [...]`.
+  async function pageViagogoMarket(q) {
+    const r = await fetch('/Listings/MarketDataV3', { method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+      body: 'eventId=' + encodeURIComponent(q.eventId) + '&latestServerStamp=0' });
+    if (!r.ok) return { error: 'HTTP ' + r.status };
+    const html = await r.text();
+    const m = html.match(/var marketGridData = (\[[\s\S]*?\]);\s*\n/);
+    if (!m) return { error: /login|sign in/i.test(html) ? 'login' : 'bez dat o trhu' };
+    const rows = JSON.parse(m[1]).filter(x => !x.IsOwned && x.WebsitePriceVal > 0);
+    return { listings: rows.map(x => ({ section: String(x.Section || ''), row: String(x.Row || ''), qty: x.Quantity, price: x.WebsitePriceVal, cls: x.TicketClass || '' })) };
+  }
+
   function pageViagogoEvents() {
     if (!window.$ || !window.VGPage) return { error: 'login' };
     return new Promise(res => {
@@ -286,6 +300,10 @@
       const strip = s => s.replace(/\b(FC|AFC|CF)\b/g, '').replace(/\s+/g, ' ').trim();
       out.push(strip(parts[0]) + ' ' + strip(parts[1]), strip(parts[0]));
     }
+    // Concerts: the act before the tour name ("Backstreet Boys: Into The Millennium"),
+    // then each act of a double bill ("Calin & Viktor Sheen").
+    const act = name.split(/\s*[:–|,]\s*/)[0].replace(/\s+(?:world\s+)?tour\b.*$/i, '').trim();
+    if (act) out.push(act, ...act.split(/\s+(?:&|x|feat\.?|ft\.?|and)\s+/i).map(s => s.trim()));
     out.push(name.split(/\s+/).slice(0, 3).join(' '));
     return [...new Set(out.filter(Boolean))];
   }
@@ -319,7 +337,11 @@
     // A same-day event sharing one word ("Made in England") is not a match: ask for
     // two name words unless the ticket's name only has one.
     const top = events[0];
-    const best = top && top.score >= 10 && nameHits(t, top) >= Math.min(2, nameWords(t).length) ? top : null;
+    // Same day + one shared word is enough when nothing else that day shares a word
+    // (team names in another language: "Schachtar Donezk" vs "Shakhtar Donetsk").
+    const sameDay = e => dayOf(t.eventDate) && dayOf(String(e.date || '').slice(0, 10)) && +dayOf(t.eventDate) === +dayOf(String(e.date).slice(0, 10));
+    const soleSameDay = top && sameDay(top) && nameHits(t, top) >= 1 && events.filter(e => sameDay(e) && nameHits(t, e) >= 1).length === 1;
+    const best = top && top.score >= 10 && (nameHits(t, top) >= Math.min(2, nameWords(t).length) || soleSameDay) ? top : null;
     return { events, best, term };
   }
 
@@ -331,6 +353,28 @@
     await window.api.upsertTicket(next);
     Object.assign(fresh, next);
     return next;
+  }
+
+  // Section as Viagogo writes it: "Sektor D – Block 13.1 Home-Area" -> "13.1", "Unterrang MERKUR 9" -> "9".
+  function sectionKey(s) {
+    const str = String(s || '');
+    const b = str.match(/block\s+([0-9]+(?:\.[0-9]+)?[a-z]?)/i);
+    if (b) return b[1].toLowerCase();
+    const n = str.match(/\b([a-z]?\d+(?:\.\d+)?[a-z]?)\b/i);
+    return n ? n[1].toLowerCase() : '';
+  }
+  // Cheapest competitor listing on Viagogo, overall and in the ticket's own section.
+  async function viagogoMarket(t, eventLink) {
+    const id = String(eventLink || '').match(/(\d+)\s*$/);
+    if (!id) return null;
+    const r = await inPanel('invviagogo', pageViagogoMarket, { eventId: id[1] });
+    if (!r || r.error) return null;
+    const all = r.listings || [];
+    const min = arr => arr.length ? Math.min(...arr.map(x => x.price)) : null;
+    const key = sectionKey(t.section);
+    const inSec = key ? all.filter(x => x.section.toLowerCase() === key) : [];
+    return { price: min(all), total: all.length, tickets: all.reduce((s, x) => s + (Number(x.qty) || 0), 0),
+      section: key, sectionPrice: min(inSec), sectionCount: inSec.length, currency: 'EUR', at: new Date().toISOString() };
   }
 
   async function lookup(t, platform, quiet) {
@@ -345,6 +389,7 @@
       const listing = { platform };
       if (sh && sh.best) listing.market = { price: sh.best.minPrice, listPrice: sh.best.minListPrice, currency: sh.best.currency, total: sh.best.total, at: new Date().toISOString(), eventName: sh.best.name };
       if (target && target.best) { listing.eventId = target.best.id; listing.eventName = target.best.name; listing.eventDate = target.best.date; }
+      if (platform === 'Viagogo' && listing.eventId) listing.vgMarket = await viagogoMarket(t, listing.eventId).catch(() => null);
       await patchTicket(t, { listing });
       if (!quiet && target && target.error) toast(target.error, 'error', 5000);
       else if (!quiet && target && !target.best) toast(`Akci na ${PLATFORM_LABEL[platform]} jsem jednoznačně nenašel — vyber ji ze seznamu`, 'info', 5000);
@@ -496,6 +541,8 @@
     const auto = !(t.listing && t.listing.platformManual) ?' <span class="lst-auto" title="Podle pravidla: Premier League → StubHub, ostatní → Viagogo">auto</span>' : '';
     const d = daysTo(t.eventDate);
     const m = L.market;
+    const vg = platform === 'Viagogo' && L.vgMarket ? L.vgMarket : null;
+    const hint = vg ? (vg.sectionPrice || vg.price) : (m && m.price);
     const cur = platform === 'Viagogo' ? (L.currency || 'EUR') : ((m && m.currency) || L.currency || t.currency || 'EUR');
     const status = L.status === 'prefilled' ? '<span class="lst-pill wait">čeká na uložení</span>' : '';
     return `<div class="lst-row" data-id="${t.id}">
@@ -512,13 +559,18 @@
         ${eventPicker(t, platform)}
       </div>
       <div class="lst-market">
+        ${vg ? `
+        <div class="lst-market-label">Viagogo od</div>
+        <div class="lst-market-val">${vg.price ? money(vg.price, vg.currency) : '—'}</div>
+        <div class="lst-sub">${vg.total} nabídek${vg.section ? ` · sekce ${escapeHtml(vg.section)}: ${vg.sectionPrice ? 'od ' + money(vg.sectionPrice, vg.currency) + ` (${vg.sectionCount})` : 'nikdo'}` : ''}</div>
+        ${m && m.price ? `<div class="lst-sub">StubHub od ${money(m.price, m.currency)}</div>` : ''}` : `
         <div class="lst-market-label">StubHub od</div>
         <div class="lst-market-val">${m && m.price ? money(m.price, m.currency) : '—'}</div>
-        ${m && m.total ? `<div class="lst-sub">${m.total} nabídek</div>` : ''}
+        ${m && m.total ? `<div class="lst-sub">${m.total} nabídek</div>` : ''}`}
         <button class="btn btn-sm lst-lookup" data-id="${t.id}" ${busy ? 'disabled' : ''}>${busy === 'search' ? 'Hledám…' : icon('search', 13) + ' Najít'}</button>
       </div>
       <div class="lst-form">
-        <label class="lst-field"><span>Cena/ks (${escapeHtml(cur)})</span><input class="lst-price" type="number" min="0" step="0.01" value="${L.price || ''}" placeholder="${m && m.price ? Math.round(m.price) : ''}"></label>
+        <label class="lst-field"><span>Cena/ks (${escapeHtml(cur)})</span><input class="lst-price" type="number" min="0" step="0.01" value="${L.price || ''}" placeholder="${hint ? Math.round(hint) : ''}"></label>
         <label class="lst-field"><span>Typ vstupenky</span><select class="lst-type">${typeOptions(platform, L.ticketType)}</select></label>
       </div>
       <div class="lst-actions">
@@ -614,6 +666,7 @@
         const ev = r && r.events.find(x => x.id === e.target.value);
         const patch = { eventId: e.target.value, eventName: ev ? ev.name : '' };
         if (ev && platformOf(t) === 'Stubhub' && ev.minPrice) patch.market = { price: ev.minPrice, listPrice: ev.minListPrice, currency: ev.currency, total: ev.total, at: new Date().toISOString(), eventName: ev.name };
+        if (ev && platformOf(t) === 'Viagogo') patch.vgMarket = await viagogoMarket(t, ev.id).catch(() => null);
         await patchTicket(t, { listing: patch });
         render();
       } else if (e.target.classList.contains('lst-price')) {
