@@ -174,10 +174,25 @@ function clearAuthToken() {
 // ============ CONFIG MANAGEMENT ============
 const configPath = path.join(app.getPath('userData'), 'config.json');
 
+// The self-hosted server replaced the Netlify backend in 1.16. Configs still pointing
+// at Netlify are moved over on load (the old token is useless there, so it is dropped).
+const DEFAULT_SERVER_URL = 'http://100.87.47.36:8787/api';
+function migrateBackendUrl(cfg) {
+  if (cfg && cfg.cloud && /netlify\.app/i.test(cfg.cloud.apiUrl || '')) {
+    cfg.cloud.apiUrl = DEFAULT_SERVER_URL;
+    cfg.cloud.apiKey = '';
+    cfg.cloud.cachedUser = null;
+    cfg.cloud.enabled = true;
+    try { fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2)); } catch (e) { console.error('config migrate save failed', e.message); }
+    console.log('[config] backend URL migrated from Netlify to', DEFAULT_SERVER_URL);
+  }
+  return cfg;
+}
+
 function loadConfig() {
   try {
     if (fs.existsSync(configPath)) {
-      const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const cfg = migrateBackendUrl(JSON.parse(fs.readFileSync(configPath, 'utf-8')));
       // Backwards-compat: ensure alerts structure exists
       if (!cfg.alerts) {
         cfg.alerts = {

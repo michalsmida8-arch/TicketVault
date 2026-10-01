@@ -787,7 +787,9 @@ async function proceedAfterLogin() {
 const DEFAULT_API_URL = 'http://100.87.47.36:8787/api';
 
 function prefillAuthApiUrls(savedUrl) {
-  const url = savedUrl || DEFAULT_API_URL;
+  const url = (savedUrl && !/netlify\.app/i.test(savedUrl)) ? savedUrl : DEFAULT_API_URL;
+  const lbl = $('#authServerLabel');
+  if (lbl) lbl.textContent = url.replace(/^https?:\/\//, '').replace(/\/api\/?$/, '');
   ['authLoginApiUrl', 'authRegApiUrl', 'authRecApiUrl'].forEach(id => {
     const el = $('#' + id);
     if (el) el.value = url;
@@ -808,6 +810,11 @@ function setupAuthUI() {
     });
   });
   $('#btnAuthForgot')?.addEventListener('click', () => showAuthScreen('recover'));
+  // Login screen: the server address is hidden behind a small "změnit" link.
+  $('#btnAuthChangeServer')?.addEventListener('click', () => {
+    $('#authScreenLogin')?.classList.add('show-apiurl');
+    $('#authLoginApiUrl')?.focus();
+  });
 
   // REGISTER
   $('#btnAuthRegister')?.addEventListener('click', handleRegisterSubmit);

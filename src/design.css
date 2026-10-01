@@ -427,3 +427,11 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
   font-variant-numeric: tabular-nums;
 }
 .hero-value { letter-spacing: -0.02em; }
+
+/* login: server address revealed on demand */
+#authScreenLogin.show-apiurl .auth-field-apiurl { display: block !important; }
+#authScreenLogin.show-apiurl .auth-server-line { display: none; }
+.auth-server-line { margin-top: 10px; font-size: 12px; color: var(--text-tertiary); }
+.auth-server-line .auth-link { display: inline; padding: 0; margin: 0; font-size: 12px; }
+#authScreenLogin.show-apiurl .auth-field-apiurl label { display: block; margin-bottom: 6px; }
+#authScreenLogin.show-apiurl .auth-field-apiurl input { width: 100%; box-sizing: border-box; }
