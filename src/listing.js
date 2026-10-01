@@ -409,6 +409,16 @@
     }
   }
 
+  // Home team as fans say it: "Tottenham Hotspur v Coventry City" -> "Tottenham",
+  // but "Manchester United", "West Ham", "Crystal Palace" keep both words.
+  function homeTeamShort(t) {
+    const parts = String(t.eventName || '').split(/\s+(?:vs\.?|v\.?|x|–|-)\s+/i);
+    if (parts.length < 2) return '';
+    const words = parts[0].replace(/\b(FC|AFC|CF|SC)\b\.?/gi, ' ').replace(/\s+/g, ' ').trim().split(' ');
+    const twoWord = /^(manchester|west|aston|crystal|nottingham|sheffield|queens|wolverhampton|leicester|newcastle|leeds|norwich|stoke|swansea|cardiff|hull|real|atletico|inter|ac|as|bayer|borussia|eintracht|rb|vfb|fc|paris|sporting|red)$/i;
+    return (twoWord.test(words[0]) && words[1] ? words.slice(0, 2) : words.slice(0, 1)).join(' ');
+  }
+
   function seatRange(seat) {
     const nums = String(seat || '').match(/\d+/g);
     if (!nums) return {};
@@ -436,9 +446,12 @@
       if (!ev) { render(); toast('Vyber akci ze seznamu (nenašel jsem jednoznačnou shodu)', 'info', 5000); return; }
     }
     ui.busy[t.id] = 'prefill'; render();
-    const seats = seatRange(t.seat);
+    // StubHub convention (Michal): Row = home team's name, seat numbers stay empty,
+    // only the section is real. Viagogo gets the real row and seats.
+    const seats = platform === 'Stubhub' ? {} : seatRange(t.seat);
+    const rowText = platform === 'Stubhub' ? (homeTeamShort(t) || t.row || '') : (t.row || '');
     const currency = (L.market && L.market.currency) || L.currency || t.currency || 'EUR';
-    const payload = { ticketId: t.id, event: ev, quantity: Number(t.quantity) || 1, section: t.section || '', row: t.row || '', ...seats,
+    const payload = { ticketId: t.id, event: ev, quantity: Number(t.quantity) || 1, section: t.section || '', row: rowText, ...seats,
       price, currency: platform === 'Viagogo' ? (L.currency || 'EUR') : currency, ticketType,
       purchasePrice: t.purchasePrice, purchaseCurrency: t.currency };
     try {
