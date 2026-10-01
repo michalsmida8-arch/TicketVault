@@ -83,7 +83,10 @@ async function extractFromMail(mail) {
       title: a.filename || 'attachment.pdf'
     });
   }
-  const body = mail.text && mail.text.trim().length > 40 ? mail.text : htmlToText(mail.html || '') || mail.text || '';
+  const raw = mail.text && mail.text.trim().length > 40 ? mail.text : htmlToText(mail.html || '') || mail.text || '';
+  // Tracking links and image URLs are most of a marketing-style mail's tokens and
+  // carry nothing the extraction needs; drop them and collapse blank runs.
+  const body = raw.replace(/\[?https?:\/\/\S+\]?/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
   content.push({
     type: 'text',
     text: `E-mail received ${mail.date ? new Date(mail.date).toISOString() : 'unknown date'}
@@ -91,7 +94,7 @@ From: ${mail.from || ''}
 To: ${mail.to || ''}
 Subject: ${mail.subject || ''}
 
-${truncate(body, 60000)}`
+${truncate(body, 15000)}`
   });
 
   const examples = loadExamples();

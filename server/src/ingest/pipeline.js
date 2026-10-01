@@ -21,6 +21,8 @@ function isRetryable(e) {
   if (e instanceof Anthropic.InternalServerError) return true;
   if (e instanceof Anthropic.APIError && (e.status === 529 || e.status >= 500)) return true;
   if (/api key|apiKey|authentication/i.test(e.message || '')) return true;
+  // Out of API credit comes back as a plain 400: keep the mail queued until it's topped up.
+  if (/credit balance|billing|purchase credits/i.test(e.message || '')) return true;
   return false;
 }
 
@@ -136,7 +138,12 @@ async function ingestParsedMail(mail, ctx) {
   // 1) Message-ID dedupe (a forward + the original, or a reconnect re-fetch)
   if (mail.messageId) {
     const db = store.loadBucket(ctx.dataKey);
-    if (db.inbox.some(i => i.messageId === mail.messageId || (i.mergedMessageIds || []).includes(mail.messageId))) { log({ result: 'duplicate-message-id' }); return { result: 'duplicate-message-id' }; }
+    const same = i => i.messageId === mail.messageId || (i.mergedMessageIds || []).includes(mail.messageId);
+    // A card from a failed extraction (no API credit, outage) is replaced by a fresh run.
+    const failed = i => /Extrakce selhala/.test(JSON.stringify(i.parsed || {}));
+    if (db.inbox.some(i => same(i) && failed(i)) && !db.inbox.some(i => same(i) && !failed(i))) {
+      await store.updateBucket(ctx.dataKey, d => { d.inbox = d.inbox.filter(i => !(same(i) && failed(i))); });
+    } else if (db.inbox.some(same)) { log({ result: 'duplicate-message-id' }); return { result: 'duplicate-message-id' }; }
   }
 
   // 2) Prefilter
