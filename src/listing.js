@@ -440,6 +440,20 @@
       // one per minute, which would stall the step-by-step filling.
       switchView(PANEL[platform]);
       await sleep(400);
+      // The New Listing modal lives on inv.viagogo's Listings page; after an app restart
+      // the panel sits on the Dashboard, so open Listings first.
+      if (platform === 'Viagogo') {
+        const wv = await panel('invviagogo');
+        if (!/inv\.viagogo\.com\/Listings/i.test(wv.getURL())) {
+          wv.loadURL('https://inv.viagogo.com/Listings');
+          await sleep(800);
+          await panel('invviagogo');
+          for (let i = 0; i < 20; i++) {
+            if (await wv.executeJavaScript('!!(window.$ && $.modal && window.VGPage)').catch(() => false)) break;
+            await sleep(500);
+          }
+        }
+      }
       const res = await inPanel(PANEL[platform], platform === 'Stubhub' ? pageStubhubPrefill : pageViagogoPrefill, payload);
       if (!res || res.error) { switchView('listing'); toast((res && res.error) || 'Předvyplnění selhalo', 'error', 6000); await patchTicket(t, { listing: { status: 'draft' } }); return; }
       await patchTicket(t, { listing: { status: 'prefilled', prefilledAt: new Date().toISOString() } });
