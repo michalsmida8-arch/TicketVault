@@ -85,7 +85,7 @@
       </div>
       <div class="today-tiles">
         ${tile('deliver', 'truck', c.deliver.length, 'Doručit', deliverSub, 'todo')}
-        ${tile('list', 'tag', c.list.length + c.unsoldSoon.length, 'Zalistovat / prodat', c.unsoldSoon.length ? `${c.unsoldSoon.length} v nabídce, akce do 7 dní` : listSub, 'todo')}
+        ${tile('list', 'tag', c.list.length + c.unsoldSoon.length, 'Zalistovat / prodat', c.unsoldSoon.length ? `${c.unsoldSoon.length} v nabídce, akce do 7 dní` : listSub, c.unsoldSoon.length ? 'todo' : 'listing')}
         ${tile('pay', 'euro', c.payToday.length + c.payOverdue.length, 'Výplaty', paySub, 'payouts')}
         ${tile('inbox', 'inbox', c.inbox, 'Příchozí', inboxSub, 'inbox')}
       </div>

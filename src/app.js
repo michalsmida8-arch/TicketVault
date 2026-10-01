@@ -2302,6 +2302,7 @@ function renderTickets() {
   // stay stale at "all tickets ever" while the table shows only this month.
   renderStats();
   if (typeof renderTodayPanel === 'function') { try { renderTodayPanel(); } catch (e) { console.error('today panel', e); } }
+  if (typeof updateListingBadge === 'function') updateListingBadge();
   const list = getFilteredTickets();
   const tbody = $('#ticketsBody');
   const empty = $('#emptyState');
@@ -3053,6 +3054,7 @@ function switchView(name) {
   if (name === 'premierleague') renderPremierLeaguePage();
   if (name === 'watched') renderWatchedPage();
   if (name === 'todo') renderTodoPage();
+  if (name === 'listing' && typeof renderListingPage === 'function') renderListingPage();
   if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo') ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
   if (name === 'settings') {

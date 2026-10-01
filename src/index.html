@@ -264,6 +264,14 @@
           K dořešení
           <span class="nav-badge critical" id="navTodoBadge" style="display:none;">0</span>
         </button>
+        <button class="nav-item" data-view="listing" title="Připravené inzeráty: PL → StubHub, ostatní → Viagogo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+          </svg>
+          Zalistování
+          <span class="nav-badge" id="navListingBadge" style="display:none;">0</span>
+        </button>
         <button class="nav-item" data-view="stats">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="20" x2="18" y2="10"/>
@@ -588,6 +596,15 @@
         <div class="todo-sections" id="todoSections">
           <!-- Sections rendered by JS. Empty state shown here when nothing urgent. -->
         </div>
+      </div>
+
+      <!-- LISTING VIEW (Zalistování) — rendered by listing.js -->
+      <div class="view" id="view-listing">
+        <header class="page-header">
+          <h2 class="page-title">Zalistování</h2>
+          <p class="page-subtitle">Neprodané vstupenky připravené k nabídce. Premier League → StubHub (SalesPro), ostatní → Viagogo.</p>
+        </header>
+        <div id="listingBody"></div>
       </div>
 
       <!-- STATS VIEW -->
@@ -2839,5 +2856,6 @@
   <script src="app.js"></script>
   <script src="cmdk.js"></script>
   <script src="today.js"></script>
+  <script src="listing.js"></script>
 </body>
 </html>

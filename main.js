@@ -516,6 +516,9 @@ function createWindow() {
     // call ipcRenderer.sendToHost. Our preload does nothing privileged, so
     // disabling sandbox here is safe.
     webPreferences.sandbox = false;
+    // Listing pre-fill (src/listing.js) drives SalesPro / inv.viagogo forms step by step;
+    // hidden panels would otherwise get their timers throttled to ~1/min.
+    webPreferences.backgroundThrottling = false;
   });
 
   // SSO/popup handling — Stubhub and Viagogo both use Google/Facebook OAuth
