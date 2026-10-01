@@ -133,6 +133,18 @@ class MailboxWorker {
       if (this.state.lastUid > 0) {
         uids = await client.search({ uid: `${this.state.lastUid + 1}:*` }, { uid: true });
         uids = (uids || []).filter(u => u > this.state.lastUid);
+        // Gmail's long-lived session on "All Mail" can stop seeing new mail (no EXISTS,
+        // SEARCH stays empty). STATUS reports the real UIDNEXT: if it says there is
+        // mail we cannot see, drop the connection so the reconnect's startup check reads it.
+        if (!uids.length && reason !== 'startup') {
+          const st = await client.status(client.mailbox.path, { uidNext: true }).catch(() => null);
+          if (st && st.uidNext && st.uidNext - 1 > this.state.lastUid) {
+            this.log(`stale session: UIDNEXT ${st.uidNext} but nothing after ${this.state.lastUid}, reconnecting`);
+            this.backoff = 1000;
+            client.close();
+            return;
+          }
+        }
       } else {
         const since = new Date(Date.now() - cfg.INGEST_BACKFILL_DAYS * 86400000);
         uids = (await client.search({ since }, { uid: true })) || [];
