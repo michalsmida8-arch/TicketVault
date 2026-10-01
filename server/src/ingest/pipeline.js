@@ -36,6 +36,15 @@ function findSameEvent(db, parsed) {
   return null;
 }
 
+// Ticket / barcode numbers listed after a "Ticketnummer"-style header. Delivery mails
+// without an order number ("mobile tickets available") are told apart by these.
+function extractTicketNumbers(text) {
+  const t = String(text || '');
+  const at = t.search(/ticket\s*-?\s*(nummer|number|nr\.?|no\.?)|barcode|číslo vstupenky/i);
+  if (at < 0) return [];
+  return [...new Set(t.slice(at, at + 400).match(/\b\d{8,16}\b/g) || [])];
+}
+
 function pdfAttachments(mail) {
   return (mail.attachments || []).filter(a => a.content && (/pdf/i.test(a.contentType || '') || /\.pdf$/i.test(a.filename || '')))
     .map(a => ({ ...a, filename: a.filename || 'vstupenka.pdf' }));
@@ -101,7 +110,8 @@ function toParsed(x, mail) {
     accountEmail: x.accountEmail || mail.to || null,
     confidence: x.confidence ?? null,
     parser: x.parser || 'llm',
-    notes: x.notes || null
+    notes: x.notes || null,
+    ticketNumbers: extractTicketNumbers(mail.text || mail.html || '')
   };
   if (kind === 'sale') {
     p.saleType = 'sold';
@@ -126,7 +136,7 @@ async function ingestParsedMail(mail, ctx) {
   // 1) Message-ID dedupe (a forward + the original, or a reconnect re-fetch)
   if (mail.messageId) {
     const db = store.loadBucket(ctx.dataKey);
-    if (db.inbox.some(i => i.messageId === mail.messageId)) { log({ result: 'duplicate-message-id' }); return { result: 'duplicate-message-id' }; }
+    if (db.inbox.some(i => i.messageId === mail.messageId || (i.mergedMessageIds || []).includes(mail.messageId))) { log({ result: 'duplicate-message-id' }); return { result: 'duplicate-message-id' }; }
   }
 
   // 2) Prefilter
@@ -178,6 +188,32 @@ async function ingestParsedMail(mail, ctx) {
   // event date + a shared significant word in the event name.
   if (!dupOf && parsed.eventKind === 'delivery' && parsed.eventDate && parsed.event) {
     dupOf = findSameEvent(store.loadBucket(ctx.dataKey), parsed);
+  }
+  // Same match, but ticket numbers we have never seen = MORE tickets (one mail per
+  // transfer/order), not a repeat. Add them to the pending card, or make a new one.
+  if (dupOf && dupOf.by === 'event+date' && parsed.ticketNumbers.length) {
+    const db = store.loadBucket(ctx.dataKey);
+    const known = JSON.stringify([...db.tickets.filter(t => t.eventDate === parsed.eventDate),
+      ...db.inbox.filter(i => i.parsed?.eventDate === parsed.eventDate)]);
+    const fresh = parsed.ticketNumbers.filter(n => !known.includes(n));
+    if (fresh.length) {
+      const merged = dupOf.type === 'inbox' && await store.updateBucket(ctx.dataKey, d => {
+        const it = d.inbox.find(i => i.id === dupOf.id);
+        if (!it || it.state !== 'pending_review' || !it.parsed) return false;
+        const now = new Date().toISOString();
+        it.parsed.quantity = (Number(it.parsed.quantity) || 0) + fresh.length;
+        it.parsed.ticketNumbers = [...new Set([...(it.parsed.ticketNumbers || []), ...fresh])];
+        it.parsed.notes = [it.parsed.notes, `+${fresh.length} ks z e-mailu ${mail.date ? new Date(mail.date).toISOString().slice(0, 16).replace('T', ' ') : ''}: ${fresh.join(', ')}`].filter(Boolean).join(' · ');
+        if (mail.messageId) it.mergedMessageIds = [...(it.mergedMessageIds || []), mail.messageId];
+        it._serverAt = now;
+        return true;
+      });
+      if (merged) {
+        log({ result: 'merged-delivery', inboxId: dupOf.id, added: fresh });
+        return { result: 'merged-delivery', inboxId: dupOf.id, added: fresh };
+      }
+      dupOf = null;
+    }
   }
   const pdfs = pdfAttachments(mail);
   if (dupOf && ['delivery', 'purchase', 'sale'].includes(parsed.eventKind)) {

@@ -407,3 +407,12 @@ test('prefilter: Danish receipt and any PDF attachment go through', () => {
     attachments: [{ filename: 'tickets.pdf', contentType: 'application/pdf' }] }).pass, true);
   assert.equal(prefilter({ from: 'noreply@info-dbu.dk', subject: 'Storskærm i Fælledparken' }).pass, false);
 });
+
+test('delivery mails expose ticket numbers so separate transfers are not duplicates', () => {
+  const { toParsed } = require('../src/ingest/pipeline');
+  const text = 'Ticket-Details\nEvent Datum Ticketanzahl Ticketnummer RB Leipzig vs. PSV Eindhoven 13 Oct 2026\n21:00 2 38010778298, 38010779694\nBevor du dich';
+  const p = toParsed({ relevant: true, kind: 'delivery', event: 'RB Leipzig vs. PSV Eindhoven', eventDate: '2026-10-13', quantity: 2 },
+    { from: 'no-reply@tickets.rbleipzig.com', subject: 'Mobile Ticket(s) verfügbar', text });
+  assert.deepEqual(p.ticketNumbers, ['38010778298', '38010779694']);
+  assert.deepEqual(toParsed({ relevant: true, kind: 'purchase' }, { from: 'a@b.c', subject: 'x', text: 'Order 2026 total 45' }).ticketNumbers, []);
+});
