@@ -70,6 +70,7 @@ api.get('/rates', async (req, res) => {
     res.json({ rates: ratesCache.rates });
   } catch (e) { res.status(502).json({ error: 'Kurzy se nepodařilo načíst: ' + e.message }); }
 });
+api.use('/logos', require('./logos').router);   // public: <img> cannot send the token
 api.use('/auth', authRouter);
 api.use('/', dbRouter);
 app.use('/api', api);

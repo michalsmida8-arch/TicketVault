@@ -501,6 +501,72 @@ function getEventInitials(name) {
   return name.substring(0, 2).toUpperCase();
 }
 
+// ---- Automatic logos: team crests for matches, artist picture for concerts ----------
+// The server resolves names (TheSportsDB / Deezer) and caches the images; a logo typed
+// into the ticket's "Logo" field always wins.
+const logoState = { map: {}, inflight: false, retries: 0, timer: null };
+function logoNorm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9$&]+/g, ' ').trim(); }
+function logoSubjects(t) {
+  const name = String(t.eventName || '').trim();
+  if (!name) return [];
+  const parts = name.split(/\s+(?:vs\.?|v\.?|x|–|-)\s+/i);
+  if (parts.length >= 2 && (t.category === 'football' || /\s(?:vs\.?|v\.?)\s/i.test(name))) {
+    const clean = s => s.replace(/\s*[([].*$/, '').replace(/\s+[–|:].*$/, '').trim();
+    return [['team', clean(parts[0])], ['team', clean(parts[1])]].filter(x => x[1]);
+  }
+  if (t.category === 'football') return [['team', name]];
+  const artist = name.split(/\s*[:–|(]\s*|\s+-\s+|,\s*/)[0].trim();
+  // 'Bad Bunny World Tour', 'BTS WORLD TOUR ...' -> the act itself
+  const act = artist.replace(/\s+(?:world\s+)?tour\b.*$/i, '').replace(/\s+live\b.*$/i, '').trim() || artist;
+  return act ? [['artist', act]] : [];
+}
+function logoBase() {
+  return document.documentElement.classList.contains('web-mode') ? location.origin : plBackendBase();
+}
+function logoHtml(t) {
+  if (t.logo) return `<div class="event-logo"><img src="${escapeHtml(t.logo)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${getEventInitials(t.eventName)}'"></div>`;
+  const subj = logoSubjects(t);
+  const urls = subj.map(([k, n]) => logoState.map[k + ':' + logoNorm(n)]).filter(Boolean).map(u => escapeHtml(logoBase() + u));
+  const img = u => `<img src="${u}" alt="" loading="lazy" onerror="this.remove()">`;
+  if (subj.length === 2 && urls.length === 2) return `<div class="event-logo duo">${img(urls[0])}${img(urls[1])}</div>`;
+  if (urls.length) return `<div class="event-logo${subj[0][0] === 'artist' ? ' photo' : ''}">${img(urls[0])}</div>`;
+  return `<div class="event-logo">${getEventInitials(t.eventName)}</div>`;
+}
+// Ask the server for every name it has not answered yet; while it is still looking
+// some up, poll a few times and re-render when new pictures arrive.
+async function ensureLogos(tickets) {
+  if (logoState.inflight) return;
+  const want = new Map();
+  for (const t of tickets) {
+    if (t.logo) continue;
+    for (const [k, n] of logoSubjects(t)) {
+      const key = k + ':' + logoNorm(n);
+      if (!(key in logoState.map) && !want.has(key)) want.set(key, [k, n]);
+    }
+  }
+  if (!want.size) return;
+  logoState.inflight = true;
+  let added = 0, pending = 0;
+  try {
+    const all = [...want.values()];
+    for (let i = 0; i < all.length; i += 60) {
+      const qs = all.slice(i, i + 60).map(([k, n]) => `${k}=${encodeURIComponent(n)}`).join('&');
+      const r = await fetch(logoBase() + '/logos/resolve?' + qs);
+      if (!r.ok) break;
+      const d = await r.json();
+      for (const [key, url] of Object.entries(d.logos || {})) { logoState.map[key] = url; if (url) added++; }
+      pending += (d.pending || []).length;
+    }
+  } catch (_) { /* server unreachable: initials stay */ }
+  logoState.inflight = false;
+  if (added) renderTickets();
+  if (pending && logoState.retries < 40) {
+    logoState.retries++;
+    clearTimeout(logoState.timer);
+    logoState.timer = setTimeout(() => ensureLogos(state.db.tickets || []), 6000);
+  } else if (!pending) logoState.retries = 0;
+}
+
 // ============ COUNTRIES ============
 // All 195 UN-recognized countries + a few dependent territories relevant
 // to the ticketing market (Hong Kong, Macau, Puerto Rico, Gibraltar).
@@ -2208,6 +2274,7 @@ function renderGroupedRows(list, rowHtml) {
         <td class="col-event">
           <div class="event-cell">
             <button class="group-toggle" data-group-toggle="${escapeHtml(key)}" title="${open ? 'Sbalit' : 'Rozbalit'}">${icon(open ? 'chevron-down' : 'chevron')}</button>
+            ${logoHtml(first)}
             <div class="event-name-wrap">
               <div class="event-name">${escapeHtml(first.eventName || '—')} <span class="group-count">${items.length} řádky</span></div>
               ${(first.venue || first.country) ? `<div class="event-sub">${iso ? `<span class="country-iso">${iso}</span>` : ''}${escapeHtml(first.venue || first.country || '')}</div>` : ''}
@@ -2337,9 +2404,6 @@ function renderTickets() {
     const profitClass = profit >= 0 ? 'profit-positive' : 'profit-negative';
     const roiClass = roi >= 0 ? 'roi-positive' : 'roi-negative';
     const checked = state.selectedIds.has(t.id) ? 'checked' : '';
-    const logo = t.logo 
-      ? `<img src="${escapeHtml(t.logo)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${getEventInitials(t.eventName)}'">`
-      : getEventInitials(t.eventName);
     // Normalize status — sometimes legacy or imported tickets have status
     // values with trailing whitespace or different casing (e.g. "Delivered",
     // "delivered ", "DELIVERED"). This caused only SOME delivered rows to
@@ -2460,7 +2524,7 @@ function renderTickets() {
         <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" ${checked}></td>
         <td class="col-event">
           <div class="event-cell">
-            <div class="event-logo">${logo}</div>
+            ${logoHtml(t)}
             <div class="event-name-wrap">
               <div class="event-name">${escapeHtml(t.eventName || '—')}${listingLinkIcon}</div>
               ${venueLine}
@@ -2506,6 +2570,7 @@ function renderTickets() {
     `;
   };
   tbody.innerHTML = state.groupByEvent === false ? shown.map(rowHtml).join('') : renderGroupedRows(shown, rowHtml);
+  ensureLogos(shown);
   
   // Row actions & checkboxes handled once via delegation (setupTicketsDelegation).
   // Sync header checkbox state on each render (e.g. after filter changes).

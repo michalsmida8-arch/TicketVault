@@ -390,11 +390,13 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 /* keep the table inside the window: secondary row actions collapse into a hover tray */
 .tickets-table .col-event { max-width: 250px; }
 .tickets-table .event-name { overflow-wrap: anywhere; }
+/* Secondary icons keep their space and only fade in on hover. Growing the cell on hover
+   (the old width:auto tray) made table-layout:auto recompute every column, so the whole
+   table jumped as the mouse moved across rows. */
 .actions-cell { position: relative; }
-.actions-secondary { width: 30px; overflow: hidden; justify-content: flex-end; transition: width .18s var(--ease), opacity .15s var(--ease); }
-.actions-secondary .icon-btn:not([data-action="edit"]) { display: none; }
-.tickets-table tr:hover .actions-secondary { width: auto; }
-.tickets-table tr:hover .actions-secondary .icon-btn { display: inline-flex; }
+.actions-secondary { justify-content: flex-end; transition: opacity .15s var(--ease); }
+.actions-secondary .icon-btn:not([data-action="edit"]) { visibility: hidden; opacity: 0; transition: opacity .12s var(--ease); }
+.tickets-table tr:hover .actions-secondary .icon-btn { visibility: visible; opacity: 1; }
 
 /* narrower windows: drop the least important columns (still in the detail drawer) */
 @media (max-width: 1500px) {
@@ -411,7 +413,8 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 }
 @media (max-width: 1420px) {
   .tickets-table td, .tickets-table th { padding-left: 6px; padding-right: 6px; }
-  .tickets-table .event-logo { display: none; }
+  .tickets-table .event-logo { width: 26px; height: 26px; }
+  .tickets-table .event-logo.duo { width: 44px; }
 }
 
 /* ---------- web edition: desktop-only sections are hidden ---------- */
@@ -478,3 +481,10 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
   .lst-row { grid-template-columns: 1fr 1fr; }
   .lst-cmp-row { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* ---------- automatic logos (1.17.1): two crests for a match, artist photo for a concert ---------- */
+.event-logo.duo { width: 52px; gap: 2px; padding: 2px 3px; }
+.event-logo.duo img { width: 50%; }
+.event-logo.photo { padding: 0; }
+.event-logo.photo img { object-fit: cover; }
+.group-row .event-logo { margin-right: 2px; }
