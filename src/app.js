@@ -2269,7 +2269,7 @@ function renderGroupedRows(list, rowHtml) {
     const allChecked = items.every(t => state.selectedIds.has(t.id));
     const iso = first.country ? getCountryIso(first.country) : '';
     html += `
-      <tr class="group-row${open ? ' open' : ''}" data-group="${escapeHtml(key)}">
+      <tr class="group-row${open ? ' open' : ''}${items.every(t => String(t.status || '').trim().toLowerCase() === 'delivered') ? ' row-delivered' : ''}" data-group="${escapeHtml(key)}">
         <td class="col-check"><input type="checkbox" class="group-check" data-group="${escapeHtml(key)}" ${allChecked ? 'checked' : ''}></td>
         <td class="col-event">
           <div class="event-cell">
