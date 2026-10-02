@@ -416,3 +416,15 @@ test('delivery mails expose ticket numbers so separate transfers are not duplica
   assert.deepEqual(p.ticketNumbers, ['38010778298', '38010779694']);
   assert.deepEqual(toParsed({ relevant: true, kind: 'purchase' }, { from: 'a@b.c', subject: 'x', text: 'Order 2026 total 45' }).ticketNumbers, []);
 });
+
+test('viagogo payout mail lists every order of the payment', () => {
+  const { parseViagogoPayout } = require('../src/ingest/parsers');
+  const text = 'Hello Michal,\nWe processed your payment on Friday, October 2, 2026.\nPayment reference # 67869485\nPayment IDOrder IDOrder DatePaymentTicket(s) YZO6786948563127843512-Dec-25 07:04\nPM€316.44\n2Czechia vs Croatia - Nations League6786948565526802526-Sep-26 12:27 PM€61.52\n2Payment:€377.96 \nIf you see a charge';
+  const p = parseViagogoPayout({ from: '"viagogo" <automated@orders.viagogo.com>', subject: 'viagogo payment 67869485 - You have just been paid', text });
+  assert.equal(p.paymentRef, '67869485');
+  assert.equal(p.paidDate, '2026-10-02');
+  assert.equal(p.total, 377.96);
+  assert.deepEqual(p.orders.map(o => [o.orderId, o.saleDate, o.amount, o.quantity, o.event]),
+    [['631278435', '2025-12-12', 316.44, 2, 'YZO'], ['655268025', '2026-09-26', 61.52, 2, 'Czechia vs Croatia - Nations League']]);
+  assert.equal(parseViagogoPayout({ from: 'x@stubhub.com', subject: 'You have just been paid', text }), null);
+});

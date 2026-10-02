@@ -6610,6 +6610,30 @@ function renderInboxCard(item) {
   if (item.parsedOverrides) Object.assign(p, item.parsedOverrides);
   const received = new Date(item.receivedAt).toLocaleString('cs-CZ');
 
+  // Payout summary from the server (one mail, several orders): informational card.
+  if (p.kind === 'payout') {
+    const po = p.payout || {};
+    const orders = (po.orders || []).map(o => {
+      const ok = (po.matched || []).includes(o.orderId);
+      return `<div class="inbox-subject">${ok ? '✓' : '✗'} ${escapeHtml(o.orderId)} · ${escapeHtml(o.event || 'akce neuvedena')} · prodáno ${o.saleDate ? fmtDateCz(o.saleDate) : '?'} · ${o.quantity} ks · ${formatMoney(o.amount, o.currency)}${ok ? '' : ' — <strong>v inventáři není</strong>'}</div>`;
+    }).join('');
+    return `
+      <div class="inbox-card" data-id="${item.id}">
+        <div class="inbox-card-header">
+          <span class="inbox-kind-badge inbox-kind-sale"><span class="ico-slot" data-ico="euro"></span> Výplata</span>
+          <span class="inbox-platform-badge">${escapeHtml(p.platform || '')}</span>
+          <span class="inbox-date">${received}</span>
+        </div>
+        <div class="inbox-title">Výplata ${escapeHtml(po.paymentRef || '')}${po.paidDate ? ' · ' + fmtDateCz(po.paidDate) : ''} — ${formatMoney(po.total || p.totalAmount || 0, po.currency || p.currency || 'EUR')}</div>
+        ${orders}
+        <div class="inbox-match-box ${(po.missing || []).length ? 'no-match' : ''}">${(po.matched || []).length} objednávek označeno jako vyplacené${(po.missing || []).length ? `, ${(po.missing || []).length} v inventáři chybí — doplň je, nebo kartu zahoď` : ''}.</div>
+        <div class="inbox-actions">
+          <button class="btn btn-dark" data-inbox-action="dismiss" data-inbox-id="${item.id}">× Zahodit</button>
+        </div>
+      </div>
+    `;
+  }
+
   // Failed parser
   if (!p.success) {
     return `

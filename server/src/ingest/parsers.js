@@ -147,6 +147,36 @@ function parseLeipzigInvoice(rawText) {
   return out;
 }
 
+// Viagogo "viagogo payment 67869485 - You have just been paid": one payout covering
+// several orders. The table flattens to
+//   "Payment IDOrder IDOrder DatePaymentTicket(s) <event><ref><order><dd-Mon-yy> <hh:mm> <AM|PM>€<amount><qty><event>..."
+// (event names are short/odd, e.g. "YZO", or the real name). Returns null for other mail.
+function parseViagogoPayout(mail) {
+  if (!/viagogo/i.test(mail.from || '') || !/you have just been paid|processed your payment/i.test((mail.subject || '') + ' ' + (mail.text || ''))) return null;
+  const text = String(mail.text || '').replace(/\[https?:[^\]]*\]/g, '').replace(/\s+/g, ' ');
+  const ref = (text.match(/Payment reference\s*#?\s*(\d{5,})/i) || (mail.subject || '').match(/payment\s+(\d{5,})/i) || [])[1];
+  if (!ref) return null;
+  const head = text.search(/Ticket\(s\)/i);
+  const tail = text.search(/Payment:\s*[€£$]/i);
+  if (head < 0) return null;
+  const table = text.slice(head + 'Ticket(s)'.length, tail > head ? tail : undefined);
+  const rowRe = new RegExp(`(.*?)${ref}(\\d{6,12})(\\d{2}-[A-Za-z]{3}-\\d{2}) (\\d{1,2}:\\d{2} ?[AP]M) ?([€£$])([\\d,]+\\.\\d{2}) ?(\\d{1,3})(?=\\D|$)`, 'g');
+  const cur = { '€': 'EUR', '£': 'GBP', '$': 'USD' };
+  const orders = [];
+  let m;
+  while ((m = rowRe.exec(table))) {
+    const d = new Date(m[3].replace(/-(\d{2})$/, '-20$1') + ' ' + m[4].replace(/(\d)([AP]M)/, '$1 $2'));
+    orders.push({ event: m[1].trim(), orderId: m[2], saleDate: isNaN(d) ? null : d.toISOString().slice(0, 10),
+      amount: parseFloat(m[6].replace(/,/g, '')), currency: cur[m[5]] || 'EUR', quantity: parseInt(m[7], 10) });
+  }
+  if (!orders.length) return null;
+  const totalM = text.match(/Payment:\s*([€£$])([\d,]+\.\d{2})/i);
+  const paidM = text.match(/processed your payment on\s+\w+,\s+([A-Za-z]+ \d{1,2}, \d{4})/i);
+  const paidDate = paidM && !isNaN(new Date(paidM[1])) ? new Date(paidM[1] + ' 12:00').toISOString().slice(0, 10) : null;
+  return { paymentRef: ref, paidDate, currency: totalM ? (cur[totalM[1]] || 'EUR') : orders[0].currency,
+    total: totalM ? parseFloat(totalM[2].replace(/,/g, '')) : orders.reduce((s, o) => s + o.amount, 0), orders };
+}
+
 // Try every deterministic parser on the mail text and on PDF attachment text.
 // Returns { kind, ...fields, confidence, parser } or null.
 async function runDeterministicParsers(mail) {
@@ -168,4 +198,4 @@ async function runDeterministicParsers(mail) {
   return null;
 }
 
-module.exports = { detectPlatform, prefilter, runDeterministicParsers, parseLeipzigInvoice, isSalePlatform, canonicalPlatform, saleStage };
+module.exports = { detectPlatform, prefilter, runDeterministicParsers, parseLeipzigInvoice, parseViagogoPayout, isSalePlatform, canonicalPlatform, saleStage };

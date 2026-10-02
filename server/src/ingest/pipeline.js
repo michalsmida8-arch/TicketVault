@@ -155,6 +155,10 @@ async function ingestParsedMail(mail, ctx) {
     if (!t || !t.relevant) { log({ result: 'skipped', reason: pre.reason, triage: t && t.answer }); return { result: 'skipped', reason: pre.reason }; }
   }
 
+  // 2b) Viagogo payout summary (several orders in one mail): no LLM needed.
+  const payout = parsers.parseViagogoPayout(mail);
+  if (payout) return ingestPayout(mail, payout, ctx, log);
+
   // 3) Deterministic parsers, then Claude
   let extraction = await parsers.runDeterministicParsers(mail);
   let usage = null;
@@ -366,6 +370,53 @@ async function ingestRaw(buffer, ctx) {
 // Re-run the whole extraction for one inbox item from its stored .eml
 // (after improving parsers/prompt or adding examples). Replaces `parsed`,
 // keeps user overrides and state.
+// Mark every order of a payout as paid on the ticket(s) carrying that Viagogo order
+// number. Matching is by order number only: a payout must never sell an open ticket.
+// One inbox card summarises the payout; it is resolved when every order matched.
+async function ingestPayout(mail, payout, ctx, log) {
+  const fmt = n => n.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const cz = iso => iso ? iso.split('-').reverse().map(Number).join('. ') : '?';
+  const outcome = await store.updateBucket(ctx.dataKey, db => {
+    const now = new Date().toISOString();
+    const matched = [], missing = [], already = [];
+    for (const o of payout.orders) {
+      const rows = db.tickets.filter(t => normOrder((t.externalIds || {}).viagogoOrderId) === normOrder(o.orderId));
+      if (!rows.length) { missing.push(o); continue; }
+      if (rows.every(t => t.paidOut)) { already.push(o); continue; }
+      const qty = rows.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+      for (const t of rows) {
+        const i = db.tickets.findIndex(x => x.id === t.id);
+        const share = Math.round(o.amount * (Number(t.quantity) || 1) / qty * 100) / 100;
+        db.tickets[i] = { ...t, paidOut: true, paidOutDate: payout.paidDate || now.slice(0, 10), paidOutAmount: share,
+          status: t.status === 'sold' ? 'delivered' : t.status, deliveredAt: t.deliveredAt || (t.status === 'sold' ? now : t.deliveredAt),
+          updated: now, _serverAt: now };
+      }
+      matched.push({ ...o, ticketIds: rows.map(t => t.id) });
+    }
+    const line = o => `${o.orderId} (${o.event || 'akce neuvedena'}, prodáno ${cz(o.saleDate)}, ${o.quantity} ks, ${fmt(o.amount)} ${o.currency})`;
+    const summary = `Výplata Viagogo ${payout.paymentRef} (${cz(payout.paidDate)}): ${payout.orders.length} objednávek, ${fmt(payout.total)} ${payout.currency}.`
+      + ` Označeno jako vyplacené: ${matched.length}${already.length ? `, už dřív vyplacené: ${already.length}` : ''}.`
+      + (missing.length ? ` V inventáři nejsou: ${missing.map(line).join('; ')}.` : '');
+    const item = {
+      id: newInboxId(),
+      state: missing.length ? 'pending_review' : 'approved',
+      receivedAt: (mail.date ? new Date(mail.date) : new Date()).toISOString(),
+      createdAt: now,
+      from: mail.from, to: mail.to, subject: mail.subject, messageId: mail.messageId || null,
+      parsed: { success: false, kind: 'payout', platform: 'Viagogo', orderId: payout.paymentRef, totalAmount: payout.total, currency: payout.currency,
+        error: summary, notes: summary, payout: { ...payout, matched: matched.map(m => m.orderId), missing: missing.map(m => m.orderId) }, parser: 'viagogo-payout', confidence: 1 },
+      source: { mailbox: ctx.mailboxName, uid: ctx.uid || null, rawPath: ctx.rawPath || null, model: null },
+      _serverAt: now
+    };
+    if (!missing.length) { item.resolvedAt = now; item.autoApplied = { action: 'payout', ticketIds: matched.flatMap(m => m.ticketIds) }; }
+    db.inbox.push(item);
+    return { item, matched, missing, already };
+  });
+  log({ result: outcome.missing.length ? 'created' : 'applied', kind: 'payout', inboxId: outcome.item.id, paymentRef: payout.paymentRef,
+    matched: outcome.matched.map(m => m.orderId), missing: outcome.missing.map(m => m.orderId) });
+  return { result: outcome.missing.length ? 'created' : 'applied', item: outcome.item };
+}
+
 async function reprocessInboxItem(user, inboxId) {
   const db = store.loadBucket(user.dataKey);
   const item = db.inbox.find(i => i.id === inboxId);
