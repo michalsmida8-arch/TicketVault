@@ -504,9 +504,10 @@
     }
     ui.busy[t.id] = 'prefill'; render();
     // StubHub convention (Michal): Row = home team's name, seat numbers stay empty,
-    // only the section is real. Viagogo gets the real row and seats.
-    const seats = platform === 'Stubhub' ? {} : seatRange(t.seat);
-    const rowText = platform === 'Stubhub' ? (homeTeamShort(t) || t.row || '') : (t.row || '');
+    // only the section is real.
+    // Viagogo: section only, row and seats stay empty (Michal, 5. 10. 2026).
+    const seats = {};
+    const rowText = platform === 'Stubhub' ? (homeTeamShort(t) || t.row || '') : '';
     const currency = (L.market && L.market.currency) || L.currency || t.currency || 'EUR';
     const payload = { ticketId: t.id, event: ev, quantity: Number(t.quantity) || 1, section: t.section || '', row: rowText, ...seats,
       price, currency: platform === 'Viagogo' ? (L.currency || 'EUR') : currency, ticketType,
