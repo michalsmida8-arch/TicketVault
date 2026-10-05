@@ -273,13 +273,16 @@
     const set = (sel, v) => { if (v !== undefined && v !== null && v !== '') $(sel).val(String(v)).trigger('input').trigger('change').trigger('keyup'); };
     set('#Listing_AvailableTickets', p.quantity);
     set('#Listing_SplitType', p.quantity > 1 ? 'AvoidOne' : 'Any');
-    const secSel = document.getElementById('Listing.Section');
+    const secSel = [...document.querySelectorAll('select[id="Listing.Section"]')].find(e => e.offsetParent) || document.getElementById('Listing.Section');
     if (p.section && secSel) {
-      const n = v => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      // Keep dots: Viagogo sections are "13.1", "3.2", "42A"…
+      const n = v => String(v || '').toLowerCase().replace(/[^a-z0-9.]+/g, ' ').replace(/\.(?!\d)/g, ' ').trim();
       const opts = [...secSel.options].map(o => o.value).filter(v => v && !/choose/i.test(v));
-      const want = n(p.section), num = (want.match(/\d+[a-z]?/) || [])[0];
-      let hit = opts.find(v => n(v) === want);
-      if (!hit && num) { const h = opts.filter(v => n(v) === num || (n(v).match(/(\d+[a-z]?)$/) || [])[1] === num); if (h.length === 1) hit = h[0]; }
+      const want = n(p.section);
+      const key = String(p.sectionKey || '').toLowerCase();
+      const num = key || (want.match(/\d+(?:\.\d+)?[a-z]?/) || [])[0];
+      let hit = opts.find(v => n(v) === want) || (key && opts.find(v => n(v) === key));
+      if (!hit && num) { const h = opts.filter(v => n(v) === num || (n(v).match(/(\d+(?:\.\d+)?[a-z]?)$/) || [])[1] === num); if (h.length === 1) hit = h[0]; }
       if (hit) { $(secSel).val(hit).trigger('change'); await sleep(300); } else notes.push('sekci „' + p.section + '“ vyber ručně');
     } else if (p.section) {
       set('#Listing_Section', p.section);
@@ -509,7 +512,7 @@
     const seats = {};
     const rowText = platform === 'Stubhub' ? (homeTeamShort(t) || t.row || '') : '';
     const currency = (L.market && L.market.currency) || L.currency || t.currency || 'EUR';
-    const payload = { ticketId: t.id, event: ev, quantity: Number(t.quantity) || 1, section: t.section || '', row: rowText, ...seats,
+    const payload = { ticketId: t.id, event: ev, quantity: Number(t.quantity) || 1, section: t.section || '', sectionKey: sectionKey(t.section), row: rowText, ...seats,
       price, currency: platform === 'Viagogo' ? (L.currency || 'EUR') : currency, ticketType,
       purchasePrice: t.purchasePrice, purchaseCurrency: t.currency };
     try {
