@@ -193,7 +193,10 @@ async function ingestParsedMail(mail, ctx) {
     // Only *OrderId keys: a listing ID on an unsold ticket must not make a "sold" mail a duplicate.
     const inTickets = db.tickets.find(t => Object.entries(t.externalIds || {})
       .some(([k, v]) => /OrderId$/i.test(k) && normOrder(v) === key));
-    dupOf = inInbox ? { type: 'inbox', id: inInbox.id } : inTickets ? { type: 'ticket', id: inTickets.id } : null;
+    // Prefer the ticket (also the one an approved card created): PDFs that come later belong on it.
+    const viaCard = inInbox?.autoApplied?.ticketId && db.tickets.find(t => t.id === inInbox.autoApplied.ticketId);
+    const ticket = inTickets || viaCard;
+    dupOf = ticket ? { type: 'ticket', id: ticket.id } : inInbox ? { type: 'inbox', id: inInbox.id } : null;
   }
   // Deliveries without an order number (e.g. "mobile tickets available"): match by
   // event date + a shared significant word in the event name.
@@ -242,6 +245,22 @@ async function ingestParsedMail(mail, ctx) {
       log({ result: 'attached-pdf', ticketId: dupOf.id, files: files.map(x => x.name) });
       return { result: 'attached-pdf', dupOf };
     }
+    // Card still waiting for approval: put the PDFs on the card, approval carries them to the ticket.
+    if (pdfs.length && dupOf.type === 'inbox') {
+      const attached = await store.updateBucket(ctx.dataKey, db => {
+        const it = db.inbox.find(x => x.id === dupOf.id);
+        if (!it || it.state !== 'pending_review') return null;
+        const have = new Set((it.files || []).map(x => x.name));
+        const files = pdfs.filter(a => !have.has(a.filename)).map(a => store.saveFile(ctx.dataKey, it.id, a.filename, a.content));
+        it.files = [...(it.files || []), ...files];
+        it._serverAt = new Date().toISOString();
+        return files.map(x => x.name);
+      });
+      if (attached) {
+        log({ result: 'attached-pdf', inboxId: dupOf.id, files: attached });
+        return { result: 'attached-pdf', dupOf };
+      }
+    }
     log({ result: 'duplicate-order', kind: parsed.eventKind, dupOf });
     return { result: 'duplicate-order', dupOf };
   }
@@ -264,7 +283,13 @@ async function ingestParsedMail(mail, ctx) {
   const outcome = await store.updateBucket(ctx.dataKey, db => {
     if (parsed.kind !== 'purchase' || !parsed.success) { db.inbox.push(item); return { applied: false }; }
     const dups = purchases.findDuplicates(db, parsed);
-    if (dups.certain.length) return { duplicate: true, ticketId: dups.certain[0].id };
+    if (dups.certain.length) {
+      const t = dups.certain[0];
+      const have = new Set((t.files || []).map(x => x.name));
+      const add = files.filter(x => !have.has(x.name));
+      if (add.length) { const now = new Date().toISOString(); Object.assign(t, { files: [...(t.files || []), ...add], updated: now, _serverAt: now }); }
+      return { duplicate: true, ticketId: t.id };
+    }
     if (dups.possible.length) item.possibleDuplicate = dups.possible.map(t => t.id);
     const why = !cfg.AUTO_ADD_PURCHASES ? 'auto-add-off'
       : dups.possible.length ? 'possible-duplicate'

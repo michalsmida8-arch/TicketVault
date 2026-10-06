@@ -29,7 +29,13 @@ function findDuplicates(db, p) {
   if (!p.eventDate || !p.event) return { certain: [], possible: [] };
   const w = words(p.event);
   const total = p.totalAmount || (p.pricePerTicket || 0) * (p.quantity || 1);
-  const sameEvent = db.tickets.filter(t => t.eventDate === p.eventDate && [...words(t.eventName)].some(x => w.has(x)));
+  // Not the same order: the ticket carries a different order number, or sits in another section
+  // (several orders for one event — e.g. 5 Ticketportal orders for Calin & Viktor Sheen).
+  const sec = s => norm(String(s || '').split(/[\s(,]/)[0]);
+  const otherOrder = t => key && Object.values(t.externalIds || {}).some(v => norm(v));
+  const otherSection = t => sec(p.section) && sec(t.section) && sec(p.section) !== sec(t.section);
+  const sameEvent = db.tickets.filter(t => t.eventDate === p.eventDate && [...words(t.eventName)].some(x => w.has(x))
+    && !otherOrder(t) && !otherSection(t));
   // Rows split by sales keep the purchase total spread over rows: compare summed quantities too.
   const sumQty = sameEvent.reduce((s, t) => s + (Number(t.quantity) || 0), 0);
   const possible = sameEvent.filter(t => {

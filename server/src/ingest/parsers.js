@@ -84,7 +84,8 @@ const JUNK = new RegExp([
   'survey', 'feedback', 'rate your', '% off', '\\bsale\\s*[|:]', 'sleva', 'slevou', 'rabatt', 'descuento', 'jusqu', 'exclusive \\|',
   'a la venta', 'en venta', 'get tickets', 'ticket bulletin', 'nuevas entradas', 'new dates', 'jetzt tickets',
   'your new listing', 'listing (?:is )?(?:live|created|updated|expired|expiring)', 'price your tickets',
-  'položek k vyřešení', 'k dořešení'
+  'položek k vyřešení', 'k dořešení',
+  '^platba - ticketportal' // payment notice without the event; the order confirmation follows
 ].join('|'), 'i');
 
 function prefilter(mail) {

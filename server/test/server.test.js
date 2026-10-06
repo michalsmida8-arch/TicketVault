@@ -351,6 +351,12 @@ test('purchases: complete high-confidence order is added, duplicates are held ba
     { id: 'a', eventName: "A$AP ROCKY - DON'T BE DUMB WORLD TOUR", eventDate: '2026-10-11', quantity: 1, purchasePrice: 86.5 },
     { id: 'b', eventName: "A$AP ROCKY - DON'T BE DUMB WORLD TOUR", eventDate: '2026-10-11', quantity: 3, purchasePrice: 86.5 }] }, asap);
   assert.equal(d.possible.length, 2);
+  // another order for the same event (different order number or section) is not a duplicate
+  const calin = { ...p, platform: 'Ticketportal', event: 'Calin & Viktor Sheen', eventDate: '2026-12-05', quantity: 4, totalAmount: 4080, orderId: '13642556', section: '414' };
+  const have = { id: 'c', eventName: 'Calin & Viktor Sheen', eventDate: '2026-12-05', quantity: 4, purchasePrice: 2020, section: '114' };
+  assert.equal(findDuplicates({ tickets: [{ ...have, externalIds: { otherId: '13642393' } }] }, calin).possible.length, 0);
+  assert.equal(findDuplicates({ tickets: [have] }, calin).possible.length, 0);
+  assert.equal(findDuplicates({ tickets: [{ ...have, section: '414 (4. poschodí)' }] }, calin).possible.length, 1);
 });
 
 test('deadline alerts pick undelivered sales and unlisted tickets near the event', () => {
