@@ -2287,7 +2287,7 @@ function renderGroupedRows(list, rowHtml) {
         <td class="col-channel"><div class="cell-sub">${[...new Set(items.map(t => t.platform).filter(Boolean))].map(escapeHtml).join(', ') || '—'}</div></td>
         <td><div class="group-chips">${chips}</div></td>
         <td class="col-purchase col-num"><div class="cell-main">${formatMoney(cost, primary)}</div></td>
-        <td class="col-sale col-num">${done.length ? `<div class="cell-main">${formatMoney(revenue, primary)}</div>` : '<span class="muted">—</span>'}</td>
+        <td class="col-sale col-num">${done.length ? `<div class="cell-main">${formatMoney(revenue, primary)}</div>` : ((window.__tikey && window.__tikey.groupHtml(items)) || '<span class="muted">—</span>')}</td>
         <td class="col-profit col-num ${done.length ? (profit >= 0 ? 'profit-positive' : 'profit-negative') : ''}">${done.length ? `<div class="cell-main">${formatMoney(profit, primary)}</div>` : '<span class="muted">—</span>'}</td>
         <td class="col-hold col-num"></td>
         <td class="col-actions"></td>
@@ -2549,7 +2549,7 @@ function renderTickets() {
           const perKs = qty > 1 ? 'Cena za 1 ks: ' + formatMoney(t.salePrice, origCcy) + '\n' : '';
           const orig = origCcy !== primary ? `Původní cena: ${formatMoney(calcRevenue(t), origCcy)}` : '';
           return (perKs + orig).trim();
-        })()}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(calcRevenueInPrimary(t), primary)}</div>${qty > 1 ? `<div class="cell-sub">${formatMoney(calcRevenueInPrimary(t) / qty, primary)} / ks</div>` : ''}` : '<span class="muted">—</span>'}</td>
+        })()}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(calcRevenueInPrimary(t), primary)}</div>${qty > 1 ? `<div class="cell-sub">${formatMoney(calcRevenueInPrimary(t) / qty, primary)} / ks</div>` : ''}` : ((window.__tikey && window.__tikey.cellHtml(t)) || '<span class="muted">—</span>')}</td>
         <td class="col-profit col-num ${isSoldOrDelivered ? profitClass : ''}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(profit, primary)}</div><div class="cell-sub ${roiClass}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)} %</div>` : '<span class="muted">—</span>'}</td>
         <td class="col-hold col-num">${holdDays === null ? '<span class="hold-na">—</span>' : `<span class="hold-final${holdDays === 0 ? ' hold-sameday' : ''}" title="Prodáno za ${holdDays} dní od nákupu">${holdDays} d</span>`}</td>
         <td class="col-actions">
@@ -3106,7 +3106,7 @@ function switchView(name) {
   // or future Electron upgrades that disable :has() will still work.
   document.body.classList.toggle(
     'marketplace-active',
-    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo'
+    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey'
   );
   
   if (name === 'stats') renderStatsPage();
@@ -3120,7 +3120,7 @@ function switchView(name) {
   if (name === 'watched') renderWatchedPage();
   if (name === 'todo') renderTodoPage();
   if (name === 'listing' && typeof renderListingPage === 'function') renderListingPage();
-  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo') ensureMarketplaceLoaded(name);
+  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey') ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
   if (name === 'settings') {
     renderUsersList();
@@ -3505,14 +3505,15 @@ const MARKETPLACE_HOMES = {
   stubhub: 'https://www.stubhub.ie/my/sales',
   viagogo: 'https://my.viagogo.com/sales',
   salespro: 'https://salespro.stubhub.ie/',
-  invviagogo: 'https://inv.viagogo.com/'
+  invviagogo: 'https://inv.viagogo.com/',
+  tikey: 'https://www.tikeymanager.com/salestracker'
 };
 
 // Per-marketplace zoom factor — Electron <webview> doesn't persist zoom on
 // its own and Ctrl+wheel/+/- shortcuts don't bubble up from inside the
 // webview. We track a multiplier and apply it via setZoomFactor on each
 // webview, plus restore on did-finish-load (zoom resets after navigation).
-const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1 };
+const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1 };
 const ZOOM_STEP = 0.1;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2.0;
@@ -3636,6 +3637,10 @@ function handleMarketplaceAction(action, name, externalUrl) {
   }
   if (action === 'quickadd') {
     quickAddFromMarketplace(name);
+    return;
+  }
+  if (action === 'tikey-sync') {
+    if (window.__tikey) window.__tikey.refreshAll({ force: true });
     return;
   }
   if (action === 'zoom-in') { adjustMarketplaceZoom(name, 1); return; }

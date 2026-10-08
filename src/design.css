@@ -419,7 +419,7 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 
 /* ---------- web edition: desktop-only sections are hidden ---------- */
 .web-mode .nav-item[data-view="stubhub"], .web-mode .nav-item[data-view="viagogo"],
-.web-mode .nav-item[data-view="salespro"], .web-mode .nav-item[data-view="invviagogo"],
+.web-mode .nav-item[data-view="salespro"], .web-mode .nav-item[data-view="invviagogo"], .web-mode .nav-item[data-view="tikey"],
 .web-mode #btnImportPdf { display: none !important; }
 .web-mode .nav-section-label:has(+ .nav-item[data-view="stubhub"]),
 .web-mode .nav-section-label:has(+ .nav-item[data-view="salespro"]) { display: none !important; }
@@ -488,3 +488,10 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 .event-logo.photo { padding: 0; }
 .event-logo.photo img { object-fit: cover; }
 .group-row .event-logo { margin-right: 2px; }
+
+/* ---------- Tikey (1.18): real sale prices ---------- */
+.tk-est { display: flex; flex-direction: column; align-items: flex-end; cursor: help; }
+.tk-est-val { color: var(--text-secondary, #6b6b6b); font-weight: 500; }
+.tk-est-sub { font-size: 11px; color: var(--text-muted, #9a9a9a); }
+.tk-block { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border, rgba(0,0,0,.12)); cursor: help; }
+.tk-muted { color: var(--text-muted, #9a9a9a); }

@@ -374,6 +374,7 @@
     out.push(name.split(/\s+/).slice(0, 3).join(' '));
     return [...new Set(out.filter(Boolean))];
   }
+  const isFootball = t => t.category === 'football' || / (vs?\.?|x) /i.test(' ' + (t.eventName || '') + ' ');
   const nameWords = t => [...new Set(norm(t.eventName).split(' ').filter(w => w.length > 2 && !['the', 'and', 'vs', 'fc'].includes(w)))];
   function nameHits(t, ev) { const b = norm(ev.name); return nameWords(t).filter(w => b.includes(w)).length; }
   function score(t, ev) {
@@ -408,7 +409,10 @@
     // (team names in another language: "Schachtar Donezk" vs "Shakhtar Donetsk").
     const sameDay = e => dayOf(t.eventDate) && dayOf(String(e.date || '').slice(0, 10)) && +dayOf(t.eventDate) === +dayOf(String(e.date).slice(0, 10));
     const soleSameDay = top && sameDay(top) && nameHits(t, top) >= 1 && events.filter(e => sameDay(e) && nameHits(t, e) >= 1).length === 1;
-    const best = top && top.score >= 10 && (nameHits(t, top) >= Math.min(2, nameWords(t).length) || soleSameDay) ? top : null;
+    // Only football moves for TV: anything else must be the same day (Calin & Viktor Sheen
+    // plays 4. and 5. 12. — the 5. 12. tickets must never land on the 4. 12. event).
+    const dayOk = top && (isFootball(t) || sameDay(top));
+    const best = dayOk && top.score >= 10 && (nameHits(t, top) >= Math.min(2, nameWords(t).length) || soleSameDay) ? top : null;
     return { events, best, term };
   }
 
@@ -458,6 +462,8 @@
       if (target && target.best) { listing.eventId = target.best.id; listing.eventName = target.best.name; listing.eventDate = target.best.date; }
       if (platform === 'Viagogo' && listing.eventId) listing.vgMarket = await viagogoMarket(t, listing.eventId).catch(() => null);
       await patchTicket(t, { listing });
+      // Real sale prices (Tikey) — optional: a missing Tikey login must not spoil the lookup.
+      if (window.__tikey) await window.__tikey.refresh((state.db.tickets || []).find(x => x.id === t.id) || t).catch(() => null);
       if (!quiet && target && target.error) toast(target.error, 'error', 5000);
       else if (!quiet && target && !target.best) toast(`Akci na ${PLATFORM_LABEL[platform]} jsem jednoznačně nenašel — vyber ji ze seznamu`, 'info', 5000);
     } catch (e) {
@@ -699,6 +705,7 @@
         <div class="lst-market-label">StubHub od</div>
         <div class="lst-market-val">${m && m.price ? money(m.price, m.currency) : '—'}</div>
         ${m && m.total ? `<div class="lst-sub">${m.total} nabídek</div>` : ''}`}
+        ${window.__tikey ? window.__tikey.listingHtml(t) : ''}
         <button class="btn btn-sm lst-lookup" data-id="${t.id}" ${busy ? 'disabled' : ''}>${busy === 'search' ? 'Hledám…' : icon('search', 13) + ' Najít'}</button>
       </div>
       <div class="lst-form">
@@ -752,6 +759,7 @@
         <div class="lst-chips">${chip('all', 'Vše')}${chip('Stubhub', 'StubHub')}${chip('Viagogo', 'Viagogo')}</div>
         <div class="lst-tools">
           <button class="btn btn-sm" id="lstLookupAll">${icon('refresh', 13)} Načíst tržní ceny</button>
+          <button class="btn btn-sm" id="lstTikey" title="Skutečné prodeje z Tikey (StubHub / Viagogo) ke všem neprodaným vstupenkám — přihlas se jednou v panelu Tikey">${icon('trend', 13)} Reálné prodeje (Tikey)</button>
           <button class="btn btn-sm" id="lstCompare">${icon('layers', 13)} Porovnat s Viagogem</button>
           <button class="btn btn-sm" id="lstAutoList" title="Uloží inzeráty jako NEAKTIVNÍ za 2× doporučenou cenu (vše v aktuálním filtru); zveřejníš je sám">${icon('zap', 13)} Zalistovat neaktivně (2× doporučená)</button>
         </div>
@@ -780,6 +788,7 @@
       const chipEl = e.target.closest('.lst-chip');
       if (chipEl) { ui.filter = chipEl.dataset.filter; render(); return; }
       if (e.target.closest('#lstCompare')) { compareViagogo(); return; }
+      if (e.target.closest('#lstTikey')) { if (window.__tikey) window.__tikey.refreshAll({ force: true }); return; }
       if (e.target.closest('#lstAutoList')) {
         const list = candidates().filter(t => ui.filter === 'all' || platformOf(t) === ui.filter);
         const ready = list.filter(t => recommendedPrice(t));
@@ -838,5 +847,5 @@
   };
   window.updateListingBadge = function () { try { updateBadge(); } catch (_) { /* db not ready */ } };
   // Exposed for tests / console debugging.
-  window.__listing = { isPremierLeague, platformOf, searchTerms, score, teamKeys, recommendedPrice, autoList, candidates };
+  window.__listing = { isPremierLeague, platformOf, searchTerms, score, teamKeys, recommendedPrice, autoList, candidates, loadPL, isFootball };
 })();

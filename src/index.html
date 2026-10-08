@@ -366,6 +366,11 @@
           inv.viagogo
           <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://inv.viagogo.com/">↗</span>
         </button>
+        <button class="nav-item nav-marketplace" data-view="tikey" title="Tikey Manager — skutečné prodeje na StubHubu a Viagogu (Sales Tracker)">
+          <span class="nav-mkt-icon nav-mkt-tikey">TK</span>
+          Tikey
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://www.tikeymanager.com/salestracker">↗</span>
+        </button>
 
         <div class="nav-section-label">NÁSTROJE</div>
 
@@ -1783,6 +1788,36 @@
           </div>
         </div>
       </div>
+
+      <!-- TIKEY MANAGER WEBVIEW (1.18) — the user logs in here once; tikey.js reads
+           the Sales Tracker (real sale prices) through this session. Read-only. -->
+      <div class="view marketplace-view" id="view-tikey">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="tikey" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="tikey" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="tikey" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="tikey" title="Domů"><span class="ico-slot" data-ico="home"></span></button>
+          <div class="mkt-url" id="mktUrlTikey">https://www.tikeymanager.com</div>
+          <button class="mkt-btn mkt-btn-primary" data-mkt-action="tikey-sync" data-mkt="tikey" title="Načíst skutečné prodeje ke všem neprodaným vstupenkám"><span class="ico-slot" data-ico="refresh"></span> Načíst prodeje do TicketVault</button>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="tikey" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="tikey" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="tikey" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://www.tikeymanager.com/salestracker" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-tikey"
+            class="mkt-webview"
+            src="https://www.tikeymanager.com/salestracker"
+            partition="persist:tikey"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingTikey">
+            <div class="mkt-spinner"></div>
+            <div>Načítám Tikey…</div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -2857,5 +2892,6 @@
   <script src="cmdk.js"></script>
   <script src="today.js"></script>
   <script src="listing.js"></script>
+  <script src="tikey.js"></script>
 </body>
 </html>
