@@ -176,8 +176,16 @@ const configPath = path.join(app.getPath('userData'), 'config.json');
 
 // The self-hosted server replaced the Netlify backend in 1.16. Configs still pointing
 // at Netlify are moved over on load (the old token is useless there, so it is dropped).
-const DEFAULT_SERVER_URL = 'http://100.87.47.36:8787/api';
+// 1.18: the server is public at vault.tixhawk.app (Cloudflare tunnel) — no Tailscale
+// needed. Configs on the old Tailscale address move over and keep their token (same server).
+const DEFAULT_SERVER_URL = 'https://vault.tixhawk.app/api';
+const TAILSCALE_URL_RE = /^https?:\/\/100\.87\.47\.36:8787(\/api)?\/?$/i;
 function migrateBackendUrl(cfg) {
+  if (cfg && cfg.cloud && TAILSCALE_URL_RE.test(cfg.cloud.apiUrl || '')) {
+    cfg.cloud.apiUrl = DEFAULT_SERVER_URL;
+    try { fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2)); } catch (e) { console.error('config migrate save failed', e.message); }
+    console.log('[config] backend URL moved from Tailscale to', DEFAULT_SERVER_URL);
+  }
   if (cfg && cfg.cloud && /netlify\.app/i.test(cfg.cloud.apiUrl || '')) {
     cfg.cloud.apiUrl = DEFAULT_SERVER_URL;
     cfg.cloud.apiKey = '';

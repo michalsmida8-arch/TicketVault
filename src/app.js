@@ -850,10 +850,11 @@ async function proceedAfterLogin() {
 
 // Pre-fill backend URL fields from saved config so user doesn't re-type it.
 // Falls back to the known Michal-hosted backend so new installs Just Work.
-const DEFAULT_API_URL = 'http://100.87.47.36:8787/api';
+const DEFAULT_API_URL = 'https://vault.tixhawk.app/api';
 
 function prefillAuthApiUrls(savedUrl) {
-  const url = (savedUrl && !/netlify\.app/i.test(savedUrl)) ? savedUrl : DEFAULT_API_URL;
+  // Netlify (pre-1.16) and the Tailscale address (pre-1.18) both mean the default server.
+  const url = (savedUrl && !/netlify\.app|100\.87\.47\.36/i.test(savedUrl)) ? savedUrl : DEFAULT_API_URL;
   const lbl = $('#authServerLabel');
   if (lbl) lbl.textContent = url.replace(/^https?:\/\//, '').replace(/\/api\/?$/, '');
   ['authLoginApiUrl', 'authRegApiUrl', 'authRecApiUrl'].forEach(id => {
