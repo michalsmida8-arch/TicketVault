@@ -57,14 +57,45 @@ function validCreds(username, password) {
   return null;
 }
 
+// ---- brute-force guard -------------------------------------------------------
+// The server is reachable from the internet (Cloudflare tunnel), so failed
+// logins / recovery codes are limited per client IP and per username.
+const FAIL_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILS = { ip: 20, user: 8 };
+const fails = new Map(); // key -> [timestamps]
+function clientIp(req) {
+  const remote = req.socket.remoteAddress || '';
+  // Behind cloudflared the TCP peer is loopback; the real client is in CF-Connecting-IP.
+  const local = /^(::1|127\.|::ffff:127\.)/.test(remote);
+  return (local && req.headers['cf-connecting-ip']) || remote;
+}
+function recent(key) {
+  const now = Date.now();
+  const list = (fails.get(key) || []).filter(t => now - t < FAIL_WINDOW_MS);
+  if (list.length) fails.set(key, list); else fails.delete(key);
+  return list;
+}
+function guardKeys(req) {
+  const name = String((req.body && req.body.username) || '').toLowerCase();
+  return [['ip:' + clientIp(req), MAX_FAILS.ip], ...(name ? [['user:' + name, MAX_FAILS.user]] : [])];
+}
+function blocked(req) { return guardKeys(req).some(([k, max]) => recent(k).length >= max); }
+function noteFail(req) { for (const [k] of guardKeys(req)) fails.set(k, [...recent(k), Date.now()]); }
+function clearFails(req) { for (const [k] of guardKeys(req)) if (k.startsWith('user:')) fails.delete(k); }
+function guard(req, res, next) {
+  if (blocked(req)) return res.status(429).json({ error: 'Příliš mnoho neúspěšných pokusů. Zkus to znovu za 15 minut.' });
+  next();
+}
+
 // ---- register / login / recover -------------------------------------------
-router.post('/register', async (req, res) => {
+router.post('/register', guard, async (req, res) => {
   const { username, password, inviteCode } = req.body || {};
   const err = validCreds(username, password);
   if (err) return res.status(400).json({ error: err });
   const result = await store.updateUsers(async users => {
     const first = users.length === 0;
     if (!first && cfg.INVITE_CODE && inviteCode !== cfg.INVITE_CODE) {
+      noteFail(req);
       return { status: 403, error: 'Neplatný pozvánkový kód.' };
     }
     if (users.some(u => u.username.toLowerCase() === String(username).toLowerCase())) {
@@ -86,18 +117,20 @@ router.post('/register', async (req, res) => {
   res.json({ token: signToken(result.user), user: publicUser(result.user), recoveryCode: result.recoveryCode });
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', guard, async (req, res) => {
   const { username, password } = req.body || {};
   const users = store.loadUsers();
   const u = users.find(x => x.username.toLowerCase() === String(username || '').toLowerCase());
   if (!u || !(await bcrypt.compare(String(password || ''), u.passwordHash))) {
+    noteFail(req);
     return res.status(401).json({ error: 'Neplatné přihlašovací údaje.' });
   }
+  clearFails(req);
   await store.updateUsers(list => { const x = list.find(y => y.id === u.id); if (x) x.lastLogin = new Date().toISOString(); });
   res.json({ token: signToken(u), user: publicUser(u) });
 });
 
-router.post('/recover', async (req, res) => {
+router.post('/recover', guard, async (req, res) => {
   const { username, recoveryCode, newPassword } = req.body || {};
   const err = validCreds(username, newPassword);
   if (err) return res.status(400).json({ error: err });
@@ -109,7 +142,8 @@ router.post('/recover', async (req, res) => {
     u.recoveryHash = await bcrypt.hash(code, 10);
     return { user: u, code };
   });
-  if (!out) return res.status(401).json({ error: 'Neplatné jméno nebo obnovovací kód.' });
+  if (!out) { noteFail(req); return res.status(401).json({ error: 'Neplatné jméno nebo obnovovací kód.' }); }
+  clearFails(req);
   res.json({ token: signToken(out.user), user: publicUser(out.user), newRecoveryCode: out.code });
 });
 

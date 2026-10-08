@@ -434,3 +434,13 @@ test('viagogo payout mail lists every order of the payment', () => {
     [['631278435', '2025-12-12', 316.44, 2, 'YZO'], ['655268025', '2026-09-26', 61.52, 2, 'Czechia vs Croatia - Nations League']]);
   assert.equal(parseViagogoPayout({ from: 'x@stubhub.com', subject: 'You have just been paid', text }), null);
 });
+
+test('login brute-force guard: 429 after repeated failures, per username and per client IP', async () => {
+  const post = (username, ip) => fetch(BASE + '/auth/login', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify({ username, password: 'wrong' }) });
+  for (let i = 0; i < 8; i++) assert.equal((await post('ghost', '203.0.113.1')).status, 401);
+  assert.equal((await post('ghost', '203.0.113.2')).status, 429);          // username locked from any IP
+  for (let i = 0; i < 20; i++) await post('ghost' + i, '203.0.113.9');     // 20 failures from one IP…
+  assert.equal((await post('someone', '203.0.113.9')).status, 429);       // …locks that IP
+  assert.equal((await post('someone', '203.0.113.10')).status, 401);      // other IPs unaffected
+});
