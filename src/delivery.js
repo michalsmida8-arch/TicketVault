@@ -320,7 +320,8 @@
       manUtdKeyword: module === 'man utd' ? kw : '', ahlanClosest: true, ahlanKeyword: '',
       spursKeyword: module === 'spurs' ? kw : '', newcastleKeyword: module === 'newcastle login' ? kw : '',
       ajaxKeyword: module === 'ajax' ? kw : '', ajaxAll: false,
-      manCitySeason: 'member', manCityEventKeyword: '', fulhamMode: 'member', proxies: ''
+      // The membership's own ISP proxy (host:port:user:pass) — Arsenal needs one per account.
+      manCitySeason: 'member', manCityEventKeyword: '', fulhamMode: 'member', proxies: String(m.proxy || '').trim()
     };
   }
 
@@ -399,7 +400,7 @@
             <div class="dlv-muted">Přihlásí se do vybraných členství a vygeneruje jejich lístky (≈ ${LAB_PRICE} £ za lístek, platí se ze SeatLabs kreditu).
               ${/manchester city/.test(norm(homeClub(t))) ? '<br><b>Man City:</b> digital pass platí na nejbližší zápas — použijí se jen lístky, které SeatLabs vrátí přímo na tento zápas.' : ''}</div>
             ${ms.map(({ m: x, own }) => `<label class="dlv-link"><input type="checkbox" data-dlv-member="${escapeHtml(x.id)}" ${own ? 'checked' : ''}>
-              <span class="dlv-seat">${escapeHtml(x.team)} · ${escapeHtml(x.owner || x.memberId || x.email)}</span><span class="dlv-muted">${escapeHtml(x.email || x.memberId)}${own ? ' · účet u vstupenky' : ''}</span></label>`).join('')}
+              <span class="dlv-seat">${escapeHtml(x.team)} · ${escapeHtml(x.owner || x.memberId || x.email)}</span><span class="dlv-muted">${escapeHtml(x.email || x.memberId)}${own ? ' · účet u vstupenky' : ''}${x.proxy ? ' · proxy ' + escapeHtml(String(x.proxy).split(':')[0]) : (/arsenal/.test(norm(x.team)) ? ' · <b>chybí proxy</b>' : '')}</span></label>`).join('')}
             <button class="btn btn-sm" id="dlvGenerate">Vygenerovat vybraným</button>`
             : `<div class="dlv-muted">V Členství nemám přihlášení pro klub „${escapeHtml(homeClub(t))}“ — vygeneruj lístky přímo v panelu SeatLabs a pak dej Obnovit.</div>`}
         </div>` : ''}
@@ -453,6 +454,7 @@
       btn.textContent = `Generuji ${x.owner || x.memberId || x.email}…`;
       const body2 = generateBody(t, x);
       if (!body2.module) { errors.push(`${x.team}: SeatLabs modul neznám`); continue; }
+      if (/^arsenal/.test(body2.module) && !body2.proxies) { errors.push(`${x.owner || x.email}: Arsenal jen přes ISP proxy — doplň ji v Členství`); continue; }
       const r = await inPanel(pageSlGenerate, body2).catch(e => ({ error: e.message }));
       if (!r || r.error) errors.push(`${x.owner || x.email}: ${r && r.error === 'login' ? 'přihlas se v panelu SeatLabs' : (r && r.error) || 'bez odpovědi'}`);
       else if (r.failed && r.failed.length) errors.push(...r.failed.filter(f => !/duplicate/i.test(f)).map(f => `${x.owner || x.email}: ${f}`));

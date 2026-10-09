@@ -5164,6 +5164,7 @@ function openMembershipModal(m = null) {
   $('#mfBankAccount').value = m?.bankAccount || '';
   $('#mfPhone').value = m?.phone || '';
   $('#mfUrl').value = m?.url || '';
+  $('#mfProxy').value = m?.proxy || '';
   $('#mfNotes').value = m?.notes || '';
   $('#mfLP').value = (m?.lp === 0 || m?.lp) ? m.lp : '';
   
@@ -5219,6 +5220,7 @@ async function saveMembership() {
     bankAccount: $('#mfBankAccount').value.trim(),
     phone: $('#mfPhone').value.trim(),
     url: $('#mfUrl').value.trim(),
+    proxy: $('#mfProxy').value.trim(),
     notes: $('#mfNotes').value.trim(),
     status,
     lp: (lpRaw === '' || isNaN(lpNum)) ? null : lpNum
