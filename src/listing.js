@@ -200,6 +200,14 @@
     // Setting the same value twice does not fire Vue's watcher, so clear first.
     const put = async (vm, key, val) => { if (!vm) return; if (JSON.stringify(vm[key]) === JSON.stringify(val)) { vm[key] = null; await sleep(60); } vm[key] = val; await sleep(150); };
     let cur = p.currency, sec = null;
+    // p.fx = TicketVault exchange rates (1 EUR = X units). Unknown rate → null (leave the field empty).
+    const toCcy = (amount, from, to) => {
+      const a = Number(amount);
+      if (!a) return null;
+      const fx = p.fx || {};
+      const v = !from || from === to ? a : (fx[from] && fx[to] ? a / fx[from] * fx[to] : null);
+      return v ? Math.round(v * 100) / 100 : null;
+    };
     for (let round = 0; round < 3; round++) {
       vms = collect();
       const sc = vms.SectionRowSeatCombo, L = ed.listing || {};
@@ -212,8 +220,16 @@
       const sell = vms['PriceCombo-Sell-Face'];
       cur = (sell && sell.sellPrice && sell.sellPrice.currencySymbol) || cur;
       if (p.price && (!L.sellPrice || Number(L.sellPrice.price) !== Number(p.price))) await put(sell, 'sellPrice', { price: Number(p.price), currencySymbol: cur });
-      if (p.purchasePrice && (!p.purchaseCurrency || p.purchaseCurrency === cur) && (!L.purchasePrice || !L.purchasePrice.price)) {
-        await put(vms['PriceCombo-Purchase-Payout'], 'purchasePrice', { price: Math.round(Number(p.purchasePrice) * 100) / 100, currencySymbol: cur });
+      // Purchase price per ticket from TicketVault → "Původní zaplacená částka" and "Nominální hodnota"
+      // (facePrice, required for UK events), converted into the field's currency.
+      const paid = toCcy(p.purchasePrice, p.purchaseCurrency, cur);
+      if (paid && (!L.purchasePrice || !L.purchasePrice.price)) {
+        await put(vms['PriceCombo-Purchase-Payout'], 'purchasePrice', { price: paid, currencySymbol: cur });
+      }
+      const faceCcy = (sell && sell.facePrice && sell.facePrice.currencySymbol) || cur;
+      const face = toCcy(p.purchasePrice, p.purchaseCurrency, faceCcy);
+      if (face && sell && !(sell.facePrice && Number(sell.facePrice.price))) {
+        await put(sell, 'facePrice', { price: face, currencySymbol: faceCcy });
       }
       await sleep(900);
       const M = ed.listing || {};
@@ -520,7 +536,8 @@
     const currency = (L.market && L.market.currency) || L.currency || t.currency || 'EUR';
     const payload = { ticketId: t.id, event: ev, quantity: Number(t.quantity) || 1, section: t.section || '', sectionKey: sectionKey(t.section), row: rowText, ...seats,
       price, currency: platform === 'Viagogo' ? (L.currency || 'EUR') : currency, ticketType,
-      purchasePrice: t.purchasePrice, purchaseCurrency: t.currency };
+      purchasePrice: t.purchasePrice, purchaseCurrency: t.currency,
+      fx: Object.fromEntries(Object.entries(typeof getExchangeRates === 'function' ? getExchangeRates() : {}).filter(([, v]) => typeof v === 'number')) };
     try {
       // One form per panel: an older pre-fill on the same marketplace is now abandoned.
       for (const o of waiting()) if (o.id !== t.id && platformOf(o) === platform) await patchTicket(o, { listing: { status: 'draft' } });
