@@ -379,6 +379,7 @@ button:focus-visible {
 .nav-mkt-salespro { background: #6b21a8; } /* SalesPro purple — distinct from main Stubhub */
 .nav-mkt-invviagogo { background: #0e7c66; } /* inv.viagogo teal — distinct from main Viagogo */
 .nav-mkt-tikey { background: #2f6fed; } /* Tikey Manager blue */
+.nav-mkt-seatlabs { background: #0f172a; } /* SeatLabs navy */
 
 .nav-mkt-ext {
   margin-left: auto;

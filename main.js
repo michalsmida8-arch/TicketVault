@@ -1194,6 +1194,16 @@ ipcMain.handle('files:open', async (event, { inboxId, name }) => {
   }
 });
 
+// Buyer e-mail with ticket links -> draft in the seller's Gmail (server, 1.19). Never sent.
+ipcMain.handle('delivery:draft', async (event, payload) => {
+  try {
+    const data = await authFetchWithToken('/delivery/draft', { method: 'POST', body: payload });
+    return { success: true, ...data };
+  } catch (e) {
+    return { success: false, error: e.message, duplicate: e.status === 409 };
+  }
+});
+
 // Status of the mailboxes the self-hosted server reads.
 ipcMain.handle('ingest:status', async () => {
   try {

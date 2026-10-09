@@ -293,6 +293,7 @@ function mergeBackupInto(currentDb, data) {
     cloudPushAll: async () => { try { await ensure(); await pushAll(); return ok({ count: db.tickets.length }); } catch (e) { return fail(e); } },
     cloudPullAll: async () => { try { await pull(); return ok({ count: db.tickets.length }); } catch (e) { return fail(e); } },
     cloudStatus: async () => ({ enabled: true, configured: !!store.token, apiUrl: API, lastSync: null }),
+    saveDeliveryDraft: async (p) => { try { const d = await call('/delivery/draft', { method: 'POST', body: p }); return ok(d); } catch (e) { return { ...fail(e), duplicate: e.status === 409 }; } },
     ingestStatus: async () => { try { const d = await call('/ingest/status'); return ok({ mailboxes: d.mailboxes || [], model: d.model }); } catch (e) { return fail(e); } },
     openServerFile: async ({ inboxId, name }) => {
       try {

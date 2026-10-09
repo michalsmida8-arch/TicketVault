@@ -371,6 +371,11 @@
           Tikey
           <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://www.tikeymanager.com/salestracker">↗</span>
         </button>
+        <button class="nav-item nav-marketplace" data-view="seatlabs" title="SeatLabs — odkazy na lístky pro kupující (Lístky → koncept v Gmailu)">
+          <span class="nav-mkt-icon nav-mkt-seatlabs">SL</span>
+          SeatLabs
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://seatlabs.net/links">↗</span>
+        </button>
 
         <div class="nav-section-label">NÁSTROJE</div>
 
@@ -1789,6 +1794,36 @@
         </div>
       </div>
 
+      <!-- SEATLABS WEBVIEW (1.19) — the user logs in here once; delivery.js reads the generated
+           ticket links (and generates missing ones) through this session for the buyer e-mails. -->
+      <div class="view marketplace-view" id="view-seatlabs">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="seatlabs" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="seatlabs" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="seatlabs" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="seatlabs" title="Domů"><span class="ico-slot" data-ico="home"></span></button>
+          <div class="mkt-url" id="mktUrlSeatlabs">https://seatlabs.net/links</div>
+          <button class="mkt-btn mkt-btn-primary" data-mkt-action="seatlabs-drafts" data-mkt="seatlabs" title="Připravit koncepty e-mailů pro prodané vstupenky, které mají v SeatLabsu odkazy"><span class="ico-slot" data-ico="refresh"></span> Připravit koncepty pro prodané</button>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="seatlabs" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="seatlabs" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="seatlabs" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://seatlabs.net/links" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-seatlabs"
+            class="mkt-webview"
+            src="https://seatlabs.net/links"
+            partition="persist:seatlabs"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingSeatlabs">
+            <div class="mkt-spinner"></div>
+            <div>Načítám SeatLabs…</div>
+          </div>
+        </div>
+      </div>
+
       <!-- TIKEY MANAGER WEBVIEW (1.18) — the user logs in here once; tikey.js reads
            the Sales Tracker (real sale prices) through this session. Read-only. -->
       <div class="view marketplace-view" id="view-tikey">
@@ -2893,5 +2928,6 @@
   <script src="today.js"></script>
   <script src="listing.js"></script>
   <script src="tikey.js"></script>
+  <script src="delivery.js"></script>
 </body>
 </html>

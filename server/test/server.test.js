@@ -444,3 +444,34 @@ test('login brute-force guard: 429 after repeated failures, per username and per
   assert.equal((await post('someone', '203.0.113.9')).status, 429);       // …locks that IP
   assert.equal((await post('someone', '203.0.113.10')).status, 401);      // other IPs unaffected
 });
+
+test('delivery: buyer e-mail becomes a Gmail draft once, ticket is stamped', async () => {
+  fs.writeFileSync(path.join(dataDir, 'mailboxes.json'), JSON.stringify([{ name: 'gmail-sales', email: 'sales@gmail.com', pass: 'x' }]));
+  process.env.DELIVERY_MAILBOX = 'sales@gmail.com';
+  const store = loadStore();
+  delete require.cache[require.resolve('../src/delivery')];
+  const delivery = require('../src/delivery');
+  const db = store.loadBucket('k_delivery');
+  db.tickets.push({ id: 't1', eventName: 'Manchester City vs PSG', status: 'sold', buyerName: 'manuel Neto', buyerEmail: 'buyer@example.com', updated: '2026-10-01T00:00:00.000Z' });
+  store.saveBucket('k_delivery', db);
+  const appended = [];
+  delivery._setAppender(async (mb, raw) => { appended.push({ mb: mb.email, raw: raw.toString() }); return { folder: '[Gmail]/Drafts', uid: 7 }; });
+  const user = { dataKey: 'k_delivery' };
+  const body = { ticketIds: ['t1'], to: 'buyer@example.com', subject: 'Manchester City vs PSG – your ticket', text: 'Hi Manuel,\nTicket 1\niOS: https://mobile-pass.com/s/abc',
+    links: [{ ticketId: 't1', ios: 'https://mobile-pass.com/s/abc', seat: '90' }] };
+  const r = await delivery.saveDraft(user, body);
+  assert.equal(r.ok, true);
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].mb, 'sales@gmail.com');
+  assert.match(appended[0].raw, /To: buyer@example.com/);
+  assert.match(appended[0].raw, /From: .*<sales@gmail.com>/);
+  const t = store.loadBucket('k_delivery').tickets[0];
+  assert.equal(t.delivery.to, 'buyer@example.com');
+  assert.equal(t.delivery.links.length, 1);
+  assert.ok(t._serverAt >= t.delivery.draftAt);
+  await assert.rejects(delivery.saveDraft(user, body), e => e.status === 409 && e.duplicate === true);
+  assert.equal(appended.length, 1, 'no second draft');
+  await assert.rejects(delivery.saveDraft(user, { ...body, to: 'not-an-email' }), e => e.status === 400);
+  delivery._setAppender(null);
+  delete process.env.DELIVERY_MAILBOX;
+});

@@ -10,6 +10,7 @@
 //   POST /ingest/email          manual/webhook ingest { from, subject, text, html, date }
 //   POST /ingest/reprocess/:id  re-run extraction on the stored raw e-mail
 //   GET  /ingest/status         mailbox connection state
+//   POST /delivery/draft        buyer e-mail with ticket links -> Gmail draft (never sent)
 const express = require('express');
 const fs = require('fs');
 const { requireAuth } = require('./auth');
@@ -23,7 +24,7 @@ router.use(requireAuth);
 // app may still hold an older copy and push it back (full PUT /db, or POST /ticket
 // when the user edits something else). A client copy is "stale" when its `updated`
 // is older than the server change; then the server-owned sale fields win.
-const SERVER_FIELDS = ['status', 'quantity', 'salePrice', 'saleCurrency', 'saleDate', 'buyerName', 'buyerEmail',
+const SERVER_FIELDS = ['delivery', 'status', 'quantity', 'salePrice', 'saleCurrency', 'saleDate', 'buyerName', 'buyerEmail',
   'deliveredAt', 'paidOut', 'paidOutDate', 'paidOutAmount', 'externalIds', 'notes', 'platform', '_serverAt', 'updated'];
 function isStale(client, server) {
   return !!(server && server._serverAt && String(client.updated || client.created || '') < String(server._serverAt));
@@ -165,6 +166,12 @@ router.post('/ingest/reprocess/:id', async (req, res) => {
 router.get('/ingest/status', (req, res) => {
   const { getStatus } = require('./ingest/imap');
   res.json(getStatus());
+});
+
+router.post('/delivery/draft', async (req, res) => {
+  const delivery = require('./delivery');
+  try { res.json(await delivery.saveDraft(req.user, req.body)); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message, duplicate: e.duplicate || undefined, ticketId: e.ticketId, draftAt: e.draftAt }); }
 });
 
 module.exports = router;

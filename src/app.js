@@ -2337,6 +2337,7 @@ function setupTicketsDelegation() {
     else if (action === 'clone') cloneTicket(state.db.tickets.find(t => t.id === id));
     else if (action === 'sell') openSellModal(state.db.tickets.find(t => t.id === id));
     else if (action === 'deliver') markDelivered(id);
+    else if (action === 'delivery') { if (window.__delivery) window.__delivery.open(id); }
     else if (action === 'undeliver') markUndelivered(id);
     else if (action === 'list') openListModal(state.db.tickets.find(t => t.id === id));
     else if (action === 'writeoff') writeOffTicket(id);
@@ -2516,7 +2517,7 @@ function renderTickets() {
     const primaryAction =
       t.status === 'available' ? `<button class="btn btn-list btn-sm" data-action="list" data-id="${t.id}" title="Vyplnit Listing ID a převést do stavu Zalistováno">Zalistovat</button>`
       : t.status === 'listed' ? `<button class="btn btn-success btn-sm" data-action="sell" data-id="${t.id}">Prodat</button>`
-      : isSold ? `<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">Doručit</button>`
+      : isSold ? `${(window.__delivery && window.__delivery.rowButton(t)) || ''}<button class="btn btn-deliver btn-sm" data-action="deliver" data-id="${t.id}" title="Označit jako doručené zákazníkovi">Doručit</button>`
       : '';
     const eventPassed = t.eventDate && new Date(t.eventDate) < new Date(new Date().toDateString());
     const canWriteOff = eventPassed && (t.status === 'available' || t.status === 'listed');
@@ -3107,7 +3108,7 @@ function switchView(name) {
   // or future Electron upgrades that disable :has() will still work.
   document.body.classList.toggle(
     'marketplace-active',
-    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey'
+    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs'
   );
   
   if (name === 'stats') renderStatsPage();
@@ -3121,7 +3122,7 @@ function switchView(name) {
   if (name === 'watched') renderWatchedPage();
   if (name === 'todo') renderTodoPage();
   if (name === 'listing' && typeof renderListingPage === 'function') renderListingPage();
-  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey') ensureMarketplaceLoaded(name);
+  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs') ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
   if (name === 'settings') {
     renderUsersList();
@@ -3507,14 +3508,15 @@ const MARKETPLACE_HOMES = {
   viagogo: 'https://my.viagogo.com/sales',
   salespro: 'https://salespro.stubhub.ie/',
   invviagogo: 'https://inv.viagogo.com/',
-  tikey: 'https://www.tikeymanager.com/salestracker'
+  tikey: 'https://www.tikeymanager.com/salestracker',
+  seatlabs: 'https://seatlabs.net/links'
 };
 
 // Per-marketplace zoom factor — Electron <webview> doesn't persist zoom on
 // its own and Ctrl+wheel/+/- shortcuts don't bubble up from inside the
 // webview. We track a multiplier and apply it via setZoomFactor on each
 // webview, plus restore on did-finish-load (zoom resets after navigation).
-const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1 };
+const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1, seatlabs: 1 };
 const ZOOM_STEP = 0.1;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2.0;
@@ -3638,6 +3640,10 @@ function handleMarketplaceAction(action, name, externalUrl) {
   }
   if (action === 'quickadd') {
     quickAddFromMarketplace(name);
+    return;
+  }
+  if (action === 'seatlabs-drafts') {
+    if (window.__delivery) window.__delivery.autoRun().then(r => { if (r && r.done === 0) toast('Žádné prodané vstupenky s jednoznačnými odkazy v SeatLabsu — u ostatních použij tlačítko „Lístky“ v inventáři.', 'info', 7000); });
     return;
   }
   if (action === 'tikey-sync') {

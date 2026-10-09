@@ -109,5 +109,9 @@ module.exports = {
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM || process.env.SMTP_USER
   } : null,
+  // Ticket delivery drafts (1.19): Gmail mailbox (name or e-mail from mailboxes.json) whose
+  // Drafts folder receives the e-mails to buyers, and the sender name shown on them.
+  DELIVERY_MAILBOX: process.env.DELIVERY_MAILBOX || '',
+  DELIVERY_FROM_NAME: process.env.DELIVERY_FROM_NAME || 'Michal Šmída',
   loadMailboxes
 };
