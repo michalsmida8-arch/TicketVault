@@ -58,7 +58,12 @@
         deliveredAt: delivered[p.orderId] || null
       };
     });
-    return { links, labs: j.labs };
+    // Digital Passes (membership passes, e.g. Arsenal): never sent to a buyer — the source of one-time links.
+    const passes = (j.passes || []).map(p => ({
+      team: p.team || '', member: String(p.member || p.memberNumber || ''), customerId: p.customerId ? String(p.customerId) : '',
+      android: p.android || p.link || '', ios: p.ios || '', createdAt: p.createdAt || null, orderId: p.orderId || ''
+    }));
+    return { links, passes, labs: j.labs };
   }
   async function pageSlGenerate(body) {
     const u = await fetch('/api/getUserData', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'include' });
@@ -79,7 +84,7 @@
     if (!force && linkCache && Date.now() - linkCache.at < 60000) return linkCache;
     const r = await inPanel(pageSlLinks);
     if (!r || r.error) throw new Error(r && r.error === 'login' ? 'Přihlas se v panelu SeatLabs' : (r && r.error) || 'SeatLabs bez odpovědi');
-    linkCache = { links: r.links, labs: r.labs, at: Date.now() };
+    linkCache = { links: r.links, passes: r.passes || [], labs: r.labs, at: Date.now() };
     return linkCache;
   }
 
@@ -114,6 +119,15 @@
       return hit / w.length >= 0.66;
     });
   }
+  // One-time links (Arsenal) name the game only "Arsenal (13 Oct, 20:00)": home club + date must match.
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  function dateGame(t, game) {
+    const m = String(game || '').match(/^(.+?)\s*\((\d{1,2})\s+([A-Za-z]{3})/);
+    const ev = String(t.eventDate || '').match(/^\d{4}-(\d{2})-(\d{2})/);
+    if (!m || !ev) return false;
+    return MONTHS.indexOf(m[3].toLowerCase()) + 1 === +ev[1] && +m[2] === +ev[2] && sameClub(m[1], homeClub(t));
+  }
+  const matchGame = (t, l) => sameMatch(t.eventName, l.game) || dateGame(t, l.game);
   function seatSet(t) {
     const out = new Set();
     for (const part of String(t.seat || '').split(/[,;/\s]+/).filter(Boolean)) {
@@ -141,7 +155,7 @@
     const blk = blockKey(t.section);
     return links.filter(l => {
       if (used.has(l.orderId) || !(l.ios || l.android || l.link || l.pdf)) return false;
-      if (!sameMatch(t.eventName, l.game)) return false;
+      if (!matchGame(t, l)) return false;
       const c = Date.parse(l.createdAt || '');
       if (ev && c && (c > ev + DAY || c < ev - 200 * DAY)) return false; // same fixture of another season
       if (seats.size) return seats.has(String(l.seat).replace(/^0+(?=\d)/, '').toLowerCase());
@@ -180,7 +194,8 @@
   const firstName = n => cap(String(n || '').trim().split(/\s+/)[0] || '');
   const looksLikeName = s => /^[\p{L}.' -]+$/u.test(String(s || '').trim()) && /\s/.test(String(s || '').trim());
   function eventTitle(t, links) {
-    const g = links.find(l => l.game);
+    // A SeatLabs game name with both teams is the nicest title; "Arsenal (13 Oct, 20:00)" is not.
+    const g = links.find(l => l.game && /\sv(s|\.)?\s/i.test(l.game));
     return (g ? g.game : t.eventName || '').replace(/\s+/g, ' ').trim();
   }
   function linkLines(l) {
@@ -398,7 +413,8 @@
           <div class="dlv-section-title">Vygenerovat v SeatLabs</div>
           ${ms.length ? `
             <div class="dlv-muted">Přihlásí se do vybraných členství a vygeneruje jejich lístky (≈ ${LAB_PRICE} £ za lístek, platí se ze SeatLabs kreditu).
-              ${/manchester city/.test(norm(homeClub(t))) ? '<br><b>Man City:</b> digital pass platí na nejbližší zápas — použijí se jen lístky, které SeatLabs vrátí přímo na tento zápas.' : ''}</div>
+              ${/manchester city/.test(norm(homeClub(t))) ? '<br><b>Man City:</b> digital pass platí na nejbližší zápas — použijí se jen lístky, které SeatLabs vrátí přímo na tento zápas.' : ''}
+              ${/arsenal/.test(norm(homeClub(t))) ? '<br><b>Arsenal:</b> obnoví Digital Pass členství (přes jeho ISP proxy), z jeho Google Wallet odkazu vygeneruje One-Time Link a ten se pošle kupujícímu — pass samotný nikdy.' : ''}</div>
             ${ms.map(({ m: x, own }) => `<label class="dlv-link"><input type="checkbox" data-dlv-member="${escapeHtml(x.id)}" ${own ? 'checked' : ''}>
               <span class="dlv-seat">${escapeHtml(x.team)} · ${escapeHtml(x.owner || x.memberId || x.email)}</span><span class="dlv-muted">${escapeHtml(x.email || x.memberId)}${own ? ' · účet u vstupenky' : ''}${x.proxy ? ' · proxy ' + escapeHtml(String(x.proxy).split(':')[0]) : (/arsenal/.test(norm(x.team)) ? ' · <b>chybí proxy</b>' : '')}</span></label>`).join('')}
             <button class="btn btn-sm" id="dlvGenerate">Vygenerovat vybraným</button>`
@@ -455,6 +471,11 @@
       const body2 = generateBody(t, x);
       if (!body2.module) { errors.push(`${x.team}: SeatLabs modul neznám`); continue; }
       if (/^arsenal/.test(body2.module) && !body2.proxies) { errors.push(`${x.owner || x.email}: Arsenal jen přes ISP proxy — doplň ji v Členství`); continue; }
+      if (/^arsenal/.test(body2.module)) {
+        const err = await arsenalOneTime(x, body2.proxies, s => { btn.textContent = `${x.owner || x.email}: ${s}…`; });
+        if (err) errors.push(`${x.owner || x.email}: ${err}`);
+        continue;
+      }
       const r = await inPanel(pageSlGenerate, body2).catch(e => ({ error: e.message }));
       if (!r || r.error) errors.push(`${x.owner || x.email}: ${r && r.error === 'login' ? 'přihlas se v panelu SeatLabs' : (r && r.error) || 'bez odpovědi'}`);
       else if (r.failed && r.failed.length) errors.push(...r.failed.filter(f => !/duplicate/i.test(f)).map(f => `${x.owner || x.email}: ${f}`));
@@ -464,6 +485,36 @@
     ui.edited = false;
     render(ui);
     if (errors.length) toast('SeatLabs: ' + errors.join(' · '), 'error', 9000);
+  }
+
+  // Arsenal (Michal, 12. 10.): refresh the membership's Digital Pass (re-generating costs nothing), take its
+  // Google Wallet link (pay.google.com/gp/v/save/…, via mobile-pass.com/api/redirect/<code>) and turn it into
+  // a one-time ticket link (module "arsenal ticket"). The pass itself is never sent to a buyer.
+  async function arsenalOneTime(x, proxies, say) {
+    const login = String(x.email || x.memberId).trim();
+    const failedOf = r => ((r && r.failed) || []).filter(f => !/duplicate/i.test(f));
+    say('obnovuji Digital Pass');
+    let r = await inPanel(pageSlGenerate, { module: 'arsenal pass', email: login, password: x.password, proxies }).catch(e => ({ error: e.message }));
+    if (!r || r.error) return r && r.error === 'login' ? 'přihlas se v panelu SeatLabs' : 'Digital Pass: ' + ((r && r.error) || 'bez odpovědi');
+    if (!r.ok && failedOf(r).length) return 'Digital Pass: ' + failedOf(r).join(', ');
+    const c = await loadLinks(true);
+    const id = String(x.memberId || '').trim(), mail = norm(x.email).trim();
+    const pass = (c.passes || []).filter(p => /arsenal/i.test(p.team) && ((id && p.customerId === id) || (mail && norm(p.member).startsWith(mail))))
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+    const code = pass && String(pass.android).split('/s/')[1];
+    if (!code) return 'Digital Pass v SeatLabsu nenalezen';
+    say('Google Wallet odkaz');
+    let url = null;
+    try {
+      const res = await fetch('https://mobile-pass.com/api/redirect/' + encodeURIComponent(code));
+      url = ((await res.json().catch(() => ({}))) || {}).url || null;
+    } catch (_) { /* below */ }
+    if (!url || !/^https:\/\/pay\.google\.com\/gp\/v\/save\//.test(url)) return 'z passu nejde získat Google Wallet odkaz';
+    say('generuji one-time link');
+    r = await inPanel(pageSlGenerate, { module: 'arsenal ticket', email: url, password: '', proxies }).catch(e => ({ error: e.message }));
+    if (!r || r.error) return 'One-Time Link: ' + ((r && r.error) || 'bez odpovědi');
+    if (!r.ok && failedOf(r).length) return 'One-Time Link: ' + failedOf(r).join(', ');
+    return null;
   }
 
   // ---------- row button helper ----------------------------------------------------------------
