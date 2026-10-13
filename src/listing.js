@@ -531,7 +531,32 @@
     catch (_) { toast('Schránka nejde zapsat — klikni do okna aplikace a zkus to znovu', 'error', 6000); return; }
     for (const r of rows) await patchTicket(r.t, { listing: { platform: 'Seatiks', price: r.price, ticketType: r.type, currency: 'EUR', status: 'prefilled', prefilledAt: new Date().toISOString() } });
     render();
-    toast(`Zkopírováno ${rows.length} ${rows.length === 1 ? 'řádek' : 'řádků'} pro „${t.eventName}“. Seatiks → Inventory → Creation → vyber akci → Bulk import → vlož (Ctrl+V), přilož doklady o nákupu a Submit for approval. Pak tu dej „Uloženo ručně…“.`, 'success', 15000);
+    // Straight to Seatiks: the Creation page with this event searched, plus a guide that stays on screen.
+    // Seatiks matches a contiguous piece of the name ("Tottenham Hotspur vs Coventry City"), so football
+    // searches the away side ("Coventry City"), anything else the act.
+    const sidesOf = String(t.eventName || '').replace(/\s+[-–|(].*$/, '').split(/\s+(?:vs\.?|v|x|-)\s+/i).map(s => s.replace(/\b(FC|AFC|CF)\b/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const q = (sidesOf.length > 1 ? sidesOf[1] : searchTerms(t)[0]) || t.eventName || '';
+    stGuide(`${rows.length} ${rows.length === 1 ? 'řádek' : rows.length < 5 ? 'řádky' : 'řádků'} pro „${t.eventName}“ ${t.eventDate ? '(' + fmtDateCz(t.eventDate) + ')' : ''} je ve schránce`);
+    try {
+      switchView('seatiks');
+      const wv = await panel('seatiks');
+      wv.loadURL('https://seatiks.com/inventory/creation?q=' + encodeURIComponent(q));
+    } catch (_) { /* panel not available — the guide still says what to do */ }
+  }
+  // Guide shown above the Seatiks panel until closed.
+  function stGuide(head) {
+    const view = document.getElementById('view-seatiks');
+    if (!view) { toast(head + ' — Seatiks → Creation → akce → Continue → Bulk import → Ctrl+V → Analyze → Add → doklad → Submit for approval.', 'success', 15000); return; }
+    let box = document.getElementById('stGuide');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'stGuide';
+      box.className = 'st-guide';
+      view.insertBefore(box, view.querySelector('.mkt-webview-wrap'));
+      box.addEventListener('click', e => { if (e.target.closest('[data-st-close]')) box.remove(); });
+    }
+    box.innerHTML = `<b>${escapeHtml(head)}.</b> Zaškrtni akci → <b>Continue</b> → <b>Bulk import</b> → klikni do „Or paste your rows“ → <b>Ctrl+V</b> → <b>Analyze</b> → <b>Add listing</b> →
+      přilož <b>doklad o nákupu</b> → <b>Submit for approval</b>. Pak v Zalistování dej <b>„Uloženo ručně…“</b>. <button class="btn btn-sm" data-st-close>Zavřít</button>`;
   }
   async function seatiksListAll(list) {
     const done = [], failed = [];
