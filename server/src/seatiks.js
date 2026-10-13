@@ -104,6 +104,18 @@ async function listTicket(user, body) {
   // The bulk result carries the id inside `listing` (item.id can be null for a fresh listing).
   item.id = item.id || (item.listing && item.listing.id) || null;
   const now = new Date().toISOString();
+  // Sandbox key (live access not granted yet): the listing exists only in Seatiks' sandbox, so the
+  // real ticket stays available — just remember the trial on it.
+  if (user.seatiksMode !== 'live') {
+    const test = await store.updateBucket(user.dataKey, d => {
+      const x = d.tickets.find(y => y.id === t.id);
+      if (!x) return null;
+      x.listing = { ...(x.listing || {}), seatiksTest: { listingId: item.id || null, shortId: (item.listing && item.listing.short_id) || null, status: item.status, eventId: listing.event_id, section: listing.section, at: now } };
+      x.updated = x._serverAt = now;
+      return x;
+    });
+    return { ok: true, test: true, status: item.status, pending, listingId: item.id || null, ticket: test };
+  }
   const saved = await store.updateBucket(user.dataKey, d => {
     const i = d.tickets.findIndex(x => x.id === t.id);
     if (i < 0) return null;
@@ -189,9 +201,12 @@ async function pollUser(user) {
     cursor = r.next_cursor;
   }
   const log = entry => store.appendIngestLog({ ...entry, at: new Date().toISOString(), mailbox: 'seatiks' });
+  // Sandbox sales of listings that no ticket carries (fictitious events) would only clutter the inbox.
+  const known = new Set(store.loadBucket(user.dataKey).tickets.map(t => (t.externalIds || {}).seatiksListingId).filter(Boolean));
+  const relevant = s => s.mode !== 'test' || known.has(s.listing_id);
   let applied = 0;
   // Oldest first, and within a sale sold → delivered → paid, so the stages land in order.
-  for (const sale of sales.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
+  for (const sale of sales.filter(relevant).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
     for (const stage of stagesOf(sale)) {
       const parsed = parsedFor(sale, stage);
       const mail = { date: new Date(sale.updated_at || sale.created_at || Date.now()), from: 'Seatiks API', to: '', subject: `Seatiks ${stage}: ${parsed.event || ''} · ${parsed.quantity || '?'} ks · obj. ${parsed.orderId}`, messageId: `seatiks-${sale.id}-${stage}` };

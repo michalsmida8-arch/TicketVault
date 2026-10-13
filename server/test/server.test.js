@@ -480,7 +480,7 @@ test('seatiks: listing from inventory, then a polled sale marks the ticket sold 
   const store = loadStore();
   for (const k of ['../src/seatiks', '../src/ingest/pipeline', '../src/ingest/sales']) delete require.cache[require.resolve(k)];
   const seatiks = require('../src/seatiks');
-  store.saveUsers([...store.loadUsers(), { id: 'u_seat', username: 'seat', dataKey: 'k_seat', seatiksKey: 'stk_test_abcdefgh1234', seatiksMode: 'test' }]);
+  store.saveUsers([...store.loadUsers(), { id: 'u_seat', username: 'seat', dataKey: 'k_seat', seatiksKey: 'stk_live_abcdefgh1234', seatiksMode: 'live' }]);
   const db = store.loadBucket('k_seat');
   db.tickets.push({ id: 't_seat1', eventName: 'RB Leipzig vs PSV Eindhoven', eventDate: '2026-10-13', section: 'Sektor D – Block 13.1', quantity: 4, status: 'available', purchasePrice: 100, currency: 'EUR', updated: '2026-10-01T00:00:00.000Z' });
   store.saveBucket('k_seat', db);
@@ -494,7 +494,7 @@ test('seatiks: listing from inventory, then a polled sale marks the ticket sold 
     const json = body => ({ ok: true, status: 200, json: async () => body });
     if (/\/v1\/listings$/.test(url) && opts.method === 'POST') {
       const b = JSON.parse(opts.body).listings[0];
-      assert.equal(b.hide_seats, true); assert.equal(b.section, '11:1301'); assert.equal(b.idempotency_key, 'tv-t_seat1');
+      assert.equal(b.hide_seats, true); assert.equal(b.section, '11:1301'); assert.match(b.idempotency_key, /^tv-t_seat\d$/);
       return json({ object: 'bulk_result', data: [{ index: 0, id: null, status: 'created', listing: { id: 'L-1', short_id: 'AB12' } }] });
     }
     if (/\/v1\/sales\?/.test(url)) return json({ object: 'list', data: [sale], has_more: false, next_cursor: null });
@@ -526,5 +526,17 @@ test('seatiks: listing from inventory, then a polled sale marks the ticket sold 
     assert.equal(b.tickets[0].status, 'delivered');
     assert.equal(b.inbox.filter(i => i.parsed && i.parsed.orderId === 'S-1001').length, 2);
     assert.ok(calls.every(c => /api\.seatiks\.com/.test(c)));
+
+    // Sandbox key: the real ticket must stay available, only the trial is noted.
+    store.saveUsers(store.loadUsers().map(u => u.id === 'u_seat' ? { ...u, seatiksMode: 'test' } : u));
+    const b2 = store.loadBucket('k_seat');
+    b2.tickets.push({ id: 't_seat2', eventName: 'RB Leipzig vs PSV Eindhoven', eventDate: '2026-10-13', section: '131', quantity: 2, status: 'available', updated: '2026-10-01T00:00:00.000Z' });
+    store.saveBucket('k_seat', b2);
+    const r2 = await seatiks.listTicket(store.loadUsers().find(u => u.id === 'u_seat'), { ticketId: 't_seat2', eventId: '900000000001', section: '11:1301', quantity: 2, price: 50 });
+    assert.equal(r2.test, true);
+    const t2 = store.loadBucket('k_seat').tickets.find(x => x.id === 't_seat2');
+    assert.equal(t2.status, 'available');
+    assert.ok(!(t2.externalIds || {}).seatiksListingId);
+    assert.ok(t2.listing.seatiksTest);
   } finally { global.fetch = realFetch; }
 });
