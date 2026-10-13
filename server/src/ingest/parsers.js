@@ -13,6 +13,7 @@ const PLATFORM_PATTERNS = [
   [/\baxs\b/i, 'AXS'],
   [/seetickets|see\s*tickets/i, 'See Tickets'],
   [/syncseats/i, 'SyncSeats'],
+  [/seatiks/i, 'Seatiks'],
   [/tickets\.rs/i, 'Tickets.rs'],
   [/ticketportal/i, 'Ticketportal'],
   [/goout/i, 'GoOut'],
@@ -31,7 +32,7 @@ const PLATFORM_PATTERNS = [
 
 // Marketplaces where the reseller SELLS. Every transactional mail from them is a sale
 // (sold / delivered to buyer / payout), never a purchase. Names match the app.
-const SALE_PLATFORMS = new Set(['Stubhub', 'Viagogo', 'SyncSeats']);
+const SALE_PLATFORMS = new Set(['Stubhub', 'Viagogo', 'SyncSeats', 'Seatiks']);
 function isSalePlatform(name) {
   return SALE_PLATFORMS.has(canonicalPlatform(name));
 }
