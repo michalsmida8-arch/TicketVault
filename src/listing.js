@@ -499,6 +499,40 @@
       toast('Seatiks: ' + e.message, 'error', 8000);
     } finally { delete ui.busy[t.id]; render(); }
   }
+  // Without a live API key (Seatiks grants it after the first sales) the rows go to the clipboard in the
+  // format of Seatiks' own import template (Inventory → Creation → pick the event → Bulk import → paste).
+  let stLive = null; // null = not known yet, false = sandbox/no key → clipboard mode, true = live API
+  function refreshSeatiksMode() {
+    if (!window.__seatiks || stLive !== null) return;
+    stLive = false;
+    window.__seatiks.status().then(s => { stLive = !!(s && s.configured && !s.error && s.mode === 'live'); render(); }).catch(() => {});
+  }
+  const ST_COLUMNS = ['Section', 'Row', 'Quantity', 'Price', 'Currency', 'First Seat', 'Ticket Type', 'Split Type', 'Face Value', 'Face Value Currency',
+    'Fan Allocation', 'Benefits', 'Restrictions', 'Features', 'Internal Note', 'Hide Seats', 'Max Display Quantity'];
+  const csvCell = v => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`;
+  const sameEvent = (a, b) => a.eventDate === b.eventDate && norm(a.eventName) === norm(b.eventName);
+  function seatiksRow(t) {
+    const row = document.querySelector(`.lst-row[data-id="${t.id}"]`);
+    const L = t.listing || {};
+    const price = parseFloat(row && row.querySelector('.lst-price') ? row.querySelector('.lst-price').value : L.price) || '';
+    const type = (row && row.querySelector('.lst-type') && row.querySelector('.lst-type').value) || L.ticketType || seatiksTransfer(t);
+    const qty = Number(t.quantity) || 1;
+    const first = (String(t.seat || '').match(/\d+/g) || []).map(Number);
+    return { price, type, cells: [t.section || '', t.row || '', qty, price, 'EUR', first.length ? Math.min(...first) : '', type,
+      qty > 1 ? 'Avoid leaving one' : 'Any split', toEur(t.purchasePrice, t.currency) || '', 'EUR', '', '', '', '', `TicketVault ${t.id}`, 'yes', ''] };
+  }
+  async function seatiksCopy(t) {
+    const group = candidates().filter(x => platformOf(x) === 'Seatiks' && sameEvent(x, t));
+    const rows = group.map(x => ({ t: x, ...seatiksRow(x) }));
+    const noPrice = rows.filter(r => !r.price);
+    if (noPrice.length) { toast(`Zadej cenu u ${noPrice.length === 1 ? 'vstupenky' : noPrice.length + ' vstupenek'} na tuto akci`, 'error', 6000); return; }
+    const text = '﻿' + [ST_COLUMNS, ...rows.map(r => r.cells)].map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    try { await navigator.clipboard.writeText(text); }
+    catch (_) { toast('Schránka nejde zapsat — klikni do okna aplikace a zkus to znovu', 'error', 6000); return; }
+    for (const r of rows) await patchTicket(r.t, { listing: { platform: 'Seatiks', price: r.price, ticketType: r.type, currency: 'EUR', status: 'prefilled', prefilledAt: new Date().toISOString() } });
+    render();
+    toast(`Zkopírováno ${rows.length} ${rows.length === 1 ? 'řádek' : 'řádků'} pro „${t.eventName}“. Seatiks → Inventory → Creation → vyber akci → Bulk import → vlož (Ctrl+V), přilož doklady o nákupu a Submit for approval. Pak tu dej „Uloženo ručně…“.`, 'success', 15000);
+  }
   async function seatiksListAll(list) {
     const done = [], failed = [];
     for (const t of list) {
@@ -700,7 +734,7 @@
   async function checkSaved() {
     const pend = waiting();
     if (!pend.length) { clearInterval(watchTimer); watchTimer = null; return; }
-    for (const name of new Set(pend.map(t => PANEL[platformOf(t)]))) {
+    for (const name of new Set(pend.map(t => PANEL[platformOf(t)]).filter(Boolean))) {
       let saved = null;
       try { saved = await inPanel(name, pageTakeSaved); } catch (_) { continue; }
       if (!saved || !saved.ticketId) continue;
@@ -710,7 +744,8 @@
   }
   async function markListed(t, listingId, auto, extra = {}) {
     const platform = platformOf(t);
-    const key = platform === 'Stubhub' ? 'stubhubListingId' : 'viagogoListingId';
+    // Seatiks by hand: their short id; seatiksListingId stays reserved for the API's listing uuid.
+    const key = platform === 'Stubhub' ? 'stubhubListingId' : platform === 'Seatiks' ? 'seatiksManualId' : 'viagogoListingId';
     const externalIds = { ...(t.externalIds || {}) };
     if (listingId) externalIds[key] = String(listingId);
     await patchTicket(t, { status: 'listed', platform, externalIds, listing: { status: 'listed', listingId: listingId || '', listedAt: new Date().toISOString(),
@@ -804,8 +839,9 @@
           <option value="Viagogo"${platform === 'Viagogo' ? ' selected' : ''}>Viagogo</option>
           <option value="Seatiks"${platform === 'Seatiks' ? ' selected' : ''}>Seatiks (~20 tržišť)</option>
         </select>${auto}
-        ${eventPicker(t, platform)}
-        ${platform === 'Seatiks' ? seatiksSectionPicker(t) : ''}
+        ${platform === 'Seatiks' && !stLive
+          ? `<div class="lst-ev lst-muted">Bez API: akci vybereš v Seatiks (Creation), sekci ověří jejich import</div>`
+          : eventPicker(t, platform) + (platform === 'Seatiks' ? seatiksSectionPicker(t) : '')}
       </div>
       <div class="lst-market">
         ${vg ? `
@@ -824,7 +860,9 @@
         <label class="lst-field"><span>${platform === 'Seatiks' ? 'Doručení' : 'Typ vstupenky'}</span><select class="lst-type">${typeOptions(platform, L.platform === platform ? L.ticketType : '', t)}</select></label>
       </div>
       <div class="lst-actions">
-        <button class="btn btn-primary btn-sm lst-go" data-id="${t.id}" ${busy ? 'disabled' : ''}>${busy === 'prefill' ? (platform === 'Seatiks' ? 'Zalistovávám…' : 'Vyplňuji…') : (platform === 'Seatiks' ? 'Zalistovat na Seatiks' : 'Předvyplnit na ' + PLATFORM_LABEL[platform])}</button>
+        ${platform === 'Seatiks' && !stLive
+          ? `<button class="btn btn-primary btn-sm lst-st-copy" data-id="${t.id}" title="Zkopíruje řádky všech Seatiks vstupenek na tuto akci ve formátu Seatiks importu (Creation → Bulk import → vložit)">Kopírovat pro Seatiks</button>`
+          : `<button class="btn btn-primary btn-sm lst-go" data-id="${t.id}" ${busy ? 'disabled' : ''}>${busy === 'prefill' ? (platform === 'Seatiks' ? 'Zalistovávám…' : 'Vyplňuji…') : (platform === 'Seatiks' ? 'Zalistovat na Seatiks' : 'Předvyplnit na ' + PLATFORM_LABEL[platform])}</button>`}
         ${L.status === 'prefilled' ? `<button class="btn btn-sm lst-done" data-id="${t.id}" title="Pokud se ID nenačetlo samo, zadej ho ručně">Uloženo ručně…</button>` : ''}
       </div>
     </div>`;
@@ -865,6 +903,7 @@
     updateBadge();
     if (state.currentView !== 'listing') return;
     if (isWeb()) { box.innerHTML = '<div class="pl-empty">Zalistování předvyplňuje formuláře v panelech SalesPro a inv.viagogo — funguje jen v desktopové aplikaci.</div>'; return; }
+    refreshSeatiksMode();
     const list = candidates();
     const f = ui.filter;
     const shown = list.filter(t => f === 'all' || platformOf(t) === f);
@@ -875,7 +914,7 @@
       <div class="lst-toolbar">
         <div class="lst-chips">${chip('all', 'Vše')}${chip('Stubhub', 'StubHub')}${chip('Viagogo', 'Viagogo')}${chip('Seatiks', 'Seatiks')}</div>
         <div class="lst-tools">
-          <button class="btn btn-sm" id="lstSeatiksAll" title="Zalistuje přes Seatiks API všechny vstupenky s platformou Seatiks, které mají cenu (akce a sekce se dohledají samy)">${icon('layers', 13)} Zalistovat na Seatiks (${counts.Seatiks})</button>
+          ${stLive ? `<button class="btn btn-sm" id="lstSeatiksAll" title="Zalistuje přes Seatiks API všechny vstupenky s platformou Seatiks, které mají cenu (akce a sekce se dohledají samy)">${icon('layers', 13)} Zalistovat na Seatiks (${counts.Seatiks})</button>` : ''}
           <button class="btn btn-sm" id="lstLookupAll">${icon('refresh', 13)} Načíst tržní ceny</button>
           <button class="btn btn-sm" id="lstTikey" title="Skutečné prodeje z Tikey (StubHub / Viagogo) ke všem neprodaným vstupenkám — přihlas se jednou v panelu Tikey">${icon('trend', 13)} Reálné prodeje (Tikey)</button>
           <button class="btn btn-sm" id="lstCompare">${icon('layers', 13)} Porovnat s Viagogem</button>
@@ -939,7 +978,8 @@
       if (!btn) return;
       const t = T(btn.dataset.id);
       if (!t) return;
-      if (btn.classList.contains('lst-lookup')) lookup(t, platformOf(t));
+      if (btn.classList.contains('lst-st-copy')) seatiksCopy(t);
+      else if (btn.classList.contains('lst-lookup')) { if (!(platformOf(t) === 'Seatiks' && !stLive)) lookup(t, platformOf(t)); }
       else if (btn.classList.contains('lst-go')) prefill(t);
       else if (btn.classList.contains('lst-done')) {
         const id = prompt(`ID inzerátu na ${PLATFORM_LABEL[platformOf(t)]} (nech prázdné, pokud ho nemáš):`, '');
@@ -952,7 +992,8 @@
       if (e.target.classList.contains('lst-platform')) {
         await patchTicket(t, { listing: { platform: e.target.value, platformManual: e.target.value !== defaultPlatform(t), eventId: '', eventName: '', ticketType: '', stSection: '', stSectionName: '' } });
         render();
-        if (!ui.search[t.id] || (e.target.value === 'Viagogo' && !ui.search[t.id].vg) || (e.target.value === 'Seatiks' && !ui.search[t.id].st)) lookup(t, e.target.value, true);
+        const stOffline = e.target.value === 'Seatiks' && !stLive; // no live API: nothing to look up (sandbox events are fictional)
+        if (!stOffline && (!ui.search[t.id] || (e.target.value === 'Viagogo' && !ui.search[t.id].vg) || (e.target.value === 'Seatiks' && !ui.search[t.id].st))) lookup(t, e.target.value, true);
       } else if (e.target.classList.contains('lst-st-section')) {
         const opt = e.target.selectedOptions[0];
         await patchTicket(t, { listing: { stSection: e.target.value, stSectionName: opt ? opt.textContent.split(' · ')[0] : '' } });
