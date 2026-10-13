@@ -495,7 +495,7 @@ test('seatiks: listing from inventory, then a polled sale marks the ticket sold 
     if (/\/v1\/listings$/.test(url) && opts.method === 'POST') {
       const b = JSON.parse(opts.body).listings[0];
       assert.equal(b.hide_seats, true); assert.equal(b.section, '11:1301'); assert.equal(b.idempotency_key, 'tv-t_seat1');
-      return json({ object: 'bulk_result', data: [{ index: 0, id: 'L-1', status: 'created', listing: { short_id: 'AB12' } }] });
+      return json({ object: 'bulk_result', data: [{ index: 0, id: null, status: 'created', listing: { id: 'L-1', short_id: 'AB12' } }] });
     }
     if (/\/v1\/sales\?/.test(url)) return json({ object: 'list', data: [sale], has_more: false, next_cursor: null });
     if (/\/v1\/listings\?/.test(url)) return json({ object: 'list', data: [], has_more: false, next_cursor: null });

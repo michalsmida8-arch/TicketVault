@@ -101,6 +101,8 @@ async function listTicket(user, body) {
     throw new SeatiksError('Seatiks inzerát odmítl: ' + ((item.error && (item.error.message || item.error.code)) || item.status || 'neznámá chyba'), 400, item.error && item.error.code);
   }
   const pending = item.status === 'pending_approval' || item.status === 'pending';
+  // The bulk result carries the id inside `listing` (item.id can be null for a fresh listing).
+  item.id = item.id || (item.listing && item.listing.id) || null;
   const now = new Date().toISOString();
   const saved = await store.updateBucket(user.dataKey, d => {
     const i = d.tickets.findIndex(x => x.id === t.id);
@@ -122,7 +124,7 @@ async function listTicket(user, body) {
 // Pending listings come back with the same idempotency key: still pending, or duplicate (= approved) with the listing.
 async function refreshPending(user) {
   const db = store.loadBucket(user.dataKey);
-  const pend = db.tickets.filter(t => t.listing && t.listing.seatiks && /pending/.test(t.listing.seatiks.status || ''));
+  const pend = db.tickets.filter(t => t.listing && t.listing.seatiks && (/pending/.test(t.listing.seatiks.status || '') || !(t.externalIds || {}).seatiksListingId));
   let changed = 0;
   for (const t of pend) {
     const r = await api(keyOf(user), 'GET', '/listings', null, { event_id: t.listing.seatiks.eventId, limit: 100 }).catch(() => null);
