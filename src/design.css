@@ -517,3 +517,11 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 .dlv-seat { font-variant-numeric: tabular-nums; color: var(--text-primary); min-width: 220px; }
 .dlv-gen { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); }
 .dlv-gen .btn { align-self: flex-start; }
+
+/* ---- Seatiks (1.20) ----------------------------------------------------------------- */
+#seatiksSettingsBox code { font-size: 12px; }
+#seatiksSettingsBox .st-live { color: var(--green-bright); }
+#seatiksSettingsBox .st-test { color: var(--purple); }
+#seatiksSettingsBox .st-bad { color: var(--red-bright); }
+.settings-actions { display: flex; gap: 8px; margin: 6px 0 10px; }
+.lst-st-section { max-width: 100%; margin-top: 4px; }

@@ -366,6 +366,11 @@
           inv.viagogo
           <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://inv.viagogo.com/">↗</span>
         </button>
+        <button class="nav-item nav-marketplace" data-view="seatiks" title="Seatiks — jeden inzerát na ~20 tržišť (zalistování přes API v Zalistování)">
+          <span class="nav-mkt-icon nav-mkt-seatiks">SK</span>
+          Seatiks
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://seatiks.com/overview">↗</span>
+        </button>
         <button class="nav-item nav-marketplace" data-view="tikey" title="Tikey Manager — skutečné prodeje na StubHubu a Viagogu (Sales Tracker)">
           <span class="nav-mkt-icon nav-mkt-tikey">TK</span>
           Tikey
@@ -1358,6 +1363,29 @@
           <div id="ingestStatusBox" class="form-hint">Načítání…</div>
         </div>
 
+        <div class="settings-section">
+          <div class="section-head">
+            <h3><span class="ico-slot" data-ico="layers"></span> Seatiks</h3>
+            <button class="btn btn-dark btn-sm" id="btnSeatiksSync" type="button"><span class="ico-slot" data-ico="refresh"></span> Načíst prodeje</button>
+          </div>
+          <p class="settings-desc">
+            Zalistování na ~20 tržišť přes Seatiks Seller API. Klíč vytvoříš na seatiks.com → Settings → Developers
+            (oprávnění events:read, listings:read, listings:write, sales:read, delivery:write, wallet:read). Uloží se
+            <strong>jen na server</strong>, appka ho neuchovává. Prodeje ze Seatiks se do inventáře zapisují samy každých 5 minut.
+          </p>
+          <div class="form-group">
+            <label>API klíč</label>
+            <div class="input-with-action">
+              <input type="password" id="seatiksKeyInput" placeholder="stk_test_… nebo stk_live_…" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary btn-sm" id="btnSeatiksKeySave" type="button">Uložit a ověřit</button>
+            <button class="btn btn-dark btn-sm" id="btnSeatiksKeyRemove" type="button">Odpojit</button>
+          </div>
+          <div id="seatiksSettingsBox" class="form-hint">Načítání…</div>
+        </div>
+
         <!-- App version + manual update check. Runs silently on startup but
              users can force a check here. Version string is injected from
              package.json via app.getVersion(). -->
@@ -1790,6 +1818,35 @@
           <div class="mkt-loading" id="mktLoadingInvviagogo">
             <div class="mkt-spinner"></div>
             <div>Načítám inv.viagogo…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEATIKS WEBVIEW (1.20) — the seller dashboard; listing itself goes through the Seller API
+           (server, key in Settings), this panel is for checking listings, approvals and payouts. -->
+      <div class="view marketplace-view" id="view-seatiks">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="seatiks" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="seatiks" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="seatiks" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="seatiks" title="Domů"><span class="ico-slot" data-ico="home"></span></button>
+          <div class="mkt-url" id="mktUrlSeatiks">https://seatiks.com/overview</div>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="seatiks" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="seatiks" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="seatiks" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://seatiks.com/overview" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-seatiks"
+            class="mkt-webview"
+            src="https://seatiks.com/overview"
+            partition="persist:seatiks"
+            allowpopups
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"></webview>
+          <div class="mkt-loading" id="mktLoadingSeatiks">
+            <div class="mkt-spinner"></div>
+            <div>Načítám Seatiks…</div>
           </div>
         </div>
       </div>
@@ -2933,5 +2990,6 @@
   <script src="listing.js"></script>
   <script src="tikey.js"></script>
   <script src="delivery.js"></script>
+  <script src="seatiks.js"></script>
 </body>
 </html>

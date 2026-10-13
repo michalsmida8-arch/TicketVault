@@ -12,7 +12,9 @@
   const DAY = 86400000;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const PANEL = { Stubhub: 'salespro', Viagogo: 'invviagogo' };
-  const PLATFORM_LABEL = { Stubhub: 'StubHub', Viagogo: 'Viagogo' };
+  const PLATFORM_LABEL = { Stubhub: 'StubHub', Viagogo: 'Viagogo', Seatiks: 'Seatiks' };
+  // Seatiks (1.20): listed straight through the Seller API (no panel form), one listing → ~20 marketplaces.
+  const ST_TYPES = [['Mobile Link/PKPASS', 'Odkaz / Wallet (SeatLabs)'], ['External Transfer', 'Převod v aplikaci klubu'], ['E-ticket', 'E-ticket (PDF)'], ['Mobile Screenshot', 'Screenshot'], ['Paper', 'Papírové']];
   const SH_TYPES = [['EXT_MOBILE', 'Mobilní převod'], ['MOBILE', 'Mobilní'], ['PAPER', 'Poštou'], ['SEASON_CARD', 'Sezónní karta']];
   const VG_TYPES = [['TicketMasterMobile', 'Mobile Ticket Transfer'], ['ETicket', 'E-Tickets (PDF)'], ['ETicketUrl', 'Mobile Tickets (odkaz)']];
   const ui = { filter: 'all', search: {}, busy: {}, compare: null, wired: false };
@@ -409,7 +411,9 @@
     const seen = new Map();
     let term = '';
     for (term of searchTerms(t)) {
-      const res = platform === 'Stubhub'
+      const res = platform === 'Seatiks'
+        ? await seatiksSearch({ term, from, to })
+        : platform === 'Stubhub'
         ? await inPanel('salespro', pageStubhubSearch, { term, from, to })
         : await inPanel('invviagogo', pageViagogoSearch, { term, from: usDate(from), to: usDate(to) });
       if (!res || res.error) return { error: res && res.error === 'login' ? `Přihlas se v panelu ${PLATFORM_LABEL[platform]}` : (res && res.error) || 'bez odpovědi', term };
@@ -430,6 +434,81 @@
     const dayOk = top && (isFootball(t) || sameDay(top));
     const best = dayOk && top.score >= 10 && (nameHits(t, top) >= Math.min(2, nameWords(t).length) || soleSameDay) ? top : null;
     return { events, best, term };
+  }
+
+  // ---------- Seatiks (Seller API through our server) -----------------------------------------
+  async function seatiksSearch(q) {
+    if (!window.__seatiks) return { error: 'Seatiks není v téhle verzi aplikace' };
+    try {
+      const evs = await window.__seatiks.call('GET', `/events?q=${encodeURIComponent(q.term)}&from=${q.from}T00:00:00Z&to=${q.to}T23:59:59Z`);
+      return { events: (evs || []).map(e => ({ id: String(e.id), name: e.name, date: e.date, venue: e.venue, city: e.city, currency: e.currency })) };
+    } catch (e) { return { error: /klíč/i.test(e.message) ? 'Nastav Seatiks API klíč (Nastavení → Seatiks)' : e.message }; }
+  }
+  const stSections = new Map(); // Seatiks event id -> sections[]
+  async function seatiksSections(eventId) {
+    if (!stSections.has(eventId)) stSections.set(eventId, (await window.__seatiks.call('GET', '/events/' + encodeURIComponent(eventId))).sections || []);
+    return stSections.get(eventId);
+  }
+  // The ticket's section in the event's catalog: exact name, else the one section whose number matches.
+  function pickSeatiksSection(t, sections) {
+    const want = norm(t.section);
+    let hit = sections.find(s => norm(s.name) === want);
+    const num = (sectionKey(t.section) || '').replace(/^0+(?=\d)/, '');
+    if (!hit && num) {
+      const same = sections.filter(s => (sectionKey(s.name) || '').replace(/^0+(?=\d)/, '') === num);
+      if (same.length === 1) hit = same[0];
+    }
+    return hit || null;
+  }
+  async function seatiksPrepare(t, eventId) {
+    const secs = await seatiksSections(eventId).catch(() => []);
+    const hit = pickSeatiksSection(t, secs);
+    return hit ? { stSection: hit.key, stSectionName: hit.name || hit.key } : { stSection: '', stSectionName: '' };
+  }
+  // Delivery as Michal does it: PDFs on the ticket → e-ticket; English clubs → SeatLabs link/wallet; else the club app transfer.
+  function seatiksTransfer(t) {
+    if ((t.attachments && t.attachments.length) || (t.files && t.files.length)) return 'E-ticket';
+    return isPremierLeague(t) || /arsenal|chelsea|liverpool|tottenham|spurs|man(chester)? (city|utd|united)|fulham|newcastle|everton|aston villa|brentford/i.test(t.eventName || '') ? 'Mobile Link/PKPASS' : 'External Transfer';
+  }
+  function toEur(amount, from) {
+    const a = Number(amount);
+    if (!a) return null;
+    if (!from || from === 'EUR') return Math.round(a * 100) / 100;
+    const fx = typeof getExchangeRates === 'function' ? getExchangeRates() : {};
+    return fx[from] ? Math.round(a / fx[from] * 100) / 100 : null;
+  }
+  async function seatiksList(t, opts = {}) {
+    const row = document.querySelector(`.lst-row[data-id="${t.id}"]`);
+    let L = t.listing || {};
+    const price = opts.price || parseFloat(row && row.querySelector('.lst-price') ? row.querySelector('.lst-price').value : L.price);
+    const transfer = (row && row.querySelector('.lst-type') && row.querySelector('.lst-type').value) || L.ticketType || seatiksTransfer(t);
+    if (!price || price <= 0) { if (opts.auto) return { error: 'bez ceny' }; toast('Zadej cenu za kus', 'error'); return; }
+    ui.busy[t.id] = 'prefill'; render();
+    try {
+      if (!L.eventId || L.platform !== 'Seatiks') { await lookup(t, 'Seatiks', true); L = ((state.db.tickets || []).find(x => x.id === t.id) || t).listing || {}; }
+      if (!L.eventId) throw new Error('akci na Seatiks jsem jednoznačně nenašel — vyber ji ze seznamu');
+      if (!L.stSection) throw new Error('vyber sekci z katalogu Seatiks');
+      const r = await window.__seatiks.call('POST', '/list', { ticketId: t.id, eventId: L.eventId, eventName: L.eventName, section: L.stSection, sectionName: L.stSectionName,
+        quantity: Number(t.quantity) || 1, price, currency: 'EUR', faceValue: toEur(t.purchasePrice, t.currency), faceCurrency: 'EUR', transferMethod: transfer });
+      if (typeof refreshDb === 'function') await refreshDb();
+      const msg = r.pending ? `${t.eventName}: odesláno na Seatiks, čeká na schválení jejich týmem` : `${t.eventName}: zalistováno na Seatiks (všechna tržiště)`;
+      if (opts.auto) return { ok: true, pending: r.pending };
+      toast(msg, 'success', 7000);
+    } catch (e) {
+      if (opts.auto) return { error: e.message };
+      toast('Seatiks: ' + e.message, 'error', 8000);
+    } finally { delete ui.busy[t.id]; render(); }
+  }
+  async function seatiksListAll(list) {
+    const done = [], failed = [];
+    for (const t of list) {
+      const r = await seatiksList(t, { auto: true });
+      if (r && r.ok) done.push(`${t.eventName} · ${Number(t.quantity) || 1} ks · ${(t.listing || {}).price} €/ks${r.pending ? ' (čeká na schválení)' : ''}`);
+      else failed.push(`${t.eventName}: ${(r && r.error) || 'nepovedlo se'}`);
+    }
+    ui.autoResult = { done, failed, at: new Date(), seatiks: true };
+    render();
+    toast(`Seatiks: zalistováno ${done.length}${failed.length ? `, nepovedlo se ${failed.length}` : ''}`, failed.length ? 'info' : 'success', 9000);
   }
 
   // ---------- persistence ---------------------------------------------------------------
@@ -471,12 +550,14 @@
       // for Viagogo listings we also need the Viagogo event link.
       const sh = await findEvent(t, 'Stubhub').catch(e => ({ error: e.message }));
       const vg = platform === 'Viagogo' ? await findEvent(t, 'Viagogo').catch(e => ({ error: e.message })) : null;
-      ui.search[t.id] = { sh, vg };
-      const target = platform === 'Stubhub' ? sh : vg;
+      const stR = platform === 'Seatiks' ? await findEvent(t, 'Seatiks').catch(e => ({ error: e.message })) : null;
+      ui.search[t.id] = { sh, vg, st: stR };
+      const target = platform === 'Stubhub' ? sh : platform === 'Seatiks' ? stR : vg;
       const listing = { platform };
       if (sh && sh.best) listing.market = { price: sh.best.minPrice, listPrice: sh.best.minListPrice, currency: sh.best.currency, total: sh.best.total, at: new Date().toISOString(), eventName: sh.best.name };
       if (target && target.best) { listing.eventId = target.best.id; listing.eventName = target.best.name; listing.eventDate = target.best.date; }
       if (platform === 'Viagogo' && listing.eventId) listing.vgMarket = await viagogoMarket(t, listing.eventId).catch(() => null);
+      if (platform === 'Seatiks' && listing.eventId) Object.assign(listing, await seatiksPrepare(t, listing.eventId));
       await patchTicket(t, { listing });
       // Real sale prices (Tikey) — optional: a missing Tikey login must not spoil the lookup.
       if (window.__tikey) await window.__tikey.refresh((state.db.tickets || []).find(x => x.id === t.id) || t).catch(() => null);
@@ -511,6 +592,7 @@
   async function prefill(t, opts = {}) {
     const L = t.listing || {};
     const platform = platformOf(t);
+    if (platform === 'Seatiks') return seatiksList(t, opts);
     const row = document.querySelector(`.lst-row[data-id="${t.id}"]`);
     const price = opts.price || parseFloat(row && row.querySelector('.lst-price') ? row.querySelector('.lst-price').value : L.price);
     const ticketType = (row && row.querySelector('.lst-type') && row.querySelector('.lst-type').value) || L.ticketType;
@@ -590,6 +672,7 @@
   async function autoList(list) {
     const done = [], failed = [];
     for (const t of list) {
+      if (platformOf(t) === 'Seatiks') { failed.push(`${t.eventName}: Seatiks se zalistovává tlačítkem „Zalistovat na Seatiks“`); continue; }
       const rec = recommendedPrice(t);
       if (!rec) { failed.push(`${t.eventName}: chybí doporučená cena (dej Najít)`); continue; }
       const price = Math.round(rec * 2);
@@ -674,13 +757,22 @@
 
   // ---------- rendering ---------------------------------------------------------------
   const money = (n, c) => (n || n === 0) && typeof formatMoney === 'function' ? formatMoney(n, c || 'EUR') : (n ? n + ' ' + (c || '') : '—');
-  function typeOptions(platform, cur) {
-    const list = platform === 'Stubhub' ? SH_TYPES : VG_TYPES;
+  function typeOptions(platform, cur, t) {
+    const list = platform === 'Stubhub' ? SH_TYPES : platform === 'Seatiks' ? ST_TYPES : VG_TYPES;
+    if (platform === 'Seatiks' && !cur && t) cur = seatiksTransfer(t);
     return list.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('');
   }
+  const searchOf = (t, platform) => { const s = ui.search[t.id]; return s && (platform === 'Stubhub' ? s.sh : platform === 'Seatiks' ? s.st : s.vg); };
+  function seatiksSectionPicker(t) {
+    const L = t.listing || {};
+    if (!L.eventId || L.platform !== 'Seatiks') return '';
+    const secs = stSections.get(L.eventId);
+    if (!secs) return L.stSection ? `<div class="lst-ev">${icon('check', 13)} Sekce ${escapeHtml(L.stSectionName || L.stSection)}</div>` : '';
+    return `<select class="lst-st-section" data-id="${t.id}">${L.stSection ? '' : '<option value="">— vyber sekci —</option>'}${secs.map(s =>
+      `<option value="${escapeHtml(s.key)}"${s.key === L.stSection ? ' selected' : ''}>${escapeHtml(s.name || s.key)}${s.category ? ' · ' + escapeHtml(s.category) : ''}</option>`).join('')}</select>`;
+  }
   function eventPicker(t, platform) {
-    const s = ui.search[t.id];
-    const r = s && (platform === 'Stubhub' ? s.sh : s.vg);
+    const r = searchOf(t, platform);
     const L = t.listing || {};
     if (r && r.error) return `<div class="lst-ev lst-warn">${icon('alert', 13)} ${escapeHtml(r.error)}</div>`;
     if (r && r.events && r.events.length) {
@@ -698,7 +790,7 @@
     const m = L.market;
     const vg = platform === 'Viagogo' && L.vgMarket ? L.vgMarket : null;
     const hint = vg ? (vg.sectionPrice || vg.price) : (m && m.price);
-    const cur = platform === 'Viagogo' ? (L.currency || 'EUR') : ((m && m.currency) || L.currency || t.currency || 'EUR');
+    const cur = platform === 'Seatiks' ? 'EUR' : platform === 'Viagogo' ? (L.currency || 'EUR') : ((m && m.currency) || L.currency || t.currency || 'EUR');
     const status = L.status === 'prefilled' ? '<span class="lst-pill wait">čeká na uložení</span>' : '';
     return `<div class="lst-row" data-id="${t.id}">
       <div class="lst-main">
@@ -710,8 +802,10 @@
         <select class="lst-platform" data-id="${t.id}">
           <option value="Stubhub"${platform === 'Stubhub' ? ' selected' : ''}>StubHub (SalesPro)</option>
           <option value="Viagogo"${platform === 'Viagogo' ? ' selected' : ''}>Viagogo</option>
+          <option value="Seatiks"${platform === 'Seatiks' ? ' selected' : ''}>Seatiks (~20 tržišť)</option>
         </select>${auto}
         ${eventPicker(t, platform)}
+        ${platform === 'Seatiks' ? seatiksSectionPicker(t) : ''}
       </div>
       <div class="lst-market">
         ${vg ? `
@@ -727,10 +821,10 @@
       </div>
       <div class="lst-form">
         <label class="lst-field"><span>Cena/ks (${escapeHtml(cur)})</span><input class="lst-price" type="number" min="0" step="0.01" value="${L.price || ''}" placeholder="${hint ? Math.round(hint) : ''}"></label>
-        <label class="lst-field"><span>Typ vstupenky</span><select class="lst-type">${typeOptions(platform, L.ticketType)}</select></label>
+        <label class="lst-field"><span>${platform === 'Seatiks' ? 'Doručení' : 'Typ vstupenky'}</span><select class="lst-type">${typeOptions(platform, L.platform === platform ? L.ticketType : '', t)}</select></label>
       </div>
       <div class="lst-actions">
-        <button class="btn btn-primary btn-sm lst-go" data-id="${t.id}" ${busy ? 'disabled' : ''}>${busy === 'prefill' ? 'Vyplňuji…' : 'Předvyplnit na ' + PLATFORM_LABEL[platform]}</button>
+        <button class="btn btn-primary btn-sm lst-go" data-id="${t.id}" ${busy ? 'disabled' : ''}>${busy === 'prefill' ? (platform === 'Seatiks' ? 'Zalistovávám…' : 'Vyplňuji…') : (platform === 'Seatiks' ? 'Zalistovat na Seatiks' : 'Předvyplnit na ' + PLATFORM_LABEL[platform])}</button>
         ${L.status === 'prefilled' ? `<button class="btn btn-sm lst-done" data-id="${t.id}" title="Pokud se ID nenačetlo samo, zadej ho ručně">Uloženo ručně…</button>` : ''}
       </div>
     </div>`;
@@ -738,6 +832,11 @@
   function autoResultHtml() {
     const r = ui.autoResult;
     if (!r) return '';
+    if (r.seatiks) return `<div class="lst-compare">
+      <div class="lst-compare-head">${icon('layers', 15)} Seatiks: zalistováno ${r.done.length}${r.failed.length ? `, nepovedlo se ${r.failed.length}` : ''}</div>
+      ${r.done.map(x => `<div class="lst-cmp-row"><span class="lst-cmp-ev">${escapeHtml(x)}</span><span></span><span class="lst-cmp-issue">${icon('check', 13)} odesláno</span></div>`).join('')}
+      ${r.failed.map(x => `<div class="lst-cmp-row bad"><span class="lst-cmp-ev">${escapeHtml(x)}</span><span></span><span class="lst-cmp-issue">${icon('alert', 13)} nezalistováno</span></div>`).join('')}
+    </div>`;
     return `<div class="lst-compare">
       <div class="lst-compare-head">${icon('zap', 15)} Neaktivně zalistováno ${r.done.length}${r.failed.length ? `, nepovedlo se ${r.failed.length}` : ''} — ceny jsou 2× doporučené, zkontroluj je a zveřejni na tržišti</div>
       ${r.done.map(x => `<div class="lst-cmp-row"><span class="lst-cmp-ev">${escapeHtml(x)}</span><span></span><span class="lst-cmp-issue">${icon('check', 13)} uloženo, nezveřejněno</span></div>`).join('')}
@@ -769,12 +868,14 @@
     const list = candidates();
     const f = ui.filter;
     const shown = list.filter(t => f === 'all' || platformOf(t) === f);
-    const counts = { all: list.length, Stubhub: list.filter(t => platformOf(t) === 'Stubhub').length, Viagogo: list.filter(t => platformOf(t) === 'Viagogo').length };
+    const counts = { all: list.length, Stubhub: list.filter(t => platformOf(t) === 'Stubhub').length, Viagogo: list.filter(t => platformOf(t) === 'Viagogo').length,
+      Seatiks: list.filter(t => platformOf(t) === 'Seatiks').length };
     const chip = (k, l) => `<button class="lst-chip${f === k ? ' active' : ''}" data-filter="${k}">${l} <span>${counts[k]}</span></button>`;
     box.innerHTML = `
       <div class="lst-toolbar">
-        <div class="lst-chips">${chip('all', 'Vše')}${chip('Stubhub', 'StubHub')}${chip('Viagogo', 'Viagogo')}</div>
+        <div class="lst-chips">${chip('all', 'Vše')}${chip('Stubhub', 'StubHub')}${chip('Viagogo', 'Viagogo')}${chip('Seatiks', 'Seatiks')}</div>
         <div class="lst-tools">
+          <button class="btn btn-sm" id="lstSeatiksAll" title="Zalistuje přes Seatiks API všechny vstupenky s platformou Seatiks, které mají cenu (akce a sekce se dohledají samy)">${icon('layers', 13)} Zalistovat na Seatiks (${counts.Seatiks})</button>
           <button class="btn btn-sm" id="lstLookupAll">${icon('refresh', 13)} Načíst tržní ceny</button>
           <button class="btn btn-sm" id="lstTikey" title="Skutečné prodeje z Tikey (StubHub / Viagogo) ke všem neprodaným vstupenkám — přihlas se jednou v panelu Tikey">${icon('trend', 13)} Reálné prodeje (Tikey)</button>
           <button class="btn btn-sm" id="lstCompare">${icon('layers', 13)} Porovnat s Viagogem</button>
@@ -785,7 +886,8 @@
       ${compareHtml()}
       ${shown.length ? `<div class="lst-list">${shown.map(rowHtml).join('')}</div>`
         : `<div class="pl-empty">${list.length ? 'V tomhle filtru nic není.' : 'Všechny budoucí vstupenky jsou zalistované nebo prodané.'}</div>`}
-      <p class="lst-footnote">Formulář se jen předvyplní — <strong>Uložit</strong> v panelu tržiště klikáš ty. Po uložení si TicketVault sám přečte ID inzerátu a vstupenku přepne na Zalistováno.</p>`;
+      <p class="lst-footnote">StubHub a Viagogo: formulář se jen předvyplní — <strong>Uložit</strong> v panelu tržiště klikáš ty. Po uložení si TicketVault sám přečte ID inzerátu a vstupenku přepne na Zalistováno.
+        <strong>Seatiks</strong> zalistuje rovnou přes API na ~20 tržišť (řada a místa skryté, nominální hodnota z nákupní ceny); prodeje ze Seatiks se zapíšou samy.</p>`;
   }
 
   function updateBadge() {
@@ -806,6 +908,18 @@
       if (chipEl) { ui.filter = chipEl.dataset.filter; render(); return; }
       if (e.target.closest('#lstCompare')) { compareViagogo(); return; }
       if (e.target.closest('#lstTikey')) { if (window.__tikey) window.__tikey.refreshAll({ force: true }); return; }
+      if (e.target.closest('#lstSeatiksAll')) {
+        const st = candidates().filter(t => platformOf(t) === 'Seatiks');
+        const ready = st.filter(t => (t.listing || {}).price > 0);
+        if (!st.length) { toast('Žádná vstupenka nemá platformu Seatiks — přepni ji v řádku (výběr platformy)', 'info', 6000); return; }
+        if (!ready.length) { toast('Zadej u vstupenek cenu za kus', 'error'); return; }
+        const s = window.__seatiks ? await window.__seatiks.status().catch(() => null) : null;
+        if (!s || !s.configured || s.error) { toast('Nejdřív nastav Seatiks API klíč (Nastavení → Seatiks)', 'error', 7000); return; }
+        const where = s.mode === 'live' ? 'OSTŘE na tržiště' : 'do TESTOVACÍHO sandboxu (nic se nezveřejní)';
+        if (!confirm(`Zalistovat ${ready.length} vstupenek na Seatiks ${where}?` + (st.length > ready.length ? `\n${st.length - ready.length} nemá cenu — přeskočí se.` : ''))) return;
+        seatiksListAll(ready);
+        return;
+      }
       if (e.target.closest('#lstAutoList')) {
         const list = candidates().filter(t => ui.filter === 'all' || platformOf(t) === ui.filter);
         const ready = list.filter(t => recommendedPrice(t));
@@ -836,13 +950,18 @@
       const t = T(e.target.dataset.id || (e.target.closest('.lst-row') || {}).dataset?.id);
       if (!t) return;
       if (e.target.classList.contains('lst-platform')) {
-        await patchTicket(t, { listing: { platform: e.target.value, platformManual: e.target.value !== defaultPlatform(t), eventId: '', eventName: '', ticketType: '' } });
+        await patchTicket(t, { listing: { platform: e.target.value, platformManual: e.target.value !== defaultPlatform(t), eventId: '', eventName: '', ticketType: '', stSection: '', stSectionName: '' } });
         render();
-        if (!ui.search[t.id] || (e.target.value === 'Viagogo' && !ui.search[t.id].vg)) lookup(t, e.target.value, true);
+        if (!ui.search[t.id] || (e.target.value === 'Viagogo' && !ui.search[t.id].vg) || (e.target.value === 'Seatiks' && !ui.search[t.id].st)) lookup(t, e.target.value, true);
+      } else if (e.target.classList.contains('lst-st-section')) {
+        const opt = e.target.selectedOptions[0];
+        await patchTicket(t, { listing: { stSection: e.target.value, stSectionName: opt ? opt.textContent.split(' · ')[0] : '' } });
+        render();
       } else if (e.target.classList.contains('lst-ev-select')) {
-        const r = ui.search[t.id] && (platformOf(t) === 'Stubhub' ? ui.search[t.id].sh : ui.search[t.id].vg);
+        const r = searchOf(t, platformOf(t));
         const ev = r && r.events.find(x => x.id === e.target.value);
         const patch = { eventId: e.target.value, eventName: ev ? ev.name : '' };
+        if (ev && platformOf(t) === 'Seatiks') Object.assign(patch, await seatiksPrepare(t, ev.id));
         if (ev && platformOf(t) === 'Stubhub' && ev.minPrice) patch.market = { price: ev.minPrice, listPrice: ev.minListPrice, currency: ev.currency, total: ev.total, at: new Date().toISOString(), eventName: ev.name };
         if (ev && platformOf(t) === 'Viagogo') patch.vgMarket = await viagogoMarket(t, ev.id).catch(() => null);
         await patchTicket(t, { listing: patch });

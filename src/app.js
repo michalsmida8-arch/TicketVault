@@ -3108,7 +3108,7 @@ function switchView(name) {
   // or future Electron upgrades that disable :has() will still work.
   document.body.classList.toggle(
     'marketplace-active',
-    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs'
+    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs' || name === 'seatiks'
   );
   
   if (name === 'stats') renderStatsPage();
@@ -3122,13 +3122,14 @@ function switchView(name) {
   if (name === 'watched') renderWatchedPage();
   if (name === 'todo') renderTodoPage();
   if (name === 'listing' && typeof renderListingPage === 'function') renderListingPage();
-  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs') ensureMarketplaceLoaded(name);
+  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs' || name === 'seatiks') ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
   if (name === 'settings') {
     renderUsersList();
     loadEmailSettingsUI();
     loadCurrencySettingsUI();
     loadIngestStatusUI();
+    if (typeof window.renderSeatiksSettings === 'function') window.renderSeatiksSettings();
   }
 }
 
@@ -3509,14 +3510,15 @@ const MARKETPLACE_HOMES = {
   salespro: 'https://salespro.stubhub.ie/',
   invviagogo: 'https://inv.viagogo.com/',
   tikey: 'https://www.tikeymanager.com/salestracker',
-  seatlabs: 'https://seatlabs.net/links'
+  seatlabs: 'https://seatlabs.net/links',
+  seatiks: 'https://seatiks.com/overview'
 };
 
 // Per-marketplace zoom factor — Electron <webview> doesn't persist zoom on
 // its own and Ctrl+wheel/+/- shortcuts don't bubble up from inside the
 // webview. We track a multiplier and apply it via setZoomFactor on each
 // webview, plus restore on did-finish-load (zoom resets after navigation).
-const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1, seatlabs: 1 };
+const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1, seatlabs: 1, seatiks: 1 };
 const ZOOM_STEP = 0.1;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2.0;

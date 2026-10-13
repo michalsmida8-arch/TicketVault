@@ -25,12 +25,14 @@ function orderKey(platform) {
   if (p.includes('stubhub')) return 'stubhubOrderId';
   if (p.includes('ticketmaster')) return 'ticketmasterOrderId';
   if (p.includes('syncseats')) return 'syncseatsOrderId';
+  if (p.includes('seatiks')) return 'seatiksOrderId';
   return 'otherId';
 }
 function listingKey(platform) {
   const p = String(platform || '').toLowerCase();
   if (p.includes('viagogo')) return 'viagogoListingId';
   if (p.includes('stubhub')) return 'stubhubListingId';
+  if (p.includes('seatiks')) return 'seatiksListingId';
   return null;
 }
 

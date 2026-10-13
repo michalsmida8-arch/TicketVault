@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('api', {
   // Mailboxes the self-hosted server reads (status for Settings → Příchozí emaily)
   ingestStatus: () => ipcRenderer.invoke('ingest:status'),
   saveDeliveryDraft: (payload) => ipcRenderer.invoke('delivery:draft', payload),
+  seatiks: (method, path, body) => ipcRenderer.invoke('seatiks:call', { method, path, body }),
   openServerFile: (args) => ipcRenderer.invoke('files:open', args),
   authGetAllowedSenders: () => ipcRenderer.invoke('auth:getAllowedSenders'),
   authAddAllowedSender: (args) => ipcRenderer.invoke('auth:addAllowedSender', args),

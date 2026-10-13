@@ -475,3 +475,56 @@ test('delivery: buyer e-mail becomes a Gmail draft once, ticket is stamped', asy
   delivery._setAppender(null);
   delete process.env.DELIVERY_MAILBOX;
 });
+
+test('seatiks: listing from inventory, then a polled sale marks the ticket sold once and delivered later', async () => {
+  const store = loadStore();
+  for (const k of ['../src/seatiks', '../src/ingest/pipeline', '../src/ingest/sales']) delete require.cache[require.resolve(k)];
+  const seatiks = require('../src/seatiks');
+  store.saveUsers([...store.loadUsers(), { id: 'u_seat', username: 'seat', dataKey: 'k_seat', seatiksKey: 'stk_test_abcdefgh1234', seatiksMode: 'test' }]);
+  const db = store.loadBucket('k_seat');
+  db.tickets.push({ id: 't_seat1', eventName: 'RB Leipzig vs PSV Eindhoven', eventDate: '2026-10-13', section: 'Sektor D – Block 13.1', quantity: 4, status: 'available', purchasePrice: 100, currency: 'EUR', updated: '2026-10-01T00:00:00.000Z' });
+  store.saveBucket('k_seat', db);
+  let sale = { id: 'sale-uuid-1', short_id: 'S-1001', status: 'awaiting_delivery', listing_id: 'L-1', quantity: 4, section: '13.1', created_at: '2026-10-12T10:00:00Z',
+    event: { name: 'RB Leipzig vs PSV Eindhoven', start_date: '2026-10-13T19:00:00Z' }, payout: { unit_amount: 90, total_amount: 360, currency: 'EUR' },
+    buyers: [{ first_name: 'Anna', last_name: 'Novak', email: 'anna@example.com' }], is_paid: false, marketplace: 'Ticombo' };
+  const calls = [];
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts = {}) => {
+    calls.push(opts.method + ' ' + url);
+    const json = body => ({ ok: true, status: 200, json: async () => body });
+    if (/\/v1\/listings$/.test(url) && opts.method === 'POST') {
+      const b = JSON.parse(opts.body).listings[0];
+      assert.equal(b.hide_seats, true); assert.equal(b.section, '11:1301'); assert.equal(b.idempotency_key, 'tv-t_seat1');
+      return json({ object: 'bulk_result', data: [{ index: 0, id: 'L-1', status: 'created', listing: { short_id: 'AB12' } }] });
+    }
+    if (/\/v1\/sales\?/.test(url)) return json({ object: 'list', data: [sale], has_more: false, next_cursor: null });
+    if (/\/v1\/listings\?/.test(url)) return json({ object: 'list', data: [], has_more: false, next_cursor: null });
+    return { ok: false, status: 404, json: async () => ({ error: { code: 'not_found', message: 'nope' } }) };
+  };
+  try {
+    const user = store.loadUsers().find(u => u.id === 'u_seat');
+    const r = await seatiks.listTicket(user, { ticketId: 't_seat1', eventId: '900000000001', section: '11:1301', quantity: 4, price: 120, currency: 'EUR', transferMethod: 'External Transfer' });
+    assert.equal(r.status, 'created');
+    let t = store.loadBucket('k_seat').tickets[0];
+    assert.equal(t.status, 'listed');
+    assert.equal(t.externalIds.seatiksListingId, 'L-1');
+    await assert.rejects(seatiks.listTicket(user, { ticketId: 't_seat1', eventId: '900000000001', section: '11:1301', quantity: 4, price: 120 }), e => e.status === 409);
+
+    await seatiks.pollUser(user);
+    t = store.loadBucket('k_seat').tickets[0];
+    assert.equal(t.status, 'sold');
+    assert.equal(t.buyerName, 'Anna Novak');
+    assert.equal(t.buyerEmail, 'anna@example.com');
+    assert.equal(t.externalIds.seatiksOrderId, 'S-1001');
+    await seatiks.pollUser(user);   // same sale again: no second inbox card, no change
+    let b = store.loadBucket('k_seat');
+    assert.equal(b.inbox.filter(i => i.parsed && i.parsed.orderId === 'S-1001').length, 1);
+
+    sale = { ...sale, status: 'delivered', delivered_at: '2026-10-13T08:00:00Z' };
+    await seatiks.pollUser(user);
+    b = store.loadBucket('k_seat');
+    assert.equal(b.tickets[0].status, 'delivered');
+    assert.equal(b.inbox.filter(i => i.parsed && i.parsed.orderId === 'S-1001').length, 2);
+    assert.ok(calls.every(c => /api\.seatiks\.com/.test(c)));
+  } finally { global.fetch = realFetch; }
+});

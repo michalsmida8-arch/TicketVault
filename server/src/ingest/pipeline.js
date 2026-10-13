@@ -383,7 +383,24 @@ async function ingestSale(mail, parsed, ctx, usage, log) {
     notify.pushToUser(ctx.owner, title, `${status}\n${parsed.platform || '—'} · ${parsed.quantity || '?'} ks · ${parsed.eventDate || '?'}`)
       .catch(e => console.warn('[notify]', e.message));
   }
+  if (outcome.applied && outcome.action === 'sold' && ctx.owner) crossListing(ctx, parsed, outcome).catch(e => console.warn('[seatiks]', e.message));
   return { result: outcome.applied ? 'applied' : 'created', item, outcome };
+}
+
+// One ticket, several shops: a sale elsewhere takes the Seatiks listing off sale (all its
+// marketplaces); a Seatiks sale reminds the user of a direct StubHub/Viagogo listing to remove.
+async function crossListing(ctx, parsed, outcome) {
+  const db = store.loadBucket(ctx.dataKey);
+  const t = db.tickets.find(x => x.id === outcome.ticketId);
+  const ext = (t && t.externalIds) || {};
+  if (!/seatiks/i.test(parsed.platform || '')) {
+    if (!ext.seatiksListingId) return;
+    const done = await require('../seatiks').unpublishForTicket(ctx.owner, t);
+    if (done) notify.pushToUser(ctx.owner, '🔻 Staženo ze Seatiks', `${t.eventName}: prodáno na ${parsed.platform}, inzerát na Seatiks je stažený ze všech tržišť.${outcome.remainingId ? ' Zbylé kusy zalistuj znovu.' : ''}`).catch(() => {});
+  } else {
+    const other = [ext.stubhubListingId && 'StubHub', ext.viagogoListingId && 'Viagogo'].filter(Boolean);
+    if (other.length) notify.pushToUser(ctx.owner, '⚠️ Stáhni přímý inzerát', `${t.eventName}: prodáno přes Seatiks — inzerát na ${other.join(' a ')} stáhni, ať se lístky neprodají dvakrát.`).catch(() => {});
+  }
 }
 
 // Entry point used by the IMAP client: raw buffer + mailbox context.
@@ -456,4 +473,4 @@ async function reprocessInboxItem(user, inboxId) {
   return { ok: true, parsed };
 }
 
-module.exports = { ingestRaw, ingestParsedMail, parseRaw, reprocessInboxItem, toParsed };
+module.exports = { ingestRaw, ingestParsedMail, parseRaw, reprocessInboxItem, toParsed, ingestSale };
