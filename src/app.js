@@ -417,7 +417,22 @@ function calcProfit(t) {
   const saleInPurchaseCcy = saleCcy === purchaseCcy
     ? sale
     : convertCurrency(sale, saleCcy, purchaseCcy);
-  return (saleInPurchaseCcy - purchase) * qty;
+  return (saleInPurchaseCcy - purchase) * qty - calcPenalty(t);
+}
+
+// Penalty = marketplace fine for an undelivered / wrongly delivered sale.
+// t.penalty is the TOTAL for the row (not per ks) in t.penaltyCurrency
+// (fallback: sale currency). It only lowers profit — revenue stays gross.
+function penaltyCurrency(t) {
+  return (t && t.penaltyCurrency) || saleCurrency(t);
+}
+// Returns the penalty in the PURCHASE currency (same unit as calcProfit).
+function calcPenalty(t) {
+  const p = Number(t && t.penalty) || 0;
+  if (p <= 0) return 0;
+  const from = penaltyCurrency(t);
+  const to = ticketCurrency(t);
+  return from === to ? p : convertCurrency(p, from, to);
 }
 
 function calcRoi(t) {
@@ -2552,7 +2567,7 @@ function renderTickets() {
           const orig = origCcy !== primary ? `Původní cena: ${formatMoney(calcRevenue(t), origCcy)}` : '';
           return (perKs + orig).trim();
         })()}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(calcRevenueInPrimary(t), primary)}</div>${qty > 1 ? `<div class="cell-sub">${formatMoney(calcRevenueInPrimary(t) / qty, primary)} / ks</div>` : ''}` : ((window.__tikey && window.__tikey.cellHtml(t)) || '<span class="muted">—</span>')}</td>
-        <td class="col-profit col-num ${isSoldOrDelivered ? profitClass : ''}">${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(profit, primary)}</div><div class="cell-sub ${roiClass}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)} %</div>` : '<span class="muted">—</span>'}</td>
+        <td class="col-profit col-num ${isSoldOrDelivered ? profitClass : ''}"${Number(t.penalty) > 0 ? ` title="${escapeHtml(`Vč. pokuty ${formatMoney(Number(t.penalty), penaltyCurrency(t))}${t.penaltyNote ? ' — ' + t.penaltyNote : ''}`)}"` : ''}>${isSoldOrDelivered ? `<div class="cell-main">${formatMoney(profit, primary)}</div><div class="cell-sub ${roiClass}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)} %</div>${Number(t.penalty) > 0 ? `<div class="cell-sub penalty-sub">pokuta −${formatMoney(Number(t.penalty), penaltyCurrency(t))}</div>` : ''}` : (Number(t.penalty) > 0 ? `<div class="cell-sub penalty-sub">pokuta −${formatMoney(Number(t.penalty), penaltyCurrency(t))}</div>` : '<span class="muted">—</span>')}</td>
         <td class="col-hold col-num">${holdDays === null ? '<span class="hold-na">—</span>' : `<span class="hold-final${holdDays === 0 ? ' hold-sameday' : ''}" title="Prodáno za ${holdDays} dní od nákupu">${holdDays} d</span>`}</td>
         <td class="col-actions">
           <div class="actions-cell">
@@ -10007,6 +10022,14 @@ function openTicketModal(ticket = null) {
       .join('');
     curSel.value = ticket?.currency || getDefaultTicketCurrency();
   }
+  // Penalty (marketplace fine) — total for the row, own currency.
+  const penSel = $('#fPenaltyCurrency');
+  if (penSel) {
+    penSel.innerHTML = CURRENCIES.map(c => `<option value="${c.code}">${c.code}</option>`).join('');
+    penSel.value = ticket ? penaltyCurrency(ticket) : getDefaultTicketCurrency();
+  }
+  $('#fPenalty').value = Number(ticket?.penalty) > 0 ? Number(ticket.penalty) : '';
+  $('#fPenaltyNote').value = ticket?.penaltyNote || '';
   $('#fLogo').value = ticket?.logo || '';
   $('#fNotes').value = ticket?.notes || '';
   
@@ -10315,6 +10338,13 @@ async function saveTicket() {
       return raw;
     })(),
     currency: $('#fCurrency')?.value || getDefaultTicketCurrency(),
+    // Penalty: null (not undefined) clears it — the server merges incoming fields.
+    ...(() => {
+      const p = Math.abs(parseFloat(String($('#fPenalty')?.value || '').replace(',', '.'))) || 0;
+      return p > 0
+        ? { penalty: +p.toFixed(2), penaltyCurrency: $('#fPenaltyCurrency')?.value || null, penaltyNote: $('#fPenaltyNote').value.trim() || null }
+        : { penalty: null, penaltyCurrency: null, penaltyNote: null };
+    })(),
     logo: $('#fLogo').value.trim(),
     notes: $('#fNotes').value.trim(),
     externalIds: Object.keys(externalIds).length > 0 ? externalIds : undefined,
@@ -10353,7 +10383,7 @@ function openSellModal(ticket) {
   const eventPassed = ticket.eventDate && new Date(ticket.eventDate) < new Date(new Date().toDateString());
   const pastEventBanner = eventPassed
     ? `<div class="sell-past-banner">
-         <span class="ico-slot" data-ico="alert"></span> Event už proběhl. Pokud se vstupenka <strong>neprodala</strong>, použij místo tohoto modalu tlačítko <strong>Odepsat ztrátu</strong> v řádku — nákupní cena se zaeviduje jako realizovaná ztráta.
+         <span class="ico-slot" data-ico="alert"></span> Event už proběhl. Pokud se vstupenka <strong>neprodala</strong>, použij místo tohoto modalu tlačítko <strong>Odepsat ztrátu</strong> v řádku — nákupní cena se zaeviduje jako realizovaná ztráta. Pokud ti tržiště za nedodání naúčtovalo <strong>pokutu</strong>, nech cenu prázdnou a vyplň jen pokutu níž.
        </div>`
     : '';
   
@@ -10402,6 +10432,16 @@ function openSellModal(ticket) {
     sellCurSel.value = ticket.saleCurrency || ticket.currency || getPrimaryCurrency();
   }
 
+  // Penalty — prefilled when the row already carries one (re-opened sale).
+  const penSel = $('#sellPenaltyCurrency');
+  if (penSel) {
+    penSel.innerHTML = CURRENCIES.map(c => `<option value="${c.code}">${c.code}</option>`).join('');
+    penSel.value = ticket.penaltyCurrency || (sellCurSel && sellCurSel.value) || ticketCurrency(ticket);
+    penSel.dataset.touched = ticket.penaltyCurrency ? '1' : '';
+  }
+  $('#sellPenalty').value = Number(ticket.penalty) > 0 ? Number(ticket.penalty).toFixed(2) : '';
+  $('#sellPenaltyNote').value = ticket.penaltyNote || '';
+
   // Sync toggle buttons to remembered mode + wire click handlers.
   updatePriceModeUI();
 
@@ -10437,6 +10477,15 @@ function getSellPricePerKs() {
     return qty > 0 ? raw / qty : 0;
   }
   return raw;
+}
+
+// Penalty typed in the sell modal: TOTAL amount (not per ks) + its currency.
+function getSellPenalty() {
+  let raw = $('#sellPenalty')?.value;
+  if (typeof raw === 'string') raw = raw.replace(',', '.').trim();
+  const amount = Math.abs(parseFloat(raw)) || 0;
+  const currency = $('#sellPenaltyCurrency')?.value || $('#sellCurrency')?.value || getPrimaryCurrency();
+  return { amount, currency };
 }
 
 function updatePriceModeUI() {
@@ -10577,7 +10626,34 @@ function updateSellHints() {
   // Total line — always shows both per-ks AND total revenue so the user can
   // sanity-check whichever number they didn't type directly.
   const totalLine = $('#sellTotalLine');
-  if (pricePerKs > 0 && sellQty > 0) {
+  const pen = getSellPenalty();
+  const purchaseCcyP = ticketCurrency(ticket);
+  const penaltyInPurchase = pen.amount > 0
+    ? (pen.currency === purchaseCcyP ? pen.amount : convertCurrency(pen.amount, pen.currency, purchaseCcyP))
+    : 0;
+  const penaltyLine = pen.amount > 0
+    ? `<div>Pokuta: <strong style="color:var(--red-bright)">−${formatMoney(pen.amount, pen.currency)}</strong></div>`
+    : '';
+  // A negative number typed into the price field almost always means "the
+  // marketplace charged me" — point to the penalty field instead.
+  const rawPrice = parseFloat(String($('#sellPrice').value || '').replace(',', '.'));
+  const priceHint = $('#sellPriceHint');
+  if (priceHint && rawPrice < 0) {
+    priceHint.textContent = 'Cena nemůže být záporná — pokutu zadej do pole „Pokuta od tržiště“ níž.';
+    priceHint.className = 'sell-hint err';
+  } else if (priceHint && priceHint.classList.contains('err')) {
+    updatePriceModeUI();
+  }
+
+  if (pricePerKs <= 0 && pen.amount > 0 && sellQty > 0) {
+    // No sale, only a fine → the tickets get written off: loss = purchase + fine.
+    const totalCost = purchasePerKs * sellQty;
+    const loss = totalCost + penaltyInPurchase;
+    totalLine.innerHTML = `
+      <div>Bez prodeje → <strong>odepíše se jako ztráta</strong> (${sellQty} ks)</div>
+      <div>Nákup ${formatMoney(totalCost, purchaseCcyP)} + pokuta ${formatMoney(pen.amount, pen.currency)} = <strong style="color:var(--red-bright)">${formatMoney(-loss, purchaseCcyP)}</strong></div>
+    `;
+  } else if (pricePerKs > 0 && sellQty > 0) {
     const totalRevenue = pricePerKs * sellQty;
     // Currency-aware profit: when sale and purchase are in different currencies,
     // convert sale into purchase currency before computing profit.
@@ -10587,7 +10663,7 @@ function updateSellHints() {
     const totalRevenueInPurchaseCcy = sellCcy === purchaseCcy
       ? totalRevenue
       : convertCurrency(totalRevenue, sellCcy, purchaseCcy);
-    const profit = totalRevenueInPurchaseCcy - totalCost;
+    const profit = totalRevenueInPurchaseCcy - totalCost - penaltyInPurchase;
     const roi = totalCost > 0 ? (profit / totalCost) * 100 : 0;
     const profitColor = profit >= 0 ? 'var(--green-bright)' : 'var(--red-bright)';
 
@@ -10604,7 +10680,8 @@ function updateSellHints() {
 
     totalLine.innerHTML = `
       <div>${primaryLine}</div>
-      <div>Profit: <strong style="color:${profitColor}">${formatMoney(profit, purchaseCcy)}</strong>${profitNote} (ROI ${roi.toFixed(1)}%)</div>
+      ${penaltyLine}
+      <div>Profit${pen.amount > 0 ? ' po pokutě' : ''}: <strong style="color:${profitColor}">${formatMoney(profit, purchaseCcy)}</strong>${profitNote} (ROI ${roi.toFixed(1)}%)</div>
     `;
   } else {
     totalLine.innerHTML = '';
@@ -10637,26 +10714,37 @@ async function confirmSell() {
   const ticketCcy = ticket.currency || getPrimaryCurrency();
   const saleCurrency = sellCurrency !== ticketCcy ? sellCurrency : undefined;
 
-  if (!pricePerKs || pricePerKs <= 0) {
-    toast('Zadej platnou prodejní cenu (musí být větší než 0)', 'error');
+  // Penalty (fine from the marketplace) — stored as a TOTAL on the sold row.
+  const pen = getSellPenalty();
+  const penaltyFields = pen.amount > 0
+    ? { penalty: +pen.amount.toFixed(2), penaltyCurrency: pen.currency, penaltyNote: ($('#sellPenaltyNote')?.value || '').trim() || null }
+    : { penalty: null, penaltyCurrency: null, penaltyNote: null };
+  // No price + a fine = the order fell through (not delivered / cancelled):
+  // write the tickets off as a loss of purchase + fine.
+  const isPenaltyWriteOff = (!pricePerKs || pricePerKs <= 0) && pen.amount > 0;
+
+  if (!isPenaltyWriteOff && (!pricePerKs || pricePerKs <= 0)) {
+    toast('Zadej platnou prodejní cenu (musí být větší než 0) — nebo jen pokutu, pokud se prodej nepovedl', 'error');
     $('#sellPrice').focus();
     $('#sellPrice').select();
     return;
   }
-  
+
+  const saleFields = isPenaltyWriteOff
+    ? { salePrice: 0, saleDate, saleCurrency: null, status: 'cancelled', writeOffReason: 'penalty', writeOffAt: new Date().toISOString(), ...penaltyFields }
+    : { salePrice: pricePerKs, saleDate, saleCurrency, status: 'sold', ...penaltyFields };
+
   if (sellQty === totalQty) {
     // FULL SALE - just mark as sold (behavior as before)
     const soldTicket = {
       ...ticket,
-      salePrice: pricePerKs,
-      saleDate,
-      saleCurrency,
-      status: 'sold'
+      ...saleFields
     };
     await window.api.upsertTicket(soldTicket);
     await refreshDb();
     closeModal('modalSell');
-    toast('Vstupenka prodána', 'success');
+    toast(isPenaltyWriteOff ? `Odepsáno jako ztráta vč. pokuty ${formatMoney(pen.amount, pen.currency)}`
+      : pen.amount > 0 ? `Vstupenka prodána (pokuta ${formatMoney(pen.amount, pen.currency)} odečtena z profitu)` : 'Vstupenka prodána', 'success', 4000);
   } else {
     // PARTIAL SALE - split into 2 rows:
     // 1) Existing ticket → becomes SOLD with reduced quantity
@@ -10667,11 +10755,8 @@ async function confirmSell() {
     const soldTicket = {
       ...ticket,
       quantity: sellQty,
-      salePrice: pricePerKs,
-      saleDate,
-      saleCurrency,
-      status: 'sold',
-      notes: (ticket.notes ? ticket.notes + ' | ' : '') + `Rozděleno: ${sellQty} z ${totalQty} ks prodáno`
+      ...saleFields,
+      notes: (ticket.notes ? ticket.notes + ' | ' : '') + `Rozděleno: ${sellQty} z ${totalQty} ks ${isPenaltyWriteOff ? 'odepsáno (pokuta)' : 'prodáno'}`
     };
     await window.api.upsertTicket(soldTicket);
     
@@ -10683,6 +10768,9 @@ async function confirmSell() {
       status: 'available',
       salePrice: 0,
       saleDate: null,
+      penalty: null,
+      penaltyCurrency: null,
+      penaltyNote: null,
       notes: (ticket.notes ? ticket.notes + ' | ' : '') + `Zbylo z původních ${totalQty} ks (prodáno ${sellQty})`
     };
     await window.api.upsertTicket(remainingTicket);
@@ -11284,7 +11372,17 @@ function setupEventListeners() {
   // Live updates in sell modal
   $('#sellQuantity')?.addEventListener('input', updateSellHints);
   $('#sellPrice')?.addEventListener('input', updateSellHints);
-  $('#sellCurrency')?.addEventListener('change', updateSellHints);
+  $('#sellCurrency')?.addEventListener('change', () => {
+    // Penalty currency follows the sale currency until the user picks one.
+    const ps = $('#sellPenaltyCurrency');
+    if (ps && !ps.dataset.touched) ps.value = $('#sellCurrency').value;
+    updateSellHints();
+  });
+  $('#sellPenalty')?.addEventListener('input', updateSellHints);
+  $('#sellPenaltyCurrency')?.addEventListener('change', (e) => { e.target.dataset.touched = '1'; updateSellHints(); });
+  $('#sellPenalty')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmSell(); }
+  });
 
   // Price mode toggle (per-ks / total) — switches interpretation of the price input.
   // When switching modes we convert the currently-typed value so the net per-ks

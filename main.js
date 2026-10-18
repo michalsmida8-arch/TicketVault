@@ -2160,9 +2160,11 @@ ipcMain.handle('db:exportCsv', async (event) => {
   if (result.canceled) return { success: false, canceled: true };
   try {
     const db = loadDb();
-    const headers = ['ID', 'Event', 'Datum', 'Misto', 'Sekce', 'Rada', 'Sedadlo', 'Ucet', 'Platforma', 'Ks', 'Status', 'Nakup', 'Prodej', 'Profit', 'ROI', 'Poznamka'];
+    const headers = ['ID', 'Event', 'Datum', 'Misto', 'Sekce', 'Rada', 'Sedadlo', 'Ucet', 'Platforma', 'Ks', 'Status', 'Nakup', 'Prodej', 'Pokuta', 'Profit', 'ROI', 'Poznamka'];
     const rows = db.tickets.map(t => {
-      const profit = (t.salePrice || 0) - (t.purchasePrice || 0);
+      // Profit per ks; a marketplace fine (t.penalty = total for the row) is spread over the ks.
+      const penalty = Number(t.penalty) || 0;
+      const profit = (t.salePrice || 0) - (t.purchasePrice || 0) - penalty / (Number(t.quantity) || 1);
       const roi = t.purchasePrice > 0 ? ((profit / t.purchasePrice) * 100).toFixed(1) : '0';
       return [
         t.id,
@@ -2178,6 +2180,7 @@ ipcMain.handle('db:exportCsv', async (event) => {
         t.status || 'available',
         t.purchasePrice || 0,
         t.salePrice || 0,
+        penalty ? penalty + ' ' + (t.penaltyCurrency || t.saleCurrency || t.currency || '') : '',
         profit.toFixed(2),
         roi + '%',
         (t.notes || '').replace(/[\n\r;,]/g, ' ')

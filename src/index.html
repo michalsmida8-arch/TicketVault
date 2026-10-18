@@ -2053,6 +2053,17 @@
             <input type="number" id="fSalePrice" step="0.01" placeholder="151.36">
             <div class="sell-hint" id="fSalePriceHint"></div>
           </div>
+          <div class="form-group">
+            <label>Pokuta od tržiště <span class="label-opt">(celkem)</span></label>
+            <div class="price-with-currency">
+              <input type="number" id="fPenalty" step="0.01" min="0" placeholder="0.00">
+              <select id="fPenaltyCurrency" class="currency-inline" aria-label="Měna pokuty"></select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Důvod pokuty</label>
+            <input type="text" id="fPenaltyNote" list="penaltyReasons" placeholder="např. nedoručeno">
+          </div>
           <div class="form-group form-full">
             <label>Logo eventu (URL obrázku - volitelné)</label>
             <input type="text" id="fLogo" placeholder="https://...">
@@ -2245,9 +2256,27 @@
               <select id="sellCurrency" class="currency-inline" aria-label="Měna prodeje"></select>
             </div>
             <div class="sell-hint" id="sellPriceHint"></div>
+          </div>
+          <div class="form-group form-full sell-penalty">
+            <label>Pokuta od tržiště <span class="label-opt">(volitelné, celkem za objednávku)</span></label>
+            <div class="price-with-currency">
+              <input type="number" id="sellPenalty" step="0.01" min="0" placeholder="0.00">
+              <select id="sellPenaltyCurrency" class="currency-inline" aria-label="Měna pokuty"></select>
+            </div>
+            <input type="text" id="sellPenaltyNote" list="penaltyReasons" placeholder="Důvod (např. nedoručeno, špatná místa)">
+            <div class="sell-hint" id="sellPenaltyHint">Nedodané lístky: nech prodejní cenu prázdnou a zadej jen pokutu → zapíše se ztráta (nákup + pokuta).</div>
+          </div>
+          <div class="form-group form-full">
             <div class="sell-total" id="sellTotalLine"></div>
           </div>
         </div>
+        <datalist id="penaltyReasons">
+          <option value="Nedoručeno"></option>
+          <option value="Pozdní doručení"></option>
+          <option value="Špatná místa / sekce"></option>
+          <option value="Zrušená objednávka"></option>
+          <option value="Náhradní lístky dražší"></option>
+        </datalist>
       </div>
       <div class="modal-footer">
         <button class="btn btn-dark" data-close>Zrušit</button>

@@ -5765,6 +5765,20 @@ input[type="date"]::-webkit-datetime-edit {
   font-weight: 500;
 }
 
+/* Penalty (marketplace fine) — optional field in the sell + edit modals. */
+.label-opt {
+  font-weight: 400;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.sell-penalty #sellPenaltyNote {
+  margin-top: 8px;
+}
+.cell-sub.penalty-sub {
+  color: var(--red-bright);
+}
+
 /* ============================================================
    PRIVACY MODE (v1.7.1)
    When body has .privacy-mode, every "sensitive number" gets blurred
