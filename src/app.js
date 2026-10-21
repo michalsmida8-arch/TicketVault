@@ -11359,6 +11359,21 @@ function setupEventListeners() {
   // Save ticket
   $('#btnSaveTicket').addEventListener('click', saveTicket);
   $('#btnConfirmSell').addEventListener('click', confirmSell);
+
+  // Dashboard overview fold — hides Dnes panel + KPI cards so the table gets
+  // the whole screen (small laptops). Remembered per device.
+  const applyOverview = (collapsed) => {
+    document.body.classList.toggle('overview-collapsed', collapsed);
+    $('#btnToggleOverview')?.classList.toggle('active', collapsed);
+    const lbl = $('#overviewToggleLabel');
+    if (lbl) lbl.textContent = collapsed ? 'Zobrazit přehled' : 'Skrýt přehled';
+  };
+  try { applyOverview(localStorage.getItem('tv.overviewCollapsed') === '1'); } catch (_) {}
+  $('#btnToggleOverview')?.addEventListener('click', () => {
+    const collapsed = !document.body.classList.contains('overview-collapsed');
+    applyOverview(collapsed);
+    try { localStorage.setItem('tv.overviewCollapsed', collapsed ? '1' : '0'); } catch (_) {}
+  });
   // Enter inside the price field submits the modal — saves a click for the
   // common case "type price → Enter → done".
   ['#sellPrice', '#sellQuantity'].forEach(sel => {

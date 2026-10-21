@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, screen } = require('electron');
 // Czech UI locale for Chromium: date inputs show d. m. rrrr instead of mm/dd/yyyy.
 app.commandLine.appendSwitch('lang', 'cs-CZ');
 const path = require('path');
@@ -471,12 +471,32 @@ async function cloudBulkDelete(ids) {
 // ============ WINDOW CREATION ============
 let mainWindow;
 
+// Small screens (13" MacBook = 1440×900): the window fills the work area and the UI
+// starts at 90 % zoom (with the compact CSS in design.css). The zoom the user picks
+// via the menu / Cmd± is remembered in config.uiZoomLevel.
+const SMALL_SCREEN_ZOOM = 0.9;
+function screenInfo() {
+  try {
+    const wa = screen.getPrimaryDisplay().workAreaSize;
+    return { wa, small: wa.width < 1700 || wa.height < 1000 };
+  } catch (_) {
+    return { wa: { width: 1600, height: 1000 }, small: false };
+  }
+}
+function saveZoomLevel(level) {
+  try { const cfg = loadConfig(); cfg.uiZoomLevel = level; saveConfig(cfg); } catch (e) { console.error('zoom save failed:', e.message); }
+}
+function setUiZoomLevel(level) {
+  try { mainWindow.webContents.setZoomLevel(level); saveZoomLevel(level); } catch (_) {}
+}
+
 function createWindow() {
+  const { wa, small } = screenInfo();
   mainWindow = new BrowserWindow({
-    width: 1600,
-    height: 1000,
-    minWidth: 1200,
-    minHeight: 700,
+    width: Math.min(1600, wa.width),
+    height: Math.min(1000, wa.height),
+    minWidth: Math.min(1100, wa.width),
+    minHeight: Math.min(640, wa.height),
     backgroundColor: '#0f0f14',
     title: 'TicketVault',
     icon: path.join(__dirname, 'assets', 'icon.png'),
@@ -494,6 +514,16 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  // Restore the remembered zoom (or 90 % on a small screen the first time).
+  mainWindow.webContents.on('did-finish-load', () => {
+    try {
+      const cfg = loadConfig();
+      if (typeof cfg.uiZoomLevel === 'number') mainWindow.webContents.setZoomLevel(cfg.uiZoomLevel);
+      // only when nobody zoomed yet — Chromium may already restore an older zoom by itself
+      else if (small && mainWindow.webContents.getZoomLevel() === 0) mainWindow.webContents.setZoomFactor(SMALL_SCREEN_ZOOM);
+    } catch (e) { console.error('zoom restore failed:', e.message); }
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -612,9 +642,7 @@ function createWindow() {
         {
           label: 'Reset zoom',
           accelerator: 'CmdOrCtrl+0',
-          click: () => {
-            try { mainWindow.webContents.setZoomLevel(0); } catch (_) {}
-          }
+          click: () => setUiZoomLevel(0)
         },
         {
           label: 'Přiblížit',
@@ -622,20 +650,14 @@ function createWindow() {
           // different events for "+" depending on layout (with vs without Shift).
           accelerator: 'CmdOrCtrl+=',
           click: () => {
-            try {
-              const wc = mainWindow.webContents;
-              wc.setZoomLevel(Math.min(9, wc.getZoomLevel() + 0.5));
-            } catch (_) {}
+            try { setUiZoomLevel(Math.min(9, mainWindow.webContents.getZoomLevel() + 0.5)); } catch (_) {}
           }
         },
         {
           label: 'Oddálit',
           accelerator: 'CmdOrCtrl+-',
           click: () => {
-            try {
-              const wc = mainWindow.webContents;
-              wc.setZoomLevel(Math.max(-8, wc.getZoomLevel() - 0.5));
-            } catch (_) {}
+            try { setUiZoomLevel(Math.max(-8, mainWindow.webContents.getZoomLevel() - 0.5)); } catch (_) {}
           }
         },
         { type: 'separator' },
@@ -659,6 +681,39 @@ function createWindow() {
       ]
     }
   ];
+  if (process.platform === 'darwin') {
+    // macOS: the first menu is the app menu (TicketVault) — give it the native items
+    // (Cmd+H hide, Cmd+Q quit) and add the standard Window menu (Cmd+M, Cmd+W).
+    const fileMenu = menuTemplate[0];
+    // quit + Nastavení move to the app menu (macOS convention)
+    fileMenu.submenu = fileMenu.submenu.filter(i => i.role !== 'quit' && i.label !== 'Nastavení')
+      .filter((i, n, a) => !(i.type === 'separator' && a[n - 1] && a[n - 1].type === 'separator'));
+    while (fileMenu.submenu.length && fileMenu.submenu[fileMenu.submenu.length - 1].type === 'separator') fileMenu.submenu.pop();
+    menuTemplate.unshift({
+      label: app.name,
+      submenu: [
+        { role: 'about', label: 'O aplikaci TicketVault' },
+        { type: 'separator' },
+        { label: 'Nastavení…', accelerator: 'Cmd+,', click: () => mainWindow.webContents.send('menu:settings') },
+        { type: 'separator' },
+        { role: 'hide', label: 'Skrýt TicketVault' },
+        { role: 'hideOthers', label: 'Skrýt ostatní' },
+        { role: 'unhide', label: 'Zobrazit vše' },
+        { type: 'separator' },
+        { role: 'quit', label: 'Ukončit TicketVault' }
+      ]
+    });
+    menuTemplate.splice(menuTemplate.length - 1, 0, {
+      label: 'Okno',
+      submenu: [
+        { role: 'minimize', label: 'Minimalizovat' },
+        { role: 'zoom', label: 'Zvětšit okno' },
+        { role: 'close', label: 'Zavřít okno' },
+        { type: 'separator' },
+        { role: 'front', label: 'Vše do popředí' }
+      ]
+    });
+  }
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 }
 

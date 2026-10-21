@@ -528,3 +528,82 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 
 .st-guide { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px; font-size: 13px; line-height: 1.5; background: rgba(var(--purple-rgb), .10); color: var(--text-primary); border-bottom: 1px solid var(--line); }
 .st-guide .btn { margin-left: auto; }
+
+/* =====================================================================
+   Compact density (1.20.4) — small screens such as a 13" MacBook (1440×900).
+   Applies automatically to short or narrow windows; big monitors are unchanged.
+   ===================================================================== */
+@media (max-height: 960px), (max-width: 1500px) {
+  main { padding: 16px 22px; }
+  .page-header { padding-bottom: 10px; margin-bottom: 12px; }
+  .page-title { font-size: 24px; }
+  .page-header .btn { height: 32px; padding-top: 0; padding-bottom: 0; }
+
+  /* sidebar: everything fits without scrolling */
+  .sidebar { padding: 12px 10px; gap: 8px; }
+  .sidebar .clock { display: none; }
+  .nav-item { height: 29px; padding: 0 10px; gap: 10px; font-size: 13px; }
+  .nav-section-label { padding: 8px 10px 3px; }
+  .sidebar-footer { padding: 8px; }
+
+  /* "Dnes" panel */
+  .today-panel { margin-bottom: 10px; }
+  .today-head { margin-bottom: 8px; align-items: center; }
+  .today-title { font-size: 18px; }
+  .today-date { font-size: 12px; margin-top: 0; }
+  .today-cash b { font-size: 15px; }
+  .today-cash span { font-size: 10px; }
+  .today-tiles { gap: 8px; }
+  .today-tile { padding: 7px 12px; column-gap: 10px; row-gap: 0; border-radius: 11px; }
+  .today-ico { width: 28px; height: 28px; border-radius: 8px; }
+  .today-ico svg { width: 15px; height: 15px; }
+  .today-n { font-size: 18px; }
+  .today-label { top: 8px; right: 12px; font-size: 10px; }
+  .today-sub { font-size: 11px; }
+  .cal-strip { margin-top: 8px; gap: 3px; }
+  .cal-day { padding: 3px 0 3px; gap: 0; border-radius: 7px; }
+  .cal-wd { font-size: 8.5px; }
+  .cal-d { font-size: 12px; }
+
+  /* category chips + KPI cards */
+  .category-toggle { margin: 4px 0 10px; }
+  .stats-grid { gap: 10px; margin-bottom: 12px; }
+  .stat-card { padding: 9px 14px 9px 16px !important; }
+  .stat-card-top { margin-bottom: 0; }
+  .stat-card .stat-icon { width: 24px; height: 24px; }
+  .stat-card .stat-value { font-size: 20px !important; line-height: 1.25; }
+  .stat-card .stat-trend { margin-top: 3px; }
+  /* filters fit on one row; Sync + Export CSV are in the sidebar too */
+  .filters { margin-bottom: 12px; }
+  .filters #filterSearch { width: 180px; flex: 0 1 180px; }
+  .filters #filterStatusMS { width: 150px; }
+  .filters #filterStatusMS .filter-ms-toggle { width: 100%; min-width: 0; }
+  .filters #filterMonth, .filters #filterYear { width: 132px; min-width: 0; }
+  .filters .date-input { width: 128px; min-width: 0; }
+  .filters #btnSync, .filters #btnExportCsv { display: none; }
+
+  /* tables: lower rows, section clamped to 2 lines */
+  .tickets-table td { padding-top: 7px; padding-bottom: 7px; }
+  .tickets-table th { padding-top: 8px; padding-bottom: 8px; }
+  .tickets-table .col-section .cell-main {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .tickets-table .col-section .cell-sub { display: none; }
+  /* row icons (clone/edit/delete…) float over the row on hover instead of reserving ~120px */
+  .tickets-table .actions-cell { justify-content: flex-end; }
+  .tickets-table .actions-secondary {
+    position: absolute; right: calc(100% + 4px); top: 50%; transform: translateY(-50%); z-index: 3;
+    display: none; padding: 3px; gap: 2px; border-radius: 10px;
+    background: var(--surface-1); border: 1px solid var(--line-strong); box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+  }
+  .tickets-table tr:hover .actions-secondary { display: flex; }
+  .tickets-table .actions-secondary .icon-btn { visibility: visible; opacity: 1; }
+
+  /* Zalistování: wider market-price column (was 120px → very tall rows), buttons never cut off */
+  .lst-row { grid-template-columns: minmax(200px, 1.7fr) minmax(170px, 1.3fr) 175px minmax(170px, 1.1fr) max-content; gap: 10px; padding: 10px 12px; }
+}
+
+/* Dashboard overview can be folded away so the inventory gets the whole screen. */
+body.overview-collapsed #todayPanel,
+body.overview-collapsed #view-dashboard > .stats-grid { display: none; }
+.overview-toggle.active { color: var(--purple); border-color: rgba(var(--purple-rgb), .35); }
