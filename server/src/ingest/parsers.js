@@ -116,7 +116,56 @@ function pdfSplitQtyUnit(blob, total) {
   }
   return { qty: null, unit: parseFloat(dot) };
 }
-function parseLeipzigInvoice(rawText) {
+// The flat pdf-parse text glues the table cells together ("1 10229766700893 2 13 28 – 29" becomes
+// "11022976670089321328 – 29"), so row and block cannot be split reliably from it. With the cells'
+// positions (pdf.js text items) the first position of the table is read column by column instead.
+// Works for the English invoice (Block/Row/Seat/Quantity) and the German one (Rang/Reihe/Sitz/Menge).
+const LEIPZIG_COLS = [
+  ['block', /^(Block|Rang)$/i], ['row', /^(Row|Reihe)$/i], ['seat', /^(Seat|Sitz)$/i],
+  ['tariff', /^(Tariff|Ermäßigung)$/i], ['qty', /^(Quantity|Menge)$/i],
+  ['unit', /^(Unit price|Einzelpreis)$/i], ['total', /^(Total price|Gesamtpreis)$/i]
+];
+const pdfNum = s => { const v = parseFloat(String(s).replace(/\s|EUR/gi, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return isNaN(v) ? null : v; };
+function parseLeipzigTable(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+  const its = items.filter(i => i && String(i.str || '').trim()).map(i => ({ str: String(i.str).trim(), x: i.x, y: i.y }));
+  const cols = {};
+  for (const [key, re] of LEIPZIG_COLS) { const h = its.find(i => re.test(i.str)); if (h) cols[key] = h; }
+  if (!cols.block || !cols.row || !cols.seat || !cols.qty) return null;
+  const headY = cols.block.y;
+  // pdf y grows upwards. Multi-match invoices (Mix and Match) put each event title below the
+  // header and its rows under it; a single-match invoice has the title above the header.
+  const isTitle = s => /^RB Leipzig\s*-\s*.+\/\s*\d{2}\.\d{2}\.\d{4}/i.test(s);
+  const titles = its.filter(i => i.y < headY - 2 && isTitle(i.str)).sort((a, b) => b.y - a.y);
+  if (!titles.length && !its.some(i => i.y > headY && isTitle(i.str))) return null;
+  const top = (titles.length ? titles[0].y : headY) - 1;
+  const stop = its.filter(i => i.y < top && (/^RB Leipzig\s*-/i.test(i.str) || /^RBL-Ticket-APP/i.test(i.str))).sort((a, b) => b.y - a.y)[0];
+  const bottom = stop ? stop.y + 1 : -Infinity;
+  const order = Object.entries(cols).sort((a, b) => a[1].x - b[1].x);
+  const colOf = x => { let k = null; for (const [key, h] of order) if (x >= h.x - 12) k = key; return k; };
+  const cells = {};
+  for (const i of its.filter(i => i.y < top && i.y > bottom)) {
+    const k = colOf(i.x);
+    if (k) (cells[k] = cells[k] || []).push(i);
+  }
+  // top-to-bottom; a cell wrapped over two lines ("12 Heim-" / "Fanbereich") is joined back
+  const vals = k => (cells[k] || []).sort((a, b) => b.y - a.y).map(i => i.str)
+    .reduce((acc, s) => { if (acc.length && /-$/.test(acc[acc.length - 1])) acc[acc.length - 1] += s; else acc.push(s); return acc; }, []);
+  const uniq = a => [...new Set(a)];
+  const blocks = uniq(vals('block'));
+  const rows = uniq(vals('row'));
+  const seats = uniq(vals('seat').map(s => s.replace(/\s*[–-]\s*/, '-')));
+  const out = {};
+  if (blocks.length) out.section = blocks.map(b => /^Rang$/i.test(cols.block.str) && /^\d+$/.test(b) ? `Rang ${b}` : b).join(', ');
+  if (rows.length) out.row = rows.join(', ');
+  if (seats.length) out.seat = seats.join(', ');
+  const q = parseInt(vals('qty')[0], 10); if (q > 0) out.quantity = q;
+  const unit = pdfNum(vals('unit')[0]); if (unit != null) out.pricePerTicket = unit;
+  const total = pdfNum(vals('total')[0]); if (total != null) out.lineTotal = total;
+  return out;
+}
+
+function parseLeipzigInvoice(rawText, items) {
   const text = String(rawText).replace(/-\n/g, '-');
   let m = text.match(/RB Leipzig\s*-\s*([^\/\n]+?)\s*\/\s*(\d{2}\.\d{2}\.\d{4})\s*\/\s*(\d{1,2}:\d{2})/i);
   if (!m) return null;
@@ -126,8 +175,8 @@ function parseLeipzigInvoice(rawText) {
     eventDate: pdfToISO(m[2]), eventTime: m[3], currency: 'EUR',
     section: null, row: null, seat: null, quantity: null, pricePerTicket: null, totalAmount: null, orderId: null
   };
-  m = text.match(/Order number\s*:?\s*(\d+)/i); if (m) out.orderId = m[1];
-  m = text.match(/Total\s*:\s*([\d.,]+)\s*EUR/i); if (m) out.totalAmount = parseFloat(m[1].replace(',', '.'));
+  m = text.match(/(?:Order number|Vorgangsnummer|Bestellnummer)\s*:?\s*(\d+)/i); if (m) out.orderId = m[1];
+  m = text.match(/Total\s*:\s*([\d.,]+)\s*EUR/i); if (m) out.totalAmount = pdfNum(m[1]);
   m = text.match(/(\d+\s+[A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\-\. ]*?(?:Fanbereich|bereich|Tribüne|Block|Stand|Kurve))/);
   if (m) out.section = m[1].replace(/\s+/g, ' ').trim();
   let lineTotal = null;
@@ -145,8 +194,33 @@ function parseLeipzigInvoice(rawText) {
       out.row = rowSeatStart.endsWith(ss) ? rowSeatStart.slice(0, -ss.length) : rowSeatStart;
     } else { out.seat = String(seatEnd); out.row = rowSeatStart; }
   }
+  // column-based table (when the PDF items are available) wins over the flat-text guesses
+  const tbl = parseLeipzigTable(items);
+  if (tbl) {
+    for (const k of ['section', 'row', 'seat', 'quantity', 'pricePerTicket']) if (tbl[k] != null) out[k] = tbl[k];
+    if (tbl.lineTotal != null) lineTotal = tbl.lineTotal;
+  }
   if (!out.totalAmount) out.totalAmount = lineTotal;
   return out;
+}
+
+// pdf-parse with the default text rendering, plus the page-1 text items with positions.
+async function pdfTextAndItems(buf) {
+  const pdfParse = require('pdf-parse/lib/pdf-parse.js');
+  const items = [];
+  let page = 0;
+  const pagerender = pageData => pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then(tc => {
+    page++;
+    let lastY, text = '';
+    for (const it of tc.items) {
+      if (page === 1) items.push({ str: it.str, x: it.transform[4], y: it.transform[5] });
+      text += (lastY == it.transform[5] || !lastY) ? it.str : '\n' + it.str;
+      lastY = it.transform[5];
+    }
+    return text;
+  });
+  const data = await pdfParse(buf, { pagerender });
+  return { text: data.text || '', items };
 }
 
 // Viagogo "viagogo payment 67869485 - You have just been paid": one payout covering
@@ -186,13 +260,12 @@ async function runDeterministicParsers(mail) {
   for (const a of mail.attachments || []) {
     if (!(/pdf/i.test(a.contentType || '') || /\.pdf$/i.test(a.filename || ''))) continue;
     try {
-      const pdfParse = require('pdf-parse/lib/pdf-parse.js');
-      const data = await pdfParse(a.content);
-      if (data.text) texts.push(data.text);
+      const d = await pdfTextAndItems(a.content);
+      if (d.text) texts.push(d);
     } catch (e) { console.warn('[parsers] pdf-parse failed:', e.message); }
   }
-  for (const t of texts) {
-    const r = parseLeipzigInvoice(t);
+  for (const { text: t, items } of texts) {
+    const r = parseLeipzigInvoice(t, items);
     if (r && r.event && r.eventDate && r.quantity && r.totalAmount) {
       return { kind: 'purchase', relevant: true, confidence: 0.95, parser: 'rb-leipzig-pdf', category: 'football', accountEmail: mail.to || '', ...r };
     }
@@ -200,4 +273,4 @@ async function runDeterministicParsers(mail) {
   return null;
 }
 
-module.exports = { detectPlatform, prefilter, runDeterministicParsers, parseLeipzigInvoice, parseViagogoPayout, isSalePlatform, canonicalPlatform, saleStage };
+module.exports = { detectPlatform, prefilter, runDeterministicParsers, parseLeipzigInvoice, parseLeipzigTable, pdfTextAndItems, parseViagogoPayout, isSalePlatform, canonicalPlatform, saleStage };

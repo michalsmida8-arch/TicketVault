@@ -128,6 +128,30 @@ test('RB Leipzig invoice parser', () => {
   assert.equal(r.totalAmount, 56);
 });
 
+test('RB Leipzig invoice table by columns (German single match + English Mix and Match)', () => {
+  const { parseLeipzigInvoice } = require('../src/ingest/parsers');
+  const at = (x, y, str) => ({ x, y, str });
+  // German: title above the header; flat text glues "1 10229766700893 2 13 28 – 29"
+  const de = [at(42, 467, 'RB Leipzig - Manchester City / 04.11.2026 / 21:00 Uhr *'),
+    at(42, 446, 'Pos'), at(69, 446, 'Ticketnummer'), at(159, 446, 'Rang'), at(231, 446, 'Reihe'), at(262, 446, 'Sitz'),
+    at(303, 446, 'Ermäßigung'), at(372, 446, 'Menge'), at(435, 446, 'Einzelpreis'), at(505, 446, 'Gesamtpreis'),
+    at(42, 434, '1'), at(69, 434, '10229766700893'), at(159, 434, '2'), at(231, 434, '13'), at(262, 434, '28 – 29'),
+    at(303, 434, 'Vollzahler'), at(382, 434, '2'), at(430, 434, '116,00 EUR'), at(507, 434, '232,00 EUR'),
+    at(42, 409, 'RBL-Ticket-APP')];
+  const deText = 'Vorgangsnummer:9968620\nRB Leipzig - Manchester City / 04.11.2026 / 21:00 Uhr *\n11022976670089321328 – 29Vollzahler2116,00 EUR232,00 EUR\nTotal :232,00 EUR';
+  let r = parseLeipzigInvoice(deText, de);
+  assert.deepEqual([r.section, r.row, r.seat, r.quantity, r.pricePerTicket, r.totalAmount, r.orderId], ['Rang 2', '13', '28-29', 2, 116, 232, '9968620']);
+  // English Mix and Match: titles below the header, two rows per position, block wrapped over lines
+  const en = [at(42, 444, 'Pos'), at(69, 444, 'Ticket number'), at(159, 444, 'Block'), at(231, 444, 'Row'), at(262, 444, 'Seat'),
+    at(303, 444, 'Tariff'), at(369, 444, 'Quantity'), at(440, 444, 'Unit price'), at(513, 444, 'Total price'),
+    at(42, 430, 'RB Leipzig - Eintracht Frankfurt / 10.10.2026 / 15:30 Uhr *'),
+    at(42, 416, '1'), at(159, 421, '12 Heim-'), at(159, 411, 'Fanbereich'), at(231, 421, '2'), at(231, 411, '3'),
+    at(262, 421, '1 – 3'), at(262, 411, '1 – 3'), at(382, 416, '6'), at(435, 416, '35.00 EUR'), at(507, 416, '210.00 EUR'),
+    at(42, 398, 'RB Leipzig - SV Elversberg 07 / 24.10.2026 / 15:30 Uhr *'), at(159, 389, '9 Gast')];
+  r = parseLeipzigInvoice('Order number : 9744273\nRB Leipzig - Eintracht Frankfurt / 10.10.2026 / 15:30 Uhr *\nTotal :846.00 EUR', en);
+  assert.deepEqual([r.section, r.row, r.seat, r.quantity, r.pricePerTicket, r.orderId], ['12 Heim-Fanbereich', '2, 3', '1-3', 6, 35, '9744273']);
+});
+
 test('admin user management + data sharing', async () => {
   let r = await api('GET', '/auth/users');
   assert.equal(r.data.users.length, 2);
