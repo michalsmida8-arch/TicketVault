@@ -94,7 +94,7 @@
       "darkModeSupport": true,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "identity": null
+      "identity": "-"
     },
     "dmg": {
       "title": "TicketVault ${version}",
@@ -114,11 +114,11 @@
     }
   },
   "devDependencies": {
-    "electron": "^28.2.0",
-    "electron-builder": "^24.9.1"
+    "electron": "^45.1.0",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "electron-updater": "^6.2.1",
+    "electron-updater": "^6.8.11",
     "pdf-parse": "^1.1.1"
   }
 }
