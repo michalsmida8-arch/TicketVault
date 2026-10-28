@@ -564,3 +564,38 @@ test('seatiks: listing from inventory, then a polled sale marks the ticket sold 
     assert.ok(t2.listing.seatiksTest);
   } finally { global.fetch = realFetch; }
 });
+
+test('Seatiks listing sync marks matching tickets listed and clears unpublished ones', () => {
+  const { applyListings } = require('../src/seatiks');
+  const db = { tickets: [
+    { id: 'eng', eventName: 'England v Croatia', eventDate: '2026-11-12', section: '527', quantity: 8, status: 'available', platform: '' },
+    { id: 'mci', eventName: 'RB Leipzig vs. Manchester City', eventDate: '2026-11-04', section: 'Rang 2', quantity: 2, status: 'available' },
+    { id: 'old', eventName: 'Old Match', eventDate: '2026-11-20', quantity: 2, status: 'listed', platform: 'Seatiks',
+      externalIds: { seatiksListingIds: ['gone'] }, listing: { platform: 'Seatiks', status: 'listed', syncedFrom: 'seatiks' } },
+    { id: 'sold', eventName: 'England v Croatia', eventDate: '2026-11-12', quantity: 2, status: 'sold' }
+  ] };
+  const ev = { name: 'England vs Croatia', start_date: '2026-11-12T19:45:00Z' };
+  const listings = [
+    { id: 'u1', short_id: 'AB1234', mode: 'live', status: 'published', event: ev, section: { name: '527' }, quantity: 4, price: { amount: 120, currency: 'EUR' }, created_at: '2026-10-28T10:00:00Z' },
+    { id: 'u2', short_id: 'CD5678', mode: 'live', status: 'published', event: ev, section: { name: '527' }, quantity: 4, price: { amount: 120, currency: 'EUR' } },
+    { id: 'tst', mode: 'test', status: 'published', event: { name: 'RB Leipzig vs Manchester City', start_date: '2026-11-04T20:00:00Z' }, quantity: 2 }
+  ];
+  const r = applyListings(db, listings, '2026-10-28T12:00:00Z');
+  const eng = db.tickets.find(t => t.id === 'eng');
+  assert.equal(eng.status, 'listed');
+  assert.equal(eng.platform, 'Seatiks');
+  assert.deepEqual(eng.externalIds.seatiksListingIds, ['u1', 'u2']);
+  assert.equal(eng.externalIds.seatiksListingId, 'u1');
+  assert.equal(eng.listing.listingId, 'AB1234, CD5678');
+  assert.equal(eng.listing.price, 120);
+  assert.equal(eng._serverAt, '2026-10-28T12:00:00Z');
+  assert.equal(db.tickets.find(t => t.id === 'mci').status, 'available');   // sandbox listing ignored
+  assert.equal(db.tickets.find(t => t.id === 'old').status, 'available');   // its listing is gone
+  assert.equal(db.tickets.find(t => t.id === 'sold').status, 'sold');       // sold rows untouched
+  assert.deepEqual(r, { marked: 1, cleared: 1 });
+  // second run with the same listings changes nothing
+  assert.deepEqual(applyListings(db, listings, '2026-10-28T12:05:00Z'), { marked: 0, cleared: 0 });
+  // a sale on that listing finds the ticket by the second listing id
+  const { findOpenTicket } = require('../src/ingest/sales');
+  assert.equal(findOpenTicket(db, { platform: 'Seatiks', listingId: 'u2', quantity: 2 }).match.id, 'eng');
+});

@@ -54,7 +54,8 @@ function findOpenTicket(db, p) {
   if (ids.length) {
     const byId = open.filter(t => {
       const e = t.externalIds || {};
-      return (lk && e[lk] && ids.includes(norm(e[lk]))) || (e[orderKey(p.platform)] && ids.includes(norm(e[orderKey(p.platform)])));
+      const many = lk === 'seatiksListingId' && Array.isArray(e.seatiksListingIds) ? e.seatiksListingIds.map(norm) : [];
+      return (lk && e[lk] && ids.includes(norm(e[lk]))) || many.some(x => ids.includes(x)) || (e[orderKey(p.platform)] && ids.includes(norm(e[orderKey(p.platform)])));
     });
     if (byId.length === 1) return { match: byId[0], candidates: byId, by: 'id' };
     if (byId.length > 1) return { match: null, candidates: byId, by: 'id-ambiguous' };

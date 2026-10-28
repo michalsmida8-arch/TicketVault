@@ -156,10 +156,78 @@ async function refreshPending(user) {
 }
 
 async function unpublishForTicket(user, ticket) {
-  const id = ticket && (ticket.externalIds || {}).seatiksListingId;
-  if (!id || !keyOf(user)) return false;
-  await api(keyOf(user), 'POST', '/listings/' + encodeURIComponent(id) + '/unpublish');
+  const e = (ticket && ticket.externalIds) || {};
+  const ids = [...new Set([e.seatiksListingId, ...(Array.isArray(e.seatiksListingIds) ? e.seatiksListingIds : [])].filter(Boolean))];
+  if (!ids.length || !keyOf(user)) return false;
+  for (const id of ids) await api(keyOf(user), 'POST', '/listings/' + encodeURIComponent(id) + '/unpublish');
   return true;
+}
+
+// ---- listing sync: published Seatiks listings → ticket "Zalistováno" ---------------------
+// Listings made by hand on seatiks.com (CSV bulk import, the dashboard) mark the matching
+// inventory row as listed, with the listing ids, so a later sale or a sale elsewhere finds it.
+// Matching is the same as for a sale (listing id already on the ticket, else event date +
+// shared team word + quantity, section as tie-breaker); ambiguous listings are left alone.
+// A row that only this sync marked listed goes back to "available" when none of its listings
+// is published any more (unpublished / deleted on Seatiks). Live keys only: sandbox listings
+// are fictitious. Pure part (applyListings) is exported for tests.
+function applyListings(db, listings, now = new Date().toISOString()) {
+  const { findOpenTicket } = require('./ingest/sales');
+  const perTicket = new Map();
+  for (const l of listings) {
+    if (!l || l.mode === 'test' || l.status !== 'published') continue;
+    const p = { platform: 'Seatiks', listingId: l.id, quantity: l.quantity, section: l.section && l.section.name,
+      event: l.event && l.event.name, eventDate: l.event && l.event.start_date ? String(l.event.start_date).slice(0, 10) : null };
+    const m = findOpenTicket(db, p);
+    if (!m.match) continue;
+    if (!perTicket.has(m.match.id)) perTicket.set(m.match.id, []);
+    perTicket.get(m.match.id).push(l);
+  }
+  const published = new Set(listings.filter(l => l && l.mode !== 'test' && l.status === 'published').map(l => l.id));
+  let marked = 0, cleared = 0;
+  db.tickets = db.tickets.map(t => {
+    const ls = perTicket.get(t.id);
+    if (ls) {
+      const ids = ls.map(l => l.id);
+      const e = t.externalIds || {};
+      const same = Array.isArray(e.seatiksListingIds) && e.seatiksListingIds.join() === ids.join() && t.status === 'listed';
+      if (same) return t;
+      marked++;
+      const price = ls[0].price || {};
+      return { ...t,
+        status: t.status === 'listed' ? t.status : 'listed',
+        platform: !t.platform || t.platform === 'Other' || t.status !== 'listed' ? 'Seatiks' : t.platform,
+        externalIds: { ...e, seatiksListingId: ids[0], seatiksListingIds: ids, seatiksManualId: ls.map(l => l.short_id).filter(Boolean).join(', ') || e.seatiksManualId },
+        listing: { ...(t.listing || {}), platform: 'Seatiks', status: 'listed', listingId: ls.map(l => l.short_id || l.id).join(', '),
+          price: price.amount != null ? price.amount : (t.listing || {}).price, currency: price.currency || (t.listing || {}).currency,
+          listedAt: (t.listing || {}).listedAt || ls[0].created_at || now, syncedFrom: 'seatiks', syncedAt: now },
+        updated: now, _serverAt: now };
+    }
+    // listed by this sync earlier, now nothing published on Seatiks → back to available
+    const own = (t.externalIds || {}).seatiksListingIds || [];
+    if (t.status === 'listed' && t.listing && t.listing.syncedFrom === 'seatiks' && !own.some(id => published.has(id))) {
+      cleared++;
+      return { ...t, status: 'available', listing: { ...t.listing, status: 'unpublished', syncedAt: now }, updated: now, _serverAt: now };
+    }
+    return t;
+  });
+  return { marked, cleared };
+}
+async function syncListings(user) {
+  const key = keyOf(user);
+  if (!key || !/^stk_live_/.test(key)) return { skipped: true };
+  const listings = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const r = await api(key, 'GET', '/listings', null, { status: 'published', limit: 200, cursor });
+    listings.push(...(r.data || []));
+    if (!r.has_more || !r.next_cursor) break;
+    cursor = r.next_cursor;
+  }
+  let res;
+  await store.updateBucket(user.dataKey, db => { res = applyListings(db, listings); });
+  if (res && (res.marked || res.cleared)) store.appendIngestLog({ result: 'seatiks-listings', ...res, at: new Date().toISOString(), mailbox: 'seatiks' });
+  return { listings: listings.length, ...res };
 }
 
 // ---- sales -----------------------------------------------------------------------------
@@ -216,7 +284,8 @@ async function pollUser(user) {
   }
   await store.updateUsers(us => { const u = us.find(x => x.id === user.id); if (u) u.seatiksSyncedAt = new Date().toISOString(); });
   await refreshPending(user).catch(() => 0);
-  return { sales: sales.length, applied };
+  const lst = await syncListings(user).catch(e => ({ error: e.message }));
+  return { sales: sales.length, applied, listings: lst };
 }
 async function pollAll() {
   if (polling) return;
@@ -232,4 +301,4 @@ function startPoller() {
   setInterval(pollAll, POLL_MINUTES * 60000);
 }
 
-module.exports = { status, setKey, searchEvents, getEvent, platforms, listTicket, unpublishForTicket, pollUser, startPoller, SeatiksError, _stagesOf: stagesOf, _parsedFor: parsedFor };
+module.exports = { status, setKey, searchEvents, getEvent, platforms, listTicket, unpublishForTicket, pollUser, syncListings, applyListings, startPoller, SeatiksError, _stagesOf: stagesOf, _parsedFor: parsedFor };

@@ -24,7 +24,7 @@ router.use(requireAuth);
 // app may still hold an older copy and push it back (full PUT /db, or POST /ticket
 // when the user edits something else). A client copy is "stale" when its `updated`
 // is older than the server change; then the server-owned sale fields win.
-const SERVER_FIELDS = ['delivery', 'status', 'quantity', 'salePrice', 'saleCurrency', 'saleDate', 'buyerName', 'buyerEmail',
+const SERVER_FIELDS = ['delivery', 'listing', 'status', 'quantity', 'salePrice', 'saleCurrency', 'saleDate', 'buyerName', 'buyerEmail',
   'deliveredAt', 'paidOut', 'paidOutDate', 'paidOutAmount', 'externalIds', 'notes', 'platform', '_serverAt', 'updated'];
 function isStale(client, server) {
   return !!(server && server._serverAt && String(client.updated || client.created || '') < String(server._serverAt));
