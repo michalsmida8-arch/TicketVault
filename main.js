@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell, screen } = require('electron');
 // Czech UI locale for Chromium: date inputs show d. m. rrrr instead of mm/dd/yyyy.
 app.commandLine.appendSwitch('lang', 'cs-CZ');
+// Marketplace panels (<webview>) must look like plain Chrome on the REAL OS. They used to send a
+// hard-coded Windows UA; on a Mac the Client Hints still say macOS and Cloudflare Turnstile (Seatiks
+// login) fails on the mismatch. Strip the app and Electron tokens from the default UA instead.
+app.userAgentFallback = app.userAgentFallback.replace(/ (?:ticketvault|TicketVault|Electron)\/\S+/g, '').replace(/Chrome\/(\d+)\.[\d.]+/, 'Chrome/$1.0.0.0');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
