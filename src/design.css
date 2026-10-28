@@ -629,3 +629,5 @@ html[data-theme="light"] .status-pill.status-cancelled, html[data-theme="light"]
 :root:not([data-theme="light"]) .status-pill.status-sold, :root:not([data-theme="light"]) .group-chip.status-sold { background: rgba(251, 191, 36, .13); color: #fcd34d; border: 1px solid rgba(251, 191, 36, .35); }
 :root:not([data-theme="light"]) .status-pill.status-delivered, :root:not([data-theme="light"]) .group-chip.status-delivered { background: rgba(74, 222, 128, .13); color: #86efac; border: 1px solid rgba(74, 222, 128, .35); }
 :root:not([data-theme="light"]) .status-pill.status-cancelled, :root:not([data-theme="light"]) .group-chip.status-cancelled { background: rgba(248, 113, 113, .13); color: #fca5a5; border: 1px solid rgba(248, 113, 113, .32); }
+.tk-weak .tk-est-val { opacity: .7; }
+.tk-weak .tk-est-sub { color: var(--yellow, #a6873a); }

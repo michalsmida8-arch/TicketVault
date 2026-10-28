@@ -100,6 +100,16 @@
   }
 
   // ---------- statistics -------------------------------------------------------------
+  // Tier of a section key: first digit of a 3-digit block (114 → "1xx", 402 → "4xx"), floor
+  // stays floor; football blocks like "13.1" or "D" have no tier.
+  function tierOf(k) {
+    if (k === 'floor') return 'floor';
+    const m = String(k || '').match(/^(\d)\d\d[a-z]?$/);
+    return m ? m[1] + 'xx' : '';
+  }
+  const RECENT_MS = 21 * DAY;
+  const recent = sales => sales.filter(x => Date.parse(x.at) >= Date.now() - RECENT_MS);
+  const MIN_SALES = 3; // fewer sales than this = too little to trust on its own
   function stats(sales) {
     if (!sales.length) return null;
     const tickets = sales.reduce((s, x) => s + x.qty, 0);
@@ -146,8 +156,14 @@
     }
     const eventId = f.best.id, eventName = f.best.name;
     const key = secKey(t.section);
-    const tikey = { platform, eventId, eventName, eventDate: String(f.best.date || '').slice(0, 10),
-      at: new Date().toISOString(), currency: 'EUR', event: stats(sales), section: key, sectionStats: key ? stats(sales.filter(x => secKey(x.section) === key)) : null };
+    // Besides the own section, the same tier (114 → all 1xx, floor → floor) and the last
+    // three weeks: one old sale in a section must not decide the estimate.
+    const tier = tierOf(key);
+    const secSales = key ? sales.filter(x => secKey(x.section) === key) : [];
+    const tierSales = tier ? sales.filter(x => tierOf(secKey(x.section)) === tier) : [];
+    const tikey = { v: 2, platform, eventId, eventName, eventDate: String(f.best.date || '').slice(0, 10),
+      at: new Date().toISOString(), currency: 'EUR', event: stats(sales), section: key, sectionStats: key ? stats(secSales) : null,
+      sectionRecent: key ? stats(recent(secSales)) : null, tier, tierStats: tier ? stats(tierSales) : null, tierRecent: tier ? stats(recent(tierSales)) : null };
     await saveTikey(t, tikey);
     return tikey;
   }
@@ -162,7 +178,8 @@
     running = (async () => {
       // Premier League fixtures decide StubHub vs Viagogo — load them first.
       if (window.__listing && window.__listing.loadPL) await window.__listing.loadPL();
-      const list = targets().filter(t => opts.force || !(t.listing && t.listing.tikey && Date.now() - Date.parse(t.listing.tikey.at) < STALE_MS));
+      // v < 2 = saved before the tier / 3-week figures existed → recompute
+      const list = targets().filter(t => opts.force || !(t.listing && t.listing.tikey && (t.listing.tikey.v || 1) >= 2 && Date.now() - Date.parse(t.listing.tikey.at) < STALE_MS));
       let ok = 0, missing = 0;
       const errors = [];
       for (const t of list) {
@@ -187,19 +204,33 @@
     const h = Math.round((Date.now() - Date.parse(iso)) / 3600000);
     return h < 1 ? 'před chvílí' : h < 48 ? `před ${h} h` : `před ${Math.round(h / 24)} d`;
   };
-  // The price to show: own section if it has sales, else the whole event.
+  // The price to show, first that has at least MIN_SALES sales: own section (last 3 weeks,
+  // then all), same tier (last 3 weeks, then all), whole event. A thin own-section figure
+  // is still shown when nothing better exists, marked weak.
   function best(t) {
     const k = t.listing && t.listing.tikey;
     if (!k || !k.event) return null;
-    const s = k.sectionStats;
-    return s ? { ...s, scope: 'sekce ' + k.section } : { ...k.event, scope: 'celá akce' };
+    const tierName = k.tier === 'floor' ? 'plocha' : 'patro ' + k.tier;
+    const options = [
+      [k.sectionRecent, 'sekce ' + k.section + ' · 3 týdny', 'sekce'],
+      [k.sectionStats, 'sekce ' + k.section, 'sekce'],
+      [k.tierRecent, tierName + ' · 3 týdny', k.tier === 'floor' ? 'plocha' : 'patro'],
+      [k.tierStats, tierName, k.tier === 'floor' ? 'plocha' : 'patro']
+    ];
+    for (const [s, scope, short] of options) if (s && s.sales >= MIN_SALES) return { ...s, scope, short };
+    if (k.event.sales >= MIN_SALES || !k.sectionStats) return { ...k.event, scope: 'celá akce', short: 'akce', weak: k.event.sales < MIN_SALES };
+    return { ...k.sectionStats, scope: 'sekce ' + k.section, short: 'sekce', weak: true };
   }
   function tooltip(t) {
     const k = t.listing.tikey, b = best(t);
     const lines = [`Tikey · ${k.platform === 'stubhub' ? 'StubHub' : 'Viagogo'} · ${b.scope}`,
       `Prodáno ${b.tickets} ks (${b.sales}×), průměr ${money(b.avg)}, medián ${money(b.median)}, ${money(b.min)}–${money(b.max)}`,
       `Za 24 h: ${b.last24h} ks · poslední prodej ${ago(b.lastAt)}`];
-    if (k.sectionStats) lines.push(`Celá akce: ${k.event.tickets} ks, průměr ${money(k.event.avg)}, 24 h ${k.event.last24h} ks`);
+    if (b.weak) lines.push('Málo prodejů — odhad je jen orientační, porovnej s aktuálními nabídkami.');
+    const med = s => s ? `${s.sales}× prodej (${s.tickets} ks), medián ${money(s.median)}` : 'žádné prodeje';
+    if (k.section) lines.push(`Sekce ${k.section}: ${med(k.sectionStats)}`);
+    if (k.tier) lines.push(`${k.tier === 'floor' ? 'Plocha' : 'Patro ' + k.tier}: ${med(k.tierStats)}${k.tierRecent ? ' · 3 týdny: ' + money(k.tierRecent.median) : ''}`);
+    lines.push(`Celá akce: ${k.event.tickets} ks, medián ${money(k.event.median)}, 24 h ${k.event.last24h} ks`);
     if (b.recent && b.recent.length) lines.push('Poslední: ' + b.recent.map(x => `${money(x.price)}×${x.qty}`).join(', '));
     lines.push('Načteno ' + ago(k.at));
     return lines.join('\n');
@@ -208,7 +239,7 @@
   function cellHtml(t) {
     const b = best(t);
     if (!b) return '';
-    return `<div class="tk-est" title="${escapeHtml(tooltip(t))}"><span class="tk-est-val">≈ ${money(b.median)}</span><span class="tk-est-sub">/ks · ${escapeHtml(b.scope === 'celá akce' ? 'akce' : 'sekce')}</span></div>`;
+    return `<div class="tk-est${b.weak ? ' tk-weak' : ''}" title="${escapeHtml(tooltip(t))}"><span class="tk-est-val">≈ ${money(b.median)}${b.weak ? '?' : ''}</span><span class="tk-est-sub">/ks · ${escapeHtml(b.short || 'akce')}${b.weak ? ' · málo dat' : ''}</span></div>`;
   }
   // Inventory group row: expected revenue of the unsold rows that have Tikey data.
   function groupHtml(items) {
