@@ -7053,7 +7053,7 @@ function openInboxAdvancedEditModal(id) {
   if (existing) existing.remove();
 
   const currencies = ['EUR','USD','GBP','CZK','PLN','CHF','HUF','SEK','NOK','DKK','RON','RSD'];
-  const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','SyncSeats','Other'];
+  const platforms = ['Ticketmaster','Stubhub','Viagogo','Eventim','Live Nation','AXS','See Tickets','SyncSeats','Seatiks','Other'];
 
   const modal = document.createElement('div');
   modal.className = 'modal active';
@@ -9775,6 +9775,7 @@ function renderPlatformDistribution() {
       'Stubhub': '#e8590c',       // Stubhub orange-red
       'Viagogo': '#1d4ed8',       // Viagogo blue
       'SyncSeats': '#16a34a',     // SyncSeats green
+      'Seatiks': '#2f5d46',       // Seatiks dark green
       'Ticketmaster': '#0061ff',
       'AXS': '#e11d48',
       'Eventim': '#0ea5e9',

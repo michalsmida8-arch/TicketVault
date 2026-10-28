@@ -109,7 +109,8 @@ function toParsed(x, mail) {
     purchaseDate: x.purchaseDate || null,
     buyerName: x.buyerName || null,
     buyerEmail: x.buyerEmail || null,
-    accountEmail: x.accountEmail || mail.to || null,
+    // just the address: To headers look like "Herr Tomas Smida (Kundennummer 976951)" <x@gmail.com>
+    accountEmail: (v => { const m = String(v || '').match(/[^\s<>"(),;]+@[^\s<>"(),;]+/); return m ? m[0] : (v || null); })(x.accountEmail || mail.to),
     confidence: x.confidence ?? null,
     parser: x.parser || 'llm',
     notes: x.notes || null,
