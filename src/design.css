@@ -607,3 +607,25 @@ tr[data-child-of] .event-name { font-weight: 500; color: var(--text-secondary); 
 body.overview-collapsed #todayPanel,
 body.overview-collapsed #view-dashboard > .stats-grid { display: none; }
 .overview-toggle.active { color: var(--purple); border-color: rgba(var(--purple-rgb), .35); }
+
+/* =====================================================================
+   Status colours (1.21) — each stage its own hue so the table scans fast:
+   koupeno = neutral grey, zalistováno = blue, prodáno (čeká na doručení) = amber,
+   doručeno = green, odepsáno = red. Same hues on the grouped-row chips.
+   Secondary text (cell-sub, event-sub, muted) one step darker / brighter.
+   ===================================================================== */
+html[data-theme="light"] { --text-tertiary: #4a443c; }
+:root:not([data-theme="light"]) { --text-tertiary: #a39780; }
+.cell-sub, .event-sub { font-weight: 500; }
+
+html[data-theme="light"] .status-pill.status-available, html[data-theme="light"] .group-chip.status-available { background: rgba(120, 113, 103, .10); color: #4f4a43; border: 1px solid rgba(120, 113, 103, .30); }
+html[data-theme="light"] .status-pill.status-listed, html[data-theme="light"] .group-chip.status-listed { background: rgba(37, 99, 235, .09); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, .30); }
+html[data-theme="light"] .status-pill.status-sold, html[data-theme="light"] .group-chip.status-sold { background: rgba(217, 119, 6, .12); color: #b45309; border: 1px solid rgba(217, 119, 6, .40); }
+html[data-theme="light"] .status-pill.status-delivered, html[data-theme="light"] .group-chip.status-delivered { background: rgba(22, 163, 74, .11); color: #15803d; border: 1px solid rgba(22, 163, 74, .36); }
+html[data-theme="light"] .status-pill.status-cancelled, html[data-theme="light"] .group-chip.status-cancelled { background: rgba(185, 28, 28, .08); color: #b91c1c; border: 1px solid rgba(185, 28, 28, .28); }
+
+:root:not([data-theme="light"]) .status-pill.status-available, :root:not([data-theme="light"]) .group-chip.status-available { background: rgba(194, 183, 161, .10); color: #cfc4ad; border: 1px solid rgba(194, 183, 161, .25); }
+:root:not([data-theme="light"]) .status-pill.status-listed, :root:not([data-theme="light"]) .group-chip.status-listed { background: rgba(96, 165, 250, .14); color: #93c5fd; border: 1px solid rgba(96, 165, 250, .35); }
+:root:not([data-theme="light"]) .status-pill.status-sold, :root:not([data-theme="light"]) .group-chip.status-sold { background: rgba(251, 191, 36, .13); color: #fcd34d; border: 1px solid rgba(251, 191, 36, .35); }
+:root:not([data-theme="light"]) .status-pill.status-delivered, :root:not([data-theme="light"]) .group-chip.status-delivered { background: rgba(74, 222, 128, .13); color: #86efac; border: 1px solid rgba(74, 222, 128, .35); }
+:root:not([data-theme="light"]) .status-pill.status-cancelled, :root:not([data-theme="light"]) .group-chip.status-cancelled { background: rgba(248, 113, 113, .13); color: #fca5a5; border: 1px solid rgba(248, 113, 113, .32); }
