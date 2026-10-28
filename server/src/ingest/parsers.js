@@ -171,7 +171,7 @@ function parseLeipzigInvoice(rawText, items) {
   if (!m) return null;
   const away = m[1].trim();
   const out = {
-    platform: 'RB Leipzig', event: `RB Leipzig v ${away}`, venue: 'Red Bull Arena',
+    platform: 'RB Leipzig', event: `RB Leipzig vs. ${away}`, venue: 'Red Bull Arena',
     eventDate: pdfToISO(m[2]), eventTime: m[3], currency: 'EUR',
     section: null, row: null, seat: null, quantity: null, pricePerTicket: null, totalAmount: null, orderId: null
   };

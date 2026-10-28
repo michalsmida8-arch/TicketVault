@@ -120,7 +120,7 @@ test('RB Leipzig invoice parser', () => {
   const { parseLeipzigInvoice } = require('../src/ingest/parsers');
   const txt = `Invoice\nRB Leipzig - FC Bayern München / 14.03.2026 / 18:30\nOrder number: 987654\n12 Fanbereich Block\n2 - 14 Sitz 228.00 EUR 56.00 EUR\nTotal: 56.00 EUR`;
   const r = parseLeipzigInvoice(txt);
-  assert.equal(r.event, 'RB Leipzig v FC Bayern München');
+  assert.equal(r.event, 'RB Leipzig vs. FC Bayern München');
   assert.equal(r.eventDate, '2026-03-14');
   assert.equal(r.orderId, '987654');
   assert.equal(r.quantity, 2);

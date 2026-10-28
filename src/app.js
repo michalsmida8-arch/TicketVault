@@ -2261,7 +2261,10 @@ function renderStatTrends() {
 // Tickets for the same event (normalised name + date) collapse into one summary row
 // with totals and a status breakdown; single-ticket events render as plain rows.
 function eventGroupKey(t) {
-  return (t.eventDate || '') + '|' + String(t.eventName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  // "RB Leipzig vs. Manchester City" and "RB Leipzig v Manchester City" are the same match:
+  // the separator word (v / vs / x / versus / gegen / proti) is dropped from the key.
+  return String(t.eventDate || '').slice(0, 10) + '|' + String(t.eventName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').replace(/\b(?:vs|v|x|versus|gegen|proti)\b/g, ' ').replace(/\s+/g, ' ').trim();
 }
 function renderGroupedRows(list, rowHtml) {
   if (!state.expandedGroups) state.expandedGroups = new Set();
