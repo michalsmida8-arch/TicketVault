@@ -608,3 +608,15 @@ test('partial sale splits seat numbers between the sold and the remaining row', 
   assert.equal(splitSeats('1, 2, 3, 4', '7-8', 2, 4), null);         // seats not on the ticket
   assert.equal(splitSeats('1, 2, 3, 4', null, 2, 4), null);
 });
+
+test('a sale e-mail sets the platform it sold on, even when the row was listed elsewhere', () => {
+  const { applySale } = require('../src/ingest/sales');
+  const db = { tickets: [{ id: 'elv', eventName: 'RB Leipzig vs. SV Elversberg 07', eventDate: '2026-10-24', quantity: 6, status: 'listed', platform: 'Seatiks', currency: 'EUR' }] };
+  const r = applySale(db, { kind: 'sale', saleStage: 'sold', platform: 'Viagogo', event: 'RB Leipzig vs SV Elversberg', eventDate: '2026-10-24',
+    quantity: 3, totalAmount: 92.28, currency: 'EUR', orderId: '657885894' }, new Date('2026-10-23T10:00:00Z'));
+  assert.ok(r.applied, JSON.stringify(r));
+  const sold = db.tickets.find(t => t.status === 'sold');
+  assert.equal(sold.platform, 'Viagogo');
+  assert.equal(sold.externalIds.viagogoOrderId, '657885894');
+  assert.equal(db.tickets.find(t => t.status === 'listed').platform, 'Seatiks');   // the unsold rest stays listed on Seatiks
+});

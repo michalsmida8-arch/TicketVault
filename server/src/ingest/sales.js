@@ -129,7 +129,8 @@ function markSold(db, ticket, p, when) {
     updated: now, _serverAt: now
   };
   if (p.orderId) sold.externalIds[orderKey(p.platform)] = p.orderId;
-  if (!sold.platform || /^other$/i.test(sold.platform)) sold.platform = p.platform;
+  // The marketplace it actually sold on wins: a row listed on Seatiks but sold on Viagogo is a Viagogo sale.
+  if (p.platform) sold.platform = p.platform;
   const notes = [ticket.notes, saleNote, 'Označeno automaticky z e-mailu'];
   let remainingId = null;
   if (emailQty < ticketQty) {
