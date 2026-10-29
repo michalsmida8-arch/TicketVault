@@ -77,6 +77,31 @@ function findOpenTicket(db, p) {
   return { match: null, candidates: c, by: c.length ? 'ambiguous' : 'none' };
 }
 
+// "1, 2, 3" / "1–8" / "334-341" → ['1', '2', …]; null when it is not a plain list of seat numbers.
+function seatList(s) {
+  const out = [];
+  for (const part of String(s || '').split(/[,;]+/)) {
+    const x = part.trim();
+    if (!x) continue;
+    const m = x.match(/^(\d+)\s*[–-]\s*(\d+)$/);
+    if (m) {
+      const a = +m[1], b = +m[2];
+      if (b < a || b - a > 60) return null;
+      for (let i = a; i <= b; i++) out.push(String(i));
+    } else if (/^\d+$/.test(x)) out.push(x);
+    else return null;
+  }
+  return out.length ? out : null;
+}
+// Partial sale: the sold row keeps the seats named in the e-mail, the rest stays on the new row.
+// Only when both lists are plain seat numbers and the e-mail's seats exist on the ticket.
+function splitSeats(ticketSeat, soldSeat, soldQty, ticketQty) {
+  const all = seatList(ticketSeat);
+  const sold = seatList(soldSeat);
+  if (!all || !sold || all.length !== ticketQty || sold.length !== soldQty || !sold.every(x => all.includes(x))) return null;
+  return { sold: sold.join(', '), rest: all.filter(x => !sold.includes(x)).join(', ') };
+}
+
 // Mark sold (with split), exactly like applyInboxSale in the app.
 function markSold(db, ticket, p, when) {
   const emailQty = Number(p.quantity) || 1;
@@ -116,6 +141,8 @@ function markSold(db, ticket, p, when) {
       buyerName: undefined, buyerEmail: undefined,
       notes: [ticket.notes, `Zbylo z původních ${ticketQty} ks (prodáno ${emailQty})`].filter(Boolean).join(' | ')
     };
+    const seats = splitSeats(ticket.seat, p.seat, emailQty, ticketQty);
+    if (seats) { sold.seat = seats.sold; remaining.seat = seats.rest; }
     db.tickets.push(remaining);
     remainingId = remaining.id;
   }
@@ -246,4 +273,4 @@ function markDeleted(db, id) {
   for (const [k, v] of Object.entries(db._deletedTickets)) if (v < cutoff) delete db._deletedTickets[k];
 }
 
-module.exports = { markDeleted, applySale, findOpenTicket, findDoneTicket, cancelSale, words };
+module.exports = { markDeleted, applySale, findOpenTicket, findDoneTicket, cancelSale, words, splitSeats };

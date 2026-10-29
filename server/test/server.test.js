@@ -599,3 +599,12 @@ test('Seatiks listing sync marks matching tickets listed and clears unpublished 
   const { findOpenTicket } = require('../src/ingest/sales');
   assert.equal(findOpenTicket(db, { platform: 'Seatiks', listingId: 'u2', quantity: 2 }).match.id, 'eng');
 });
+
+test('partial sale splits seat numbers between the sold and the remaining row', () => {
+  const { splitSeats } = require('../src/ingest/sales');
+  assert.deepEqual(splitSeats('1, 2, 3, 4, 5, 6, 7, 8', '1-3', 3, 8), { sold: '1, 2, 3', rest: '4, 5, 6, 7, 8' });
+  assert.deepEqual(splitSeats('334–341', '338, 339', 2, 8), { sold: '338, 339', rest: '334, 335, 336, 337, 340, 341' });
+  assert.equal(splitSeats('1–3 v každé řadě', '1-3', 3, 6), null);   // not a plain list → untouched
+  assert.equal(splitSeats('1, 2, 3, 4', '7-8', 2, 4), null);         // seats not on the ticket
+  assert.equal(splitSeats('1, 2, 3, 4', null, 2, 4), null);
+});
