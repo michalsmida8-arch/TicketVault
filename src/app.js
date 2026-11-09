@@ -2185,6 +2185,38 @@ function renderStats() {
   // before it — this is a fixed "momentum" indicator, independent of the
   // table filters, so it stays meaningful even while you filter the table.
   renderStatTrends();
+  renderStatSparks(all);
+}
+
+// 30-day sparkline under each KPI, from the same filtered rows as the card value:
+// running totals for profit / spent / revenue / sold, the stock level for "Zbývá prodat".
+function renderStatSparks(all) {
+  const day = d => String(d || '').slice(0, 10);
+  const days = [...Array(30)].map((_, i) => new Date(Date.now() - (29 - i) * 864e5).toISOString().slice(0, 10));
+  const done = t => ['sold', 'delivered', 'cancelled'].includes(t.status);
+  const q = t => Number(t.quantity) || 1;
+  const soldOn = t => done(t) ? day(t.saleDate) : '';
+  const daily = (on, val) => days.map(d => all.filter(t => on(t) === d).reduce((s, t) => s + val(t), 0));
+  const running = a => a.reduce((o, x, i) => (o.push((o[i - 1] || 0) + x), o), []);
+  const series = {
+    statProfit: running(daily(soldOn, calcProfitInPrimary)),
+    statSpent: running(daily(t => day(t.purchaseDate), calcCostInPrimary)),
+    statRevenue: running(daily(soldOn, calcRevenueInPrimary)),
+    statSold: running(daily(soldOn, q)),
+    // stock on each day: bought by then (no date = old stock) and not sold yet
+    statStock: days.map(d => all.filter(t => t.status !== 'cancelled' && (!day(t.purchaseDate) || day(t.purchaseDate) <= d)
+      && !(done(t) && (!day(t.saleDate) || day(t.saleDate) <= d))).reduce((s, t) => s + q(t), 0))
+  };
+  const W = 150, H = 30;
+  for (const [id, v] of Object.entries(series)) {
+    const host = document.getElementById(id);
+    if (!host) continue;
+    let el = document.getElementById(id + 'Spark');
+    if (!el) { el = document.createElement('div'); el.id = id + 'Spark'; el.className = 'stat-spark'; el.title = 'Posledních 30 dní'; host.after(el); }
+    const min = Math.min(...v), max = Math.max(...v);
+    const pts = v.map((x, i) => `${(i / 29 * W).toFixed(1)},${(H - 2 - (max === min ? (H - 4) / 2 : (x - min) / (max - min) * (H - 4))).toFixed(1)}`).join(' ');
+    el.innerHTML = `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${id === 'statSpent' ? 'var(--red-bright)' : 'var(--green-bright)'}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+  }
 }
 
 // Compute month-over-month deltas and paint the little trend badges.

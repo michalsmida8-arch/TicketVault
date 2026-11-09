@@ -1,7 +1,7 @@
 // "Dnes" panel on the inventory dashboard: what needs doing today, the next
 // 30 days of events as a calendar strip, and expected cash from payouts.
 // Relies on app.js globals: state, getPayoutTickets, getPrimaryCurrency,
-// convertCurrency, saleCurrency, calcCostInPrimary, formatMoney, switchView, escapeHtml.
+// convertCurrency, saleCurrency, calcCostInPrimary, formatMoney, switchView, escapeHtml, eventGroupKey.
 (function () {
   const DAY = 86400000;
   function d0(x) { const d = new Date(x); d.setHours(0, 0, 0, 0); return d; }
@@ -36,6 +36,49 @@
       <span class="today-label">${label}</span>
       <span class="today-sub">${sub}</span>
     </button>`;
+  }
+
+  // Ring: share of this month's event tickets already sold / delivered.
+  function monthRing(tickets) {
+    const ym = isoDay(new Date()).slice(0, 7);
+    const q = t => Number(t.quantity) || 1;
+    const month = tickets.filter(t => String(t.eventDate || '').startsWith(ym) && st(t) !== 'cancelled');
+    const total = month.reduce((s, t) => s + q(t), 0);
+    if (!total) return '';
+    const done = month.filter(t => ['sold', 'delivered'].includes(st(t))).reduce((s, t) => s + q(t), 0);
+    const toDeliver = tickets.filter(t => st(t) === 'sold' && (diffDays(t.eventDate) ?? -1) >= 0).reduce((s, t) => s + q(t), 0);
+    const pct = Math.round(done / total * 100), R = 26, C = 2 * Math.PI * R;
+    return `<div class="today-ring" title="Lístky na akce v tomto měsíci">
+      <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${R}" fill="none" stroke="var(--line-strong)" stroke-width="6"/>
+        <circle cx="32" cy="32" r="${R}" fill="none" stroke="var(--purple)" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 32 32)"/>
+        <text x="32" y="36" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text-primary)">${pct}%</text></svg>
+      <div><b>${new Date().toLocaleDateString('cs-CZ', { month: 'long' })}: ${done} z ${total} ks prodáno</b><span>${toDeliver} ks k doručení</span></div>
+    </div>`;
+  }
+
+  // The 3 nearest upcoming events (grouped like the inventory table) with what is left to do.
+  function nextEvents(tickets) {
+    const q = t => Number(t.quantity) || 1;
+    const groups = new Map();
+    tickets.filter(t => (diffDays(t.eventDate) ?? -1) >= 0 && st(t) !== 'cancelled').forEach(t => {
+      const k = eventGroupKey(t);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(t);
+    });
+    const next = [...groups.values()].sort((a, b) => String(a[0].eventDate).localeCompare(String(b[0].eventDate))).slice(0, 3);
+    if (!next.length) return '';
+    return `<div class="today-next">${next.map(items => {
+      const t = items[0], dd = diffDays(t.eventDate), d = new Date(String(t.eventDate).slice(0, 10) + 'T12:00:00');
+      const n = s => items.filter(x => st(x) === s).reduce((sum, x) => sum + q(x), 0);
+      const tags = [['sold', 'doručit'], ['listed', 'v nabídce'], ['available', 'nezalistováno'], ['delivered', 'hotovo']]
+        .map(([s, label]) => n(s) ? `<span class="next-tag ${s}">${n(s)}× ${label}</span>` : '').join('');
+      return `<div class="next-ev" data-cal-search="${escapeHtml(t.eventName)}">
+        <div class="next-date"><b>${d.getDate()}</b><span>${d.toLocaleDateString('cs-CZ', { month: 'short' })}</span></div>
+        <div class="next-body"><div class="next-name">${escapeHtml(t.eventName)}</div>
+          <div class="next-sub">${dd === 0 ? 'dnes' : dd === 1 ? 'zítra' : `za ${dd} dní`}${t.venue ? ' · ' + escapeHtml(t.venue) : ''}</div>
+          <div class="next-tags">${tags}</div></div>
+      </div>`;
+    }).join('')}</div>`;
   }
 
   function calendar(tickets) {
@@ -77,6 +120,7 @@
       <div class="today-head">
         <div><div class="today-title">${greeting}${state.currentUser && state.currentUser.username ? ', ' + escapeHtml(state.currentUser.username) : ''}</div>
         <div class="today-date">${new Date().toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
+        ${monthRing(c.tickets)}
         <div class="today-cash">
           <div><span>Přijde do 7 dní</span><b>${money(c.in7)}</b></div>
           <div><span>Do 30 dní</span><b>${money(c.in30)}</b></div>
@@ -89,6 +133,7 @@
         ${tile('pay', 'euro', c.payToday.length + c.payOverdue.length, 'Výplaty', paySub, 'payouts')}
         ${tile('inbox', 'inbox', c.inbox, 'Příchozí', inboxSub, 'inbox')}
       </div>
+      ${nextEvents(c.tickets)}
       <div class="cal-strip">${calendar(c.tickets)}</div>`;
     el.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => switchView(b.dataset.go)));
     el.querySelectorAll('[data-cal-search]').forEach(d => d.addEventListener('click', () => {
