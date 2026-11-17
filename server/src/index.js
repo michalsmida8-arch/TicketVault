@@ -73,6 +73,7 @@ api.get('/rates', async (req, res) => {
 api.use('/logos', require('./logos').router);   // public: <img> cannot send the token
 api.use('/auth', authRouter);
 api.use('/seatiks', require('./routes-seatiks'));
+api.use('/syncseats', require('./routes-syncseats'));
 api.use('/', dbRouter);
 app.use('/api', api);
 app.use('/', api);
@@ -89,6 +90,7 @@ const server = app.listen(cfg.PORT, cfg.HOST, () => {
   require('./digest').startScheduler();
   require('./digest').startAlertScheduler();
   require('./seatiks').startPoller();
+  require('./syncseats').startPoller();
 });
 
 function shutdown() {

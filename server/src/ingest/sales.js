@@ -33,6 +33,7 @@ function listingKey(platform) {
   if (p.includes('viagogo')) return 'viagogoListingId';
   if (p.includes('stubhub')) return 'stubhubListingId';
   if (p.includes('seatiks')) return 'seatiksListingId';
+  if (p.includes('syncseats')) return 'syncseatsListingId';
   return null;
 }
 

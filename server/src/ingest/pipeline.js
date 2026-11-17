@@ -149,6 +149,12 @@ async function ingestParsedMail(mail, ctx) {
 
   // 2) Prefilter
   const pre = parsers.prefilter(mail);
+  // 2a) With a live SyncSeats key its sales come from the API (other order numbers than the
+  // e-mails, so both would apply the same sale twice) — skip the mails, no LLM spent on them.
+  if (pre.platform === 'SyncSeats' && ctx.mailboxName !== 'syncseats' && /^ssapi_live_/.test((ctx.owner && ctx.owner.syncseatsKey) || '')) {
+    log({ result: 'skipped', reason: 'syncseats-api' });
+    return { result: 'skipped', reason: 'syncseats-api' };
+  }
   if (cfg.INGEST_PREFILTER && !pre.pass && !ctx.prefilterPassed) {
     // Unknown language / wording: let the cheap triage model decide before giving up.
     let t = null;

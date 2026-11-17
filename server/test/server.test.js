@@ -620,3 +620,18 @@ test('a sale e-mail sets the platform it sold on, even when the row was listed e
   assert.equal(sold.externalIds.viagogoOrderId, '657885894');
   assert.equal(db.tickets.find(t => t.status === 'listed').platform, 'Seatiks');   // the unsold rest stays listed on Seatiks
 });
+
+test('SyncSeats sale → parsed sale stages, payout in EUR, buyer and seats', () => {
+  const { _stagesOf, _parsedFor } = require('../src/syncseats');
+  const sale = { id: '1761470400000123', listing_id: 'a'.repeat(24), status: 'delivered', marketplace: { id: null, name: 'Viagogo' },
+    event: { id: null, name: 'Czechia vs Spain', venue: 'epet ARENA', starts_at: '2026-11-12T19:45:00.000Z' }, section: 'A25', row: '1', seats: ['3', '4'],
+    quantity: 2, payout: { amount: { amount: '300.00', currency: 'USD' }, amount_eur: { amount: '260.00', currency: 'EUR' }, status: 'paid' },
+    sold_at: '2026-11-09T10:00:00.000Z', delivered_at: '2026-11-10T10:00:00.000Z', recipient: { name: 'Jan Novák', email: 'jan@example.com', phone: null } };
+  assert.deepEqual(_stagesOf(sale), ['sold', 'delivered', 'paid']);
+  assert.deepEqual(_stagesOf({ ...sale, status: 'cancelled' }), ['cancelled']);
+  const p = _parsedFor(sale, 'sold');
+  assert.deepEqual([p.platform, p.orderId, p.eventDate, p.seat, p.quantity, p.totalAmount, p.currency, p.pricePerTicket, p.buyerEmail],
+    ['SyncSeats', '1761470400000123', '2026-11-12', '3, 4', 2, 260, 'EUR', 130, 'jan@example.com']);
+  // before the marketplace paid there is only the USD figure
+  assert.equal(_parsedFor({ ...sale, payout: { amount: { amount: '300.00', currency: 'USD' }, amount_eur: null, status: 'awaiting_marketplace' } }, 'sold').currency, 'USD');
+});
