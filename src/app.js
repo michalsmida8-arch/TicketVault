@@ -3158,7 +3158,7 @@ function switchView(name) {
   // or future Electron upgrades that disable :has() will still work.
   document.body.classList.toggle(
     'marketplace-active',
-    name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs' || name === 'seatiks'
+    !!MARKETPLACE_HOMES[name]
   );
   
   if (name === 'stats') renderStatsPage();
@@ -3172,7 +3172,7 @@ function switchView(name) {
   if (name === 'watched') renderWatchedPage();
   if (name === 'todo') renderTodoPage();
   if (name === 'listing' && typeof renderListingPage === 'function') renderListingPage();
-  if (name === 'stubhub' || name === 'viagogo' || name === 'salespro' || name === 'invviagogo' || name === 'tikey' || name === 'seatlabs' || name === 'seatiks') ensureMarketplaceLoaded(name);
+  if (MARKETPLACE_HOMES[name]) ensureMarketplaceLoaded(name);
   // Refresh user list whenever Settings is opened so admins see latest state.
   if (name === 'settings') {
     renderUsersList();
@@ -3561,14 +3561,15 @@ const MARKETPLACE_HOMES = {
   invviagogo: 'https://inv.viagogo.com/',
   tikey: 'https://www.tikeymanager.com/salestracker',
   seatlabs: 'https://seatlabs.net/links',
-  seatiks: 'https://seatiks.com/overview'
+  seatiks: 'https://seatiks.com/overview',
+  syncseats: 'https://www.syncseats.com/app'
 };
 
 // Per-marketplace zoom factor — Electron <webview> doesn't persist zoom on
 // its own and Ctrl+wheel/+/- shortcuts don't bubble up from inside the
 // webview. We track a multiplier and apply it via setZoomFactor on each
 // webview, plus restore on did-finish-load (zoom resets after navigation).
-const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1, seatlabs: 1, seatiks: 1 };
+const _marketplaceZoom = { stubhub: 1, viagogo: 1, salespro: 1, invviagogo: 1, tikey: 1, seatlabs: 1, seatiks: 1, syncseats: 1 };
 const ZOOM_STEP = 0.1;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2.0;

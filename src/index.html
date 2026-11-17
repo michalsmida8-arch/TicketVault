@@ -371,6 +371,11 @@
           Seatiks
           <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://seatiks.com/overview">↗</span>
         </button>
+        <button class="nav-item nav-marketplace" data-view="syncseats" title="SyncSeats — prodejní platforma (prodeje z e-mailů se zapisují samy)">
+          <span class="nav-mkt-icon nav-mkt-syncseats">SY</span>
+          SyncSeats
+          <span class="nav-mkt-ext" title="Otevřít v prohlížeči" data-mkt-external="https://www.syncseats.com/app">↗</span>
+        </button>
         <button class="nav-item nav-marketplace" data-view="tikey" title="Tikey Manager — skutečné prodeje na StubHubu a Viagogu (Sales Tracker)">
           <span class="nav-mkt-icon nav-mkt-tikey">TK</span>
           Tikey
@@ -1843,6 +1848,33 @@
           <div class="mkt-loading" id="mktLoadingSeatiks">
             <div class="mkt-spinner"></div>
             <div>Načítám Seatiks…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SYNCSEATS WEBVIEW (1.23) — seller app; sales still come in through the e-mail ingest. -->
+      <div class="view marketplace-view" id="view-syncseats">
+        <div class="mkt-toolbar">
+          <button class="mkt-btn" data-mkt-action="back" data-mkt="syncseats" title="Zpět">←</button>
+          <button class="mkt-btn" data-mkt-action="forward" data-mkt="syncseats" title="Vpřed">→</button>
+          <button class="mkt-btn" data-mkt-action="reload" data-mkt="syncseats" title="Obnovit">⟳</button>
+          <button class="mkt-btn" data-mkt-action="home" data-mkt="syncseats" title="Domů"><span class="ico-slot" data-ico="home"></span></button>
+          <div class="mkt-url" id="mktUrlSyncseats">https://www.syncseats.com/app</div>
+          <button class="mkt-btn" data-mkt-action="zoom-out" data-mkt="syncseats" title="Oddálit (Ctrl+-)">−</button>
+          <button class="mkt-btn" data-mkt-action="zoom-reset" data-mkt="syncseats" title="Reset zoom (Ctrl+0)" style="min-width:46px;font-size:11px;">100%</button>
+          <button class="mkt-btn" data-mkt-action="zoom-in" data-mkt="syncseats" title="Přiblížit (Ctrl++)">+</button>
+          <button class="mkt-btn" data-mkt-action="external" data-mkt-external="https://www.syncseats.com/app" title="Otevřít v systémovém prohlížeči">↗ Prohlížeč</button>
+        </div>
+        <div class="mkt-webview-wrap">
+          <webview
+            id="webview-syncseats"
+            class="mkt-webview"
+            src="https://www.syncseats.com/app"
+            partition="persist:syncseats"
+            allowpopups></webview>
+          <div class="mkt-loading" id="mktLoadingSyncseats">
+            <div class="mkt-spinner"></div>
+            <div>Načítám SyncSeats…</div>
           </div>
         </div>
       </div>

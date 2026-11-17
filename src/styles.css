@@ -381,6 +381,7 @@ button:focus-visible {
 .nav-mkt-tikey { background: #2f6fed; } /* Tikey Manager blue */
 .nav-mkt-seatlabs { background: #0f172a; } /* SeatLabs navy */
 .nav-mkt-seatiks { background: #1d4ed8; } /* Seatiks blue */
+.nav-mkt-syncseats { background: #16a34a; } /* SyncSeats green */
 
 .nav-mkt-ext {
   margin-left: auto;
