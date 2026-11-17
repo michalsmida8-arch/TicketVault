@@ -1392,6 +1392,29 @@
           <div id="seatiksSettingsBox" class="form-hint">Načítání…</div>
         </div>
 
+        <div class="settings-section">
+          <div class="section-head">
+            <h3><span class="ico-slot" data-ico="layers"></span> SyncSeats</h3>
+            <button class="btn btn-dark btn-sm" id="btnSyncseatsSync" type="button"><span class="ico-slot" data-ico="refresh"></span> Načíst prodeje</button>
+          </div>
+          <p class="settings-desc">
+            Jeden inzerát na 17 tržišť přes SyncSeats Seller API. Ze Zalistování se inzerát uloží jako <strong>koncept</strong>
+            (nezveřejněný) — zveřejníš ho sám v SyncSeats. Klíč se uloží <strong>jen na server</strong>. Prodeje a výplaty
+            ze SyncSeats se do inventáře zapisují samy každých 5 minut.
+          </p>
+          <div class="form-group">
+            <label>API klíč</label>
+            <div class="input-with-action">
+              <input type="password" id="syncseatsKeyInput" placeholder="ssapi_test_… nebo ssapi_live_…" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary btn-sm" id="btnSyncseatsKeySave" type="button">Uložit a ověřit</button>
+            <button class="btn btn-dark btn-sm" id="btnSyncseatsKeyRemove" type="button">Odpojit</button>
+          </div>
+          <div id="syncseatsSettingsBox" class="form-hint">Načítání…</div>
+        </div>
+
         <!-- App version + manual update check. Runs silently on startup but
              users can force a check here. Version string is injected from
              package.json via app.getVersion(). -->

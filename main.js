@@ -1253,16 +1253,18 @@ ipcMain.handle('files:open', async (event, { inboxId, name }) => {
   }
 });
 
-// Seatiks Seller API through our server (1.20) — the API key never leaves the server.
-ipcMain.handle('seatiks:call', async (event, { method, path, body } = {}) => {
-  if (!/^\/[A-Za-z0-9/_?=&.%:-]*$/.test(String(path || '')) || /\.\./.test(path)) return { success: false, error: 'Neplatná cesta.' };
-  try {
-    const data = await authFetchWithToken('/seatiks' + path, { method: method || 'GET', body: body || null });
-    return { success: true, data };
-  } catch (e) {
-    return { success: false, error: e.message, status: e.status };
-  }
-});
+// Seatiks (1.20) / SyncSeats (1.23) Seller API through our server — the API key never leaves the server.
+for (const broker of ['seatiks', 'syncseats']) {
+  ipcMain.handle(broker + ':call', async (event, { method, path, body } = {}) => {
+    if (!/^\/[A-Za-z0-9/_?=&.%:-]*$/.test(String(path || '')) || /\.\./.test(path)) return { success: false, error: 'Neplatná cesta.' };
+    try {
+      const data = await authFetchWithToken('/' + broker + path, { method: method || 'GET', body: body || null });
+      return { success: true, data };
+    } catch (e) {
+      return { success: false, error: e.message, status: e.status };
+    }
+  });
+}
 
 // Buyer e-mail with ticket links -> draft in the seller's Gmail (server, 1.19). Never sent.
 ipcMain.handle('delivery:draft', async (event, payload) => {

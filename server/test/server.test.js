@@ -635,3 +635,15 @@ test('SyncSeats sale → parsed sale stages, payout in EUR, buyer and seats', ()
   // before the marketplace paid there is only the USD figure
   assert.equal(_parsedFor({ ...sale, payout: { amount: { amount: '300.00', currency: 'USD' }, amount_eur: null, status: 'awaiting_marketplace' } }, 'sold').currency, 'USD');
 });
+
+test('SyncSeats draft body: section only, never published, money as strings', () => {
+  const { _draftBody } = require('../src/syncseats');
+  const t = { id: 'tk1', section: 'A25', row: '1', seat: '3, 4' };
+  const b = _draftBody(t, { eventId: 'b'.repeat(24), quantity: 2, price: 140, faceValue: 45.5, cost: 70.123 });
+  assert.equal(b.publish, false);
+  const g = b.listings[0];
+  assert.deepEqual([g.section, g.row, g.seats, g.quantity, g.price_per_ticket, g.face_value.amount, g.cost_per_ticket.amount, g.split, g.reference],
+    ['A25', undefined, undefined, 2, { amount: '140.00', currency: 'EUR' }, '45.50', '70.12', 'no_singles', 'tk1']);
+  assert.throws(() => _draftBody(t, { eventId: 'x', quantity: 2, price: 1 }), /akce/);
+  assert.throws(() => _draftBody(t, { eventId: 'b'.repeat(24), quantity: 2, price: 0 }), /cena/);
+});
